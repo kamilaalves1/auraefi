@@ -105,6 +105,13 @@
     -moz-osx-font-smoothing: grayscale;
   }
 
+  /* Light theme: placeholders stay readable on white inputs */
+  html:not(.dark) input::placeholder,
+  html:not(.dark) textarea::placeholder {
+    color: hsl(var(--muted-foreground));
+    opacity: 1;
+  }
+
   /* Custom scrollbar */
   ::-webkit-scrollbar {
     width: 5px;
@@ -191,6 +198,138 @@
   }
   html:not(.dark) .badge-info {
     @apply bg-blue-600/12 text-blue-950 border-blue-800/25;
+  }
+
+  /*
+   * Light theme: UI was authored with gray/zinc/slate and *-300/*-400 accents on dark surfaces.
+   * Remap those utilities so labels, badges and links stay readable on white/light cards.
+   */
+  html:not(.dark) .text-gray-200,
+  html:not(.dark) .text-slate-200,
+  html:not(.dark) .text-zinc-200 {
+    @apply text-foreground;
+  }
+
+  html:not(.dark) .text-gray-300,
+  html:not(.dark) .text-slate-300,
+  html:not(.dark) .text-zinc-300 {
+    color: hsl(var(--foreground) / 0.88) !important;
+  }
+
+  html:not(.dark) .text-gray-400,
+  html:not(.dark) .text-slate-400,
+  html:not(.dark) .text-zinc-400 {
+    @apply text-muted-foreground;
+  }
+
+  html:not(.dark) .text-zinc-500,
+  html:not(.dark) .text-slate-500,
+  html:not(.dark) .text-gray-500 {
+    color: hsl(var(--muted-foreground)) !important;
+  }
+
+  html:not(.dark) .text-muted-foreground\/50 {
+    color: hsl(var(--muted-foreground) / 0.92) !important;
+  }
+
+  html:not(.dark) .text-muted-foreground\/70 {
+    color: hsl(var(--muted-foreground)) !important;
+  }
+
+  html:not(.dark) .text-green-300 {
+    @apply text-green-800;
+  }
+  html:not(.dark) .text-green-400 {
+    @apply text-green-800;
+  }
+  html:not(.dark) .text-emerald-300 {
+    @apply text-emerald-800;
+  }
+  html:not(.dark) .text-emerald-400 {
+    @apply text-emerald-800;
+  }
+  html:not(.dark) .text-red-300 {
+    @apply text-red-800;
+  }
+  html:not(.dark) .text-red-400 {
+    @apply text-red-800;
+  }
+  html:not(.dark) .text-rose-200 {
+    @apply text-rose-900;
+  }
+  html:not(.dark) .text-rose-300 {
+    @apply text-rose-800;
+  }
+  html:not(.dark) .text-rose-400 {
+    @apply text-rose-800;
+  }
+  html:not(.dark) .text-orange-400 {
+    @apply text-orange-800;
+  }
+  html:not(.dark) .text-amber-300 {
+    @apply text-amber-900;
+  }
+  html:not(.dark) .text-amber-400 {
+    @apply text-amber-900;
+  }
+  html:not(.dark) .text-yellow-400 {
+    @apply text-yellow-800;
+  }
+  html:not(.dark) .text-lime-400 {
+    @apply text-lime-800;
+  }
+  html:not(.dark) .text-teal-400 {
+    @apply text-teal-800;
+  }
+  html:not(.dark) .text-cyan-200 {
+    @apply text-cyan-900;
+  }
+  html:not(.dark) .text-cyan-300 {
+    @apply text-cyan-800;
+  }
+  html:not(.dark) .text-cyan-400 {
+    @apply text-cyan-800;
+  }
+  html:not(.dark) .text-sky-400 {
+    @apply text-sky-800;
+  }
+  html:not(.dark) .text-blue-300 {
+    @apply text-blue-800;
+  }
+  html:not(.dark) .text-blue-400 {
+    @apply text-blue-800;
+  }
+  html:not(.dark) .text-indigo-400 {
+    @apply text-indigo-800;
+  }
+  html:not(.dark) .text-violet-300 {
+    @apply text-violet-800;
+  }
+  html:not(.dark) .text-violet-400 {
+    @apply text-violet-800;
+  }
+  html:not(.dark) .text-purple-400 {
+    @apply text-purple-800;
+  }
+  html:not(.dark) .text-fuchsia-400 {
+    @apply text-fuchsia-800;
+  }
+  html:not(.dark) .text-pink-400 {
+    @apply text-pink-800;
+  }
+
+  html:not(.dark) .hover\:text-white:hover {
+    @apply text-foreground;
+  }
+
+  html:not(.dark) .hover\:text-cyan-200:hover {
+    @apply text-cyan-900;
+  }
+  html:not(.dark) .hover\:text-blue-200:hover {
+    @apply text-blue-900;
+  }
+  html:not(.dark) .hover\:text-slate-300:hover {
+    @apply text-slate-700;
   }
 
   /* Glow effects for active states */
