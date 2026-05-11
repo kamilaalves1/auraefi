@@ -4,26 +4,26 @@
 
 @layer base {
   :root {
-    /* oklch-based color system for perceptual uniformity */
+    /* Light theme: high-contrast text on white (WCAG-friendly body + secondary) */
     --background: 0 0% 100%;
-    --foreground: 240 10% 3.9%;
+    --foreground: 222 47% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 240 10% 3.9%;
+    --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 240 10% 3.9%;
-    --primary: 240 5.9% 10%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 222 47% 11%;
     --primary-foreground: 0 0% 98%;
     --secondary: 240 4.8% 95.9%;
-    --secondary-foreground: 240 5.9% 10%;
+    --secondary-foreground: 222 47% 11%;
     --muted: 240 4.8% 95.9%;
-    --muted-foreground: 240 3.8% 46.1%;
+    --muted-foreground: 215 16% 34%;
     --accent: 240 4.8% 95.9%;
-    --accent-foreground: 240 5.9% 10%;
+    --accent-foreground: 222 47% 11%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
-    --border: 240 5.9% 90%;
-    --input: 240 5.9% 90%;
-    --ring: 240 5.9% 10%;
+    --border: 214 32% 82%;
+    --input: 214 32% 82%;
+    --ring: 222 47% 11%;
     --radius: 0.375rem;
 
     /* Semantic status colors */
@@ -177,6 +177,20 @@
   }
   .badge-neutral {
     @apply bg-muted text-muted-foreground border border-border;
+  }
+
+  /* Light theme: badge text dark enough on pale backgrounds */
+  html:not(.dark) .badge-success {
+    @apply bg-green-600/12 text-green-900 border-green-700/25;
+  }
+  html:not(.dark) .badge-warning {
+    @apply bg-amber-500/15 text-amber-950 border-amber-800/30;
+  }
+  html:not(.dark) .badge-error {
+    @apply bg-red-600/12 text-red-900 border-red-800/25;
+  }
+  html:not(.dark) .badge-info {
+    @apply bg-blue-600/12 text-blue-950 border-blue-800/25;
   }
 
   /* Glow effects for active states */
@@ -739,19 +753,19 @@
 
 .paper {
   --background: 40 40% 95%;
-  --foreground: 30 10% 15%;
+  --foreground: 30 25% 12%;
   --card: 40 35% 92%;
-  --card-foreground: 30 10% 15%;
+  --card-foreground: 30 25% 12%;
   --popover: 40 35% 92%;
-  --popover-foreground: 30 10% 15%;
+  --popover-foreground: 30 25% 12%;
   --primary: 43 80% 28%;
   --primary-foreground: 40 40% 95%;
   --secondary: 40 25% 88%;
-  --secondary-foreground: 30 10% 15%;
+  --secondary-foreground: 30 25% 12%;
   --muted: 40 20% 88%;
-  --muted-foreground: 30 10% 45%;
+  --muted-foreground: 30 18% 30%;
   --accent: 40 20% 88%;
-  --accent-foreground: 30 10% 15%;
+  --accent-foreground: 30 25% 12%;
   --destructive: 0 72% 45%;
   --destructive-foreground: 0 0% 98%;
   --border: 40 20% 82%;

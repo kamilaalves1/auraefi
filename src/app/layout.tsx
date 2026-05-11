@@ -78,7 +78,7 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'black-translucent',
+    statusBarStyle: 'default',
     title: 'Vertex Control Center',
   },
 }
@@ -93,14 +93,13 @@ export default async function RootLayout({
   const messages = await getMessages()
 
   return (
-    <html lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'} className="dark" suppressHydrationWarning>
+    <html lang={locale} dir={locale === 'ar' ? 'rtl' : 'ltr'} suppressHydrationWarning>
       <head>
-        {/* Blocking script to set 'dark' class before first paint, preventing FOUC.
-            Content is a static string literal — no user input, no XSS vector. */}
+        {/* Blocking script: light default; migrate old default `void` once; toggle Tailwind `dark` before paint. */}
         <script
           nonce={nonce}
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var t=localStorage.getItem('theme')||'void';var light=['light','paper'];if(light.indexOf(t)===-1)document.documentElement.classList.add('dark')}catch(e){}})()`,
+            __html: `(function(){try{var M='mc-light-default-v1';if(!localStorage.getItem(M)){var c=localStorage.getItem('theme');if(c==='void'||c===null||c===''){localStorage.setItem('theme','light')}localStorage.setItem(M,'1')}var t=localStorage.getItem('theme')||'light';var light=['light','paper'];if(light.indexOf(t)===-1){document.documentElement.classList.add('dark')}else{document.documentElement.classList.remove('dark')}}catch(e){}})()`,
           }}
         />
       </head>
@@ -108,7 +107,7 @@ export default async function RootLayout({
         <NextIntlClientProvider messages={messages}>
           <ThemeProvider
             attribute="class"
-            defaultTheme="void"
+            defaultTheme="light"
             themes={THEME_IDS}
             enableSystem={false}
             disableTransitionOnChange
