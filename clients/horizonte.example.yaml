@@ -1,0 +1,47 @@
+# Vertex Client Deployment Configuration
+# One file per client — saved in vertex-control-center/clients/
+
+client:
+  name: "Horizonte Inmobiliaria"
+  code: "horizonte"           # Short code, used for directories and LaunchAgent labels
+  industry: "real_estate"     # real_estate | hospitality | legal | production
+  language: "es"              # Primary language for Amy
+
+target:
+  host: "192.168.1.50"        # Client Mac IP or hostname
+  user: "admin"               # SSH user (must have sudo)
+  ssh_key: "~/.ssh/id_vertex" # SSH key path (or use password auth)
+  port: 22
+
+models:
+  primary: "llama3.1:8b"      # Main inference model
+  embedding: "nomic-embed-text" # For RAG / knowledge search
+  # Optional: add larger models if client Mac has enough RAM
+  # secondary: "llama3.1:70b"
+
+services:
+  control_center_port: 3000   # Vertex Control Center dashboard
+  api_bridge_port: 3100       # Amy API bridge
+  ollama_port: 11434          # Ollama inference
+
+knowledge:
+  # Paths to client knowledge base files (relative to this config)
+  sources:
+    - "./knowledge/company_handbook.md"
+    - "./knowledge/product_catalog.md"
+    - "./knowledge/employee_directory.md"
+    - "./knowledge/processes/"
+  # Domain classification for the knowledge base
+  domains:
+    - "operations"
+    - "business"
+
+users:
+  admin:
+    username: "admin"
+    display_name: "Admin"
+    # Password set during deployment (never stored in config)
+  operator:
+    username: "habacuc"
+    display_name: "Habacuc"
+    role: "operator"          # viewer | operator | admin
