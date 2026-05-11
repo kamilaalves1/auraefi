@@ -100,7 +100,7 @@ function PageLoader({ steps }: { steps?: InitStep[] }) {
 
   return (
     <div
-      className={`flex items-center justify-center min-h-screen bg-background void-bg transition-opacity duration-300 ${allDone ? 'opacity-0' : 'opacity-100'}`}
+      className={`flex items-center justify-center min-h-screen bg-background dark:void-bg transition-opacity duration-300 ${allDone ? 'opacity-0' : 'opacity-100'}`}
     >
       <div className="flex flex-col items-center gap-8 w-64">
         {/* Animated logo sequence: OpenClaw + Claude converge → morph into MC mark */}
