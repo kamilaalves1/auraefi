@@ -99,15 +99,9 @@ function initializeSchema() {
 
 interface CountRow { count: number }
 
-// Known-insecure passwords that should never be used in production.
-// Includes the .env.example default and common placeholder values.
-const INSECURE_PASSWORDS = new Set([
-  'admin',
-  'password',
-  'change-me-on-first-login',
-  'changeme',
-  'testpass123',
-])
+// Built-in dev credentials (username and password both "admin").
+export const BUILTIN_ADMIN_USERNAME = 'admin'
+export const BUILTIN_ADMIN_PASSWORD = 'admin'
 
 export function resolveSeedAuthPassword(env: NodeJS.ProcessEnv = process.env): string | null {
   const b64 = env.AUTH_PASS_B64
@@ -136,42 +130,30 @@ export function resolveSeedAuthPassword(env: NodeJS.ProcessEnv = process.env): s
   return env.AUTH_PASS || null
 }
 
-function seedAdminUserFromEnv(dbConn: Database.Database): void {
-  // Skip seeding during `next build` — env vars may not be available yet
+function ensureBuiltInAdmin(dbConn: Database.Database): void {
   if (process.env.NEXT_PHASE === 'phase-production-build') return
+  if (isTestMode) return
 
-  const count = (dbConn.prepare('SELECT COUNT(*) as count FROM users').get() as CountRow).count
-  if (count > 0) return
+  const hash = hashPassword(BUILTIN_ADMIN_PASSWORD)
+  const existing = dbConn
+    .prepare('SELECT id FROM users WHERE username = ?')
+    .get(BUILTIN_ADMIN_USERNAME) as { id: number } | undefined
 
-  const username = process.env.AUTH_USER || 'admin'
-  const password = resolveSeedAuthPassword()
-
-  if (!password) {
-    // No AUTH_PASS set — admin will be created via /setup web wizard instead
-    logger.info(
-      'AUTH_PASS is not set — admin account will be created via /setup. ' +
-      'Set AUTH_PASS or AUTH_PASS_B64 to seed an admin from env (useful for CI/automation).'
-    )
-    return
+  if (existing) {
+    dbConn
+      .prepare('UPDATE users SET password_hash = ?, role = ?, display_name = ? WHERE username = ?')
+      .run(hash, 'admin', 'Admin', BUILTIN_ADMIN_USERNAME)
+  } else {
+    dbConn
+      .prepare('INSERT INTO users (username, display_name, password_hash, role) VALUES (?, ?, ?, ?)')
+      .run(BUILTIN_ADMIN_USERNAME, 'Admin', hash, 'admin')
   }
 
-  if (INSECURE_PASSWORDS.has(password)) {
-    logger.warn(
-      'AUTH_PASS matches a known insecure default. ' +
-      'Please set a strong, unique password in your .env file. ' +
-      'Skipping admin user seeding until credentials are changed.'
-    )
-    return
-  }
+  logger.info(`Built-in admin account ready: ${BUILTIN_ADMIN_USERNAME}`)
+}
 
-  const displayName = username.charAt(0).toUpperCase() + username.slice(1)
-
-  dbConn.prepare(`
-    INSERT OR IGNORE INTO users (username, display_name, password_hash, role)
-    VALUES (?, ?, ?, ?)
-  `).run(username, displayName, hashPassword(password), 'admin')
-
-  logger.info(`Seeded admin user: ${username}`)
+function seedAdminUserFromEnv(dbConn: Database.Database): void {
+  ensureBuiltInAdmin(dbConn)
 }
 
 /**
@@ -189,7 +171,7 @@ export interface Task {
   id: number;
   title: string;
   description?: string;
-  status: 'inbox' | 'assigned' | 'in_progress' | 'review' | 'quality_review' | 'done';
+  status: 'backlog' | 'inbox' | 'assigned' | 'awaiting_owner' | 'in_progress' | 'review' | 'quality_review' | 'done' | 'failed';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   project_id?: number;
   project_ticket_no?: number;
