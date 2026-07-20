@@ -7,7 +7,6 @@ import { LanguageSwitcherSelect } from '@/components/ui/language-switcher'
 import { useMissionControl } from '@/store'
 import { useNavigateToPanel } from '@/lib/navigation'
 import { SecurityScanCard } from '@/components/onboarding/security-scan-card'
-import { AgentRuntimesSection } from '@/components/settings/agent-runtimes-section'
 import { Loader } from '@/components/ui/loader'
 import { clearOnboardingDismissedThisSession, clearOnboardingReplayFromStart } from '@/lib/onboarding-session'
 import { resolveCoordinatorDeliveryTarget, type CoordinatorAgentRecord } from '@/lib/coordinator-routing'
@@ -74,33 +73,32 @@ function parseCoordinatorTargetAgents(rawAgents: any[]): CoordinatorTargetAgent[
 }
 
 const categoryLabels: Record<string, { label: string; icon: string; description: string }> = {
-  general: { label: 'General', icon: '⚙', description: 'Core Mission Control settings' },
-  security: { label: 'Security', icon: '🔑', description: 'API key management and security settings' },
-  retention: { label: 'Data Retention', icon: '🗄', description: 'How long data is kept before cleanup' },
-  chat: { label: 'Chat', icon: '💬', description: 'Coordinator routing and chat behavior settings' },
-  gateway: { label: 'Gateway', icon: '🔌', description: 'OpenClaw gateway connection settings' },
-  profiles: { label: 'Security Profiles', icon: 'shield', description: 'Hook profile controls security scanning strictness' },
-  custom: { label: 'Custom', icon: '🔧', description: 'User-defined settings' },
+  general: { label: 'Geral', icon: '⚙', description: 'Configurações principais do Mission Control' },
+  security: { label: 'Segurança', icon: '🔑', description: 'Gerenciamento de chaves de API e configurações de segurança' },
+  retention: { label: 'Retenção de Dados', icon: '🗄', description: 'Por quanto tempo os dados são mantidos antes da limpeza' },
+  chat: { label: 'Chat', icon: '💬', description: 'Roteamento do coordenador e configurações de comportamento do chat' },
+  profiles: { label: 'Perfis de Segurança', icon: 'shield', description: 'O perfil de hook controla a rigidez da verificação de segurança' },
+  custom: { label: 'Personalizado', icon: '🔧', description: 'Configurações definidas pelo usuário' },
 }
 
-const categoryOrder = ['general', 'security', 'profiles', 'retention', 'chat', 'gateway', 'custom']
+const categoryOrder = ['general', 'security', 'profiles', 'retention', 'chat', 'custom']
 
 // Dropdown options for subscription plan settings
 const subscriptionDropdowns: Record<string, { label: string; value: string }[]> = {
   'subscription.plan_override': [
-    { label: 'Auto-detect', value: '' },
-    { label: 'Pro ($20/mo)', value: 'pro' },
-    { label: 'Max ($100/mo)', value: 'max' },
-    { label: 'Max 5x ($200/mo)', value: 'max_5x' },
-    { label: 'Team ($30/mo)', value: 'team' },
+    { label: 'Detecção automática', value: '' },
+    { label: 'Pro ($20/mês)', value: 'pro' },
+    { label: 'Max ($100/mês)', value: 'max' },
+    { label: 'Max 5x ($200/mês)', value: 'max_5x' },
+    { label: 'Team ($30/mês)', value: 'team' },
     { label: 'Enterprise', value: 'enterprise' },
   ],
   'subscription.codex_plan': [
-    { label: 'None', value: '' },
-    { label: 'ChatGPT Free ($0/mo)', value: 'chatgpt' },
-    { label: 'Plus ($20/mo)', value: 'plus' },
-    { label: 'Pro ($200/mo)', value: 'pro' },
-    { label: 'Team ($30/mo)', value: 'team' },
+    { label: 'Nenhum', value: '' },
+    { label: 'ChatGPT Gratuito ($0/mês)', value: 'chatgpt' },
+    { label: 'Plus ($20/mês)', value: 'plus' },
+    { label: 'Pro ($200/mês)', value: 'pro' },
+    { label: 'Team ($30/mês)', value: 'team' },
   ],
 }
 
@@ -134,18 +132,6 @@ export function SettingsPanel() {
 
   // Replay onboarding state
   const [replayingOnboarding, setReplayingOnboarding] = useState(false)
-
-  // Hermes integration state
-  const [hermesStatus, setHermesStatus] = useState<{
-    installed: boolean
-    gatewayRunning: boolean
-    hookInstalled: boolean
-    activeSessions: number
-    cronJobCount?: number
-    memoryEntries?: number
-  } | null>(null)
-  const [hermesLoading, setHermesLoading] = useState(false)
-  const [hermesHookAction, setHermesHookAction] = useState(false)
 
   // Backup state
   const [mcBackupRunning, setMcBackupRunning] = useState(false)
@@ -194,12 +180,12 @@ export function SettingsPanel() {
         return
       }
       if (res.status === 403) {
-        setError('Admin access required')
+        setError('Acesso de administrador necessário')
         return
       }
       if (!res.ok) {
         const data = await res.json().catch(() => ({}))
-        setError(data.error || 'Failed to load settings')
+        setError(data.error || 'Falha ao carregar configurações')
         return
       }
       const data = await res.json()
@@ -278,13 +264,13 @@ export function SettingsPanel() {
         setNewApiKey(data.key)
         setRotateConfirm(false)
         setKeyCopied(false)
-        showFeedback(true, 'API key rotated successfully')
+        showFeedback(true, 'Chave de API rotacionada com sucesso')
         fetchApiKeyInfo()
       } else {
-        showFeedback(false, data.error || 'Failed to rotate key')
+        showFeedback(false, data.error || 'Falha ao rotacionar chave')
       }
     } catch {
-      showFeedback(false, 'Network error')
+      showFeedback(false, 'Erro de rede')
     } finally {
       setRotating(false)
     }
@@ -309,16 +295,7 @@ export function SettingsPanel() {
     }
   }
 
-  const fetchHermesStatus = useCallback(async () => {
-    try {
-      const res = await fetch('/api/hermes')
-      if (res.ok) {
-        setHermesStatus(await res.json())
-      }
-    } catch { /* non-critical */ }
-  }, [])
-
-  useEffect(() => { fetchSettings(); fetchApiKeyInfo(); fetchHermesStatus() }, [fetchSettings, fetchApiKeyInfo, fetchHermesStatus])
+  useEffect(() => { fetchSettings(); fetchApiKeyInfo() }, [fetchSettings, fetchApiKeyInfo])
 
   const handleEdit = (key: string, value: string) => {
     setEdits(prev => ({ ...prev, [key]: value }))
@@ -350,14 +327,14 @@ export function SettingsPanel() {
       })
       const data = await res.json()
       if (res.ok) {
-        showFeedback(true, `Saved ${data.count} setting${data.count === 1 ? '' : 's'}`)
+        showFeedback(true, `${data.count} configuração${data.count === 1 ? '' : 'ões'} salva${data.count === 1 ? '' : 's'}`)
         setEdits({})
         fetchSettings()
       } else {
-        showFeedback(false, data.error || 'Failed to save')
+        showFeedback(false, data.error || 'Falha ao salvar')
       }
     } catch {
-      showFeedback(false, 'Network error')
+      showFeedback(false, 'Erro de rede')
     } finally {
       setSaving(false)
     }
@@ -368,7 +345,7 @@ export function SettingsPanel() {
       const res = await fetch(`/api/settings?key=${encodeURIComponent(key)}`, { method: 'DELETE' })
       const data = await res.json()
       if (res.ok) {
-        showFeedback(true, `Reset "${key}" to default`)
+        showFeedback(true, `"${key}" redefinido para o padrão`)
         setEdits(prev => {
           const next = { ...prev }
           delete next[key]
@@ -376,10 +353,10 @@ export function SettingsPanel() {
         })
         fetchSettings()
       } else {
-        showFeedback(false, data.error || 'Failed to reset')
+        showFeedback(false, data.error || 'Falha ao redefinir')
       }
     } catch {
-      showFeedback(false, 'Network error')
+      showFeedback(false, 'Erro de rede')
     }
   }
 
@@ -388,7 +365,7 @@ export function SettingsPanel() {
   }
 
   if (loading) {
-    return <Loader variant="panel" label="Loading settings" />
+    return <Loader variant="panel" label="Carregando configurações" />
   }
 
   if (error) {
@@ -489,12 +466,12 @@ export function SettingsPanel() {
                   const res = await fetch('/api/backup', { method: 'POST' })
                   const data = await res.json()
                   if (res.ok) {
-                    showFeedback(true, `MC backup created (${(data.backup?.size / 1024).toFixed(0)} KB)`)
+                    showFeedback(true, `Backup MC criado (${(data.backup?.size / 1024).toFixed(0)} KB)`)
                   } else {
-                    showFeedback(false, data.error || 'MC backup failed')
+                    showFeedback(false, data.error || 'Falha no backup MC')
                   }
                 } catch {
-                  showFeedback(false, 'Network error')
+                  showFeedback(false, 'Erro de rede')
                 } finally {
                   setMcBackupRunning(false)
                 }
@@ -513,12 +490,12 @@ export function SettingsPanel() {
                   const res = await fetch('/api/backup?target=gateway', { method: 'POST' })
                   const data = await res.json()
                   if (res.ok) {
-                    showFeedback(true, `Gateway backup created: ${data.output}`)
+                    showFeedback(true, `Backup Gateway criado: ${data.output}`)
                   } else {
-                    showFeedback(false, data.error || 'Gateway backup failed')
+                    showFeedback(false, data.error || 'Falha no backup Gateway')
                   }
                 } catch {
-                  showFeedback(false, 'Network error')
+                  showFeedback(false, 'Erro de rede')
                 } finally {
                   setGwBackupRunning(false)
                 }
@@ -550,9 +527,9 @@ export function SettingsPanel() {
                   clearOnboardingDismissedThisSession()
                   clearOnboardingReplayFromStart()
                   setShowOnboarding(true)
-                  showFeedback(true, 'Onboarding reset — wizard will appear on next page load')
+                  showFeedback(true, 'Onboarding redefinido — o assistente aparecerá no próximo carregamento')
                 } catch {
-                  showFeedback(false, 'Failed to reset onboarding')
+                  showFeedback(false, 'Falha ao redefinir onboarding')
                 } finally {
                   setReplayingOnboarding(false)
                 }
@@ -562,82 +539,6 @@ export function SettingsPanel() {
             </Button>
           </div>
 
-          {/* Agent Runtimes */}
-          <AgentRuntimesSection showFeedback={showFeedback} />
-
-          {/* Hermes Agent Integration */}
-          {hermesStatus?.installed && (
-            <div className="p-3 bg-surface-1/50 border border-border/30 rounded-lg space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="text-xs font-medium">Hermes Agent</p>
-                    <span className={`text-2xs px-1.5 py-0.5 rounded ${
-                      hermesStatus.gatewayRunning
-                        ? 'bg-green-500/15 text-green-400'
-                        : 'bg-muted text-muted-foreground'
-                    }`}>
-                      {hermesStatus.gatewayRunning ? 'Gateway running' : 'Gateway offline'}
-                    </span>
-                    {hermesStatus.activeSessions > 0 && (
-                      <span className="text-2xs px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400">
-                        {hermesStatus.activeSessions} active
-                      </span>
-                    )}
-                    {(hermesStatus.cronJobCount ?? 0) > 0 && (
-                      <span className="text-2xs px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400">
-                        {hermesStatus.cronJobCount} cron
-                      </span>
-                    )}
-                    {(hermesStatus.memoryEntries ?? 0) > 0 && (
-                      <span className="text-2xs px-1.5 py-0.5 rounded bg-purple-500/15 text-purple-400">
-                        {hermesStatus.memoryEntries} mem
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-2xs text-muted-foreground mt-0.5">
-                    {hermesStatus.hookInstalled
-                      ? 'MC hook installed — receiving telemetry from hermes-agent'
-                      : 'Install the MC hook for richer telemetry (agent status, session events)'}
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  size="xs"
-                  className="text-2xs"
-                  disabled={hermesHookAction}
-                  onClick={async () => {
-                    setHermesHookAction(true)
-                    const action = hermesStatus.hookInstalled ? 'uninstall-hook' : 'install-hook'
-                    try {
-                      const res = await fetch('/api/hermes', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ action }),
-                      })
-                      const data = await res.json()
-                      if (res.ok) {
-                        showFeedback(true, data.message || `Hook ${action === 'install-hook' ? 'installed' : 'uninstalled'}`)
-                        fetchHermesStatus()
-                      } else {
-                        showFeedback(false, data.error || 'Hook operation failed')
-                      }
-                    } catch {
-                      showFeedback(false, 'Network error')
-                    } finally {
-                      setHermesHookAction(false)
-                    }
-                  }}
-                >
-                  {hermesHookAction
-                    ? 'Working...'
-                    : hermesStatus.hookInstalled
-                      ? 'Uninstall Hook'
-                      : 'Install MC Hook'}
-                </Button>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
@@ -688,7 +589,7 @@ export function SettingsPanel() {
             <div className="flex items-start justify-between gap-4">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-foreground">API Key</span>
+                  <span className="text-sm font-medium text-foreground">Chave de API</span>
                   {apiKeyInfo?.source && (
                     <span className="text-2xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
                       {apiKeyInfo.source}
@@ -696,7 +597,7 @@ export function SettingsPanel() {
                   )}
                 </div>
                 <p className="text-xs text-muted-foreground mt-0.5">
-                  Used for programmatic access and agent authentication via X-Api-Key header or Bearer token.
+                  Usada para acesso programático e autenticação de agentes via header X-Api-Key ou Bearer token.
                 </p>
               </div>
             </div>
@@ -704,15 +605,15 @@ export function SettingsPanel() {
             {/* Current key display */}
             <div className="mt-3 flex items-center gap-2">
               <code className="text-xs font-mono bg-background border border-border rounded px-2 py-1 text-muted-foreground">
-                {apiKeyLoading ? 'Loading...' : apiKeyInfo?.masked_key || 'No API key configured'}
+                {apiKeyLoading ? 'Carregando...' : apiKeyInfo?.masked_key || 'Nenhuma chave de API configurada'}
               </code>
             </div>
 
             {apiKeyInfo?.last_rotated_at && (
               <div className="text-2xs text-muted-foreground/50 mt-2">
-                Last rotated by {apiKeyInfo.last_rotated_by} on{' '}
-                {new Date(apiKeyInfo.last_rotated_at * 1000).toLocaleDateString()}{' '}
-                at {new Date(apiKeyInfo.last_rotated_at * 1000).toLocaleTimeString()}
+                Última rotação por {apiKeyInfo.last_rotated_by} em{' '}
+                {new Date(apiKeyInfo.last_rotated_at * 1000).toLocaleDateString('pt-BR')}{' '}
+                às {new Date(apiKeyInfo.last_rotated_at * 1000).toLocaleTimeString('pt-BR')}
               </div>
             )}
 
@@ -724,14 +625,14 @@ export function SettingsPanel() {
                   variant="outline"
                   size="sm"
                 >
-                  Rotate Key
+                  Rotacionar Chave
                 </Button>
               </div>
             ) : (
               <div className="mt-3 bg-amber-500/10 border border-amber-500/20 rounded-lg p-3">
                 <p className="text-xs text-amber-300 mb-2">
-                  Are you sure? Rotating the API key will immediately invalidate the current key.
-                  All agents and integrations using the old key will lose access.
+                  Tem certeza? Rotacionar a chave de API invalidará imediatamente a chave atual.
+                  Todos os agentes e integrações usando a chave antiga perderão acesso.
                 </p>
                 <div className="flex items-center gap-2">
                   <Button
@@ -741,14 +642,14 @@ export function SettingsPanel() {
                     size="sm"
                     className="bg-amber-600 hover:bg-amber-700"
                   >
-                    {rotating ? 'Rotating...' : 'Confirm Rotate'}
+                    {rotating ? 'Rotacionando...' : 'Confirmar Rotação'}
                   </Button>
                   <Button
                     onClick={() => setRotateConfirm(false)}
                     variant="ghost"
                     size="sm"
                   >
-                    Cancel
+                    Cancelar
                   </Button>
                 </div>
               </div>
@@ -758,7 +659,7 @@ export function SettingsPanel() {
             {newApiKey && (
               <div className="mt-3 bg-green-500/10 border border-green-500/20 rounded-lg p-3">
                 <p className="text-xs text-green-300 mb-2 font-medium">
-                  New API key generated. Copy it now -- it will not be shown again.
+                  Nova chave de API gerada. Copie agora — ela não será exibida novamente.
                 </p>
                 <div className="flex items-center gap-2">
                   <code className="text-xs font-mono bg-background border border-border rounded px-2 py-1.5 text-foreground select-all flex-1 break-all">
@@ -770,7 +671,7 @@ export function SettingsPanel() {
                     size="sm"
                     className="shrink-0"
                   >
-                    {keyCopied ? 'Copied!' : 'Copy'}
+                    {keyCopied ? 'Copiado!' : 'Copiar'}
                   </Button>
                 </div>
                 <div className="mt-2">
@@ -780,7 +681,7 @@ export function SettingsPanel() {
                     size="xs"
                     className="text-muted-foreground"
                   >
-                    Dismiss
+                    Fechar
                   </Button>
                 </div>
               </div>
@@ -793,15 +694,15 @@ export function SettingsPanel() {
       {activeCategory === 'profiles' && (
         <div className="space-y-3">
           <div className="bg-card border border-border rounded-lg p-4">
-            <h3 className="text-sm font-medium text-foreground mb-1">Hook Profile</h3>
+            <h3 className="text-sm font-medium text-foreground mb-1">Perfil de Hook</h3>
             <p className="text-xs text-muted-foreground mb-4">
-              Controls how aggressively security hooks scan tool calls and agent outputs.
+              Controla a intensidade com que os hooks de segurança verificam chamadas de ferramentas e saídas dos agentes.
             </p>
             <div className="space-y-2">
               {([
-                { value: 'minimal', label: 'Minimal', desc: 'Basic safety checks only. Best for trusted environments with low risk tolerance overhead.' },
-                { value: 'standard', label: 'Standard', desc: 'Balanced scanning for secrets, injections, and suspicious patterns. Recommended for most deployments.' },
-                { value: 'strict', label: 'Strict', desc: 'Full depth scanning with aggressive blocking. May increase latency. Best for sensitive or compliance-driven environments.' },
+                { value: 'minimal', label: 'Mínimo', desc: 'Apenas verificações básicas de segurança. Ideal para ambientes confiáveis com baixo overhead.' },
+                { value: 'standard', label: 'Padrão', desc: 'Verificação equilibrada de segredos, injeções e padrões suspeitos. Recomendado para a maioria dos ambientes.' },
+                { value: 'strict', label: 'Rigoroso', desc: 'Verificação completa com bloqueio agressivo. Pode aumentar a latência. Ideal para ambientes sensíveis ou com requisitos de conformidade.' },
               ] as const).map(profile => (
                 <button
                   key={profile.value}
@@ -815,12 +716,12 @@ export function SettingsPanel() {
                         body: JSON.stringify({ key: 'hook_profile', value: profile.value }),
                       })
                       if (res.ok) {
-                        showFeedback(true, `Hook profile set to ${profile.label}`)
+                        showFeedback(true, `Perfil de hook definido para ${profile.label}`)
                       } else {
-                        showFeedback(false, 'Failed to save hook profile')
+                        showFeedback(false, 'Falha ao salvar perfil de hook')
                       }
                     } catch {
-                      showFeedback(false, 'Network error')
+                      showFeedback(false, 'Erro de rede')
                     } finally {
                       setHookProfileSaving(false)
                     }
@@ -889,10 +790,10 @@ export function SettingsPanel() {
                   <div className="flex items-center gap-2">
                     <span className="text-sm font-medium text-foreground">{formatLabel(shortKey)}</span>
                     {setting.is_default && (
-                      <span className="text-2xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">default</span>
+                      <span className="text-2xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">padrão</span>
                     )}
                     {isChanged && (
-                      <span className="text-2xs px-1.5 py-0.5 rounded bg-primary/15 text-primary">modified</span>
+                      <span className="text-2xs px-1.5 py-0.5 rounded bg-primary/15 text-primary">modificado</span>
                     )}
                   </div>
                   <p className="text-xs text-muted-foreground mt-0.5">{setting.description}</p>
@@ -911,7 +812,7 @@ export function SettingsPanel() {
                           <option key={opt.value} value={opt.value}>{opt.label}</option>
                         ))}
                         {currentValue && !dropdownOptions.some(opt => opt.value === currentValue) && (
-                          <option value={currentValue}>Custom: {currentValue}</option>
+                          <option value={currentValue}>Personalizado: {currentValue}</option>
                         )}
                       </select>
                     ) : isBooleanish ? (
@@ -944,7 +845,7 @@ export function SettingsPanel() {
                     {!setting.is_default && (
                       <Button
                         onClick={() => handleReset(setting.key)}
-                        title="Reset to default"
+                        title="Redefinir para o padrão"
                         variant="ghost"
                         size="icon-xs"
                         className="w-6 h-6"
@@ -964,16 +865,13 @@ export function SettingsPanel() {
 
               {setting.updated_by && setting.updated_at && (
                 <div className="text-2xs text-muted-foreground/50 mt-2">
-                  Last updated by {setting.updated_by} on {new Date(setting.updated_at * 1000).toLocaleDateString()}
+                  Última atualização por {setting.updated_by} em {new Date(setting.updated_at * 1000).toLocaleDateString('pt-BR')}
                 </div>
               )}
             </div>
           )
         })}
       </div>
-
-      {/* Account / OAuth connection */}
-      <AccountOAuthSection />
 
       {/* Unsaved changes bar */}
       {hasChanges && (
@@ -983,7 +881,7 @@ export function SettingsPanel() {
             {Object.keys(edits).filter(k => {
               const s = settings.find(s => s.key === k)
               return s && edits[k] !== s.value
-            }).length} unsaved change(s)
+            }).length} alteração(ões) não salva(s)
           </span>
           <Button
             onClick={handleDiscard}
@@ -1021,7 +919,7 @@ function InterfaceModeSelector() {
       })
       // If switching to essential and on a hidden panel, redirect
       if (mode === 'essential') {
-        const essentialIds = new Set(['overview', 'agents', 'tasks', 'chat', 'activity', 'logs', 'settings'])
+        const essentialIds = new Set(['overview', 'agents', 'chat', 'activity', 'logs', 'settings'])
         const store = useMissionControl.getState()
         if (!essentialIds.has(store.activeTab)) {
           navigateToPanel('overview')
@@ -1033,14 +931,14 @@ function InterfaceModeSelector() {
 
   return (
     <div className="bg-card border border-border rounded-lg p-4">
-      <h3 className="text-sm font-medium text-foreground mb-1">Interface Mode</h3>
+      <h3 className="text-sm font-medium text-foreground mb-1">Modo de Interface</h3>
       <p className="text-xs text-muted-foreground mb-3">
-        Controls how many panels appear in the sidebar.
+        Controla quantos painéis aparecem na barra lateral.
       </p>
       <div className="space-y-2">
         {([
-          { value: 'essential' as const, label: 'Essential', desc: 'Focused view with core panels only — Overview, Agents, Tasks, Chat, Activity, Logs, Settings.' },
-          { value: 'full' as const, label: 'Full', desc: 'All panels and advanced features including Memory, Cron, Webhooks, Alerts, Audit, and more.' },
+          { value: 'essential' as const, label: 'Essencial', desc: 'Visão focada com os painéis principais — Visão Geral, Agentes, Tarefas, Chat, Atividade, Logs, Configurações.' },
+          { value: 'full' as const, label: 'Completo', desc: 'Todos os painéis e recursos avançados incluindo Memória, Cron, Webhooks, Alertas, Auditoria e mais.' },
         ]).map(option => (
           <button
             key={option.value}
@@ -1066,7 +964,7 @@ function InterfaceModeSelector() {
           </button>
         ))}
       </div>
-      <p className="text-2xs text-muted-foreground/60 mt-2">You can also switch from the sidebar footer.</p>
+      <p className="text-2xs text-muted-foreground/60 mt-2">Você também pode alternar pelo rodapé da barra lateral.</p>
     </div>
   )
 }
@@ -1112,14 +1010,13 @@ function AccountOAuthSection() {
       const res = await fetch('/api/auth/google/disconnect', { method: 'POST' })
       const data = await res.json().catch(() => ({}))
       if (res.ok) {
-        setFeedback({ ok: true, text: 'Google account disconnected. You can now sign in with username and password.' })
-        // Reload after a short delay so the user sees the feedback
+        setFeedback({ ok: true, text: 'Conta Google desconectada. Agora você pode entrar com usuário e senha.' })
         setTimeout(() => window.location.reload(), 1500)
       } else {
-        setFeedback({ ok: false, text: data.error || 'Failed to disconnect' })
+        setFeedback({ ok: false, text: data.error || 'Falha ao desconectar' })
       }
     } catch {
-      setFeedback({ ok: false, text: 'Network error' })
+      setFeedback({ ok: false, text: 'Erro de rede' })
     } finally {
       setDisconnecting(false)
     }
@@ -1128,7 +1025,7 @@ function AccountOAuthSection() {
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-2 pt-2">
-        <h3 className="text-sm font-medium text-foreground">Account</h3>
+        <h3 className="text-sm font-medium text-foreground">Conta</h3>
       </div>
 
       <div className="bg-card border border-border rounded-lg p-4">
@@ -1150,15 +1047,15 @@ function AccountOAuthSection() {
               <div className="flex items-center gap-2">
                 <span className="text-sm font-medium text-foreground">Google</span>
                 {isGoogleConnected ? (
-                  <span className="text-2xs px-1.5 py-0.5 rounded bg-green-500/15 text-green-400">Connected</span>
+                  <span className="text-2xs px-1.5 py-0.5 rounded bg-green-500/15 text-green-400">Conectado</span>
                 ) : (
-                  <span className="text-2xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Not connected</span>
+                  <span className="text-2xs px-1.5 py-0.5 rounded bg-muted text-muted-foreground">Não conectado</span>
                 )}
               </div>
               {isGoogleConnected && currentUser.email ? (
                 <p className="text-xs text-muted-foreground mt-0.5">{currentUser.email}</p>
               ) : (
-                <p className="text-xs text-muted-foreground mt-0.5">Link your Google account for OAuth sign-in</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Vincule sua conta Google para login via OAuth</p>
               )}
             </div>
           </div>
@@ -1171,7 +1068,7 @@ function AccountOAuthSection() {
               size="sm"
               className="text-xs hover:text-destructive hover:border-destructive/50"
             >
-              {disconnecting ? 'Disconnecting...' : 'Disconnect'}
+              {disconnecting ? 'Desconectando...' : 'Desconectar'}
             </Button>
           )}
         </div>

@@ -36,6 +36,9 @@ export type EventType =
   | 'run.updated'
   | 'run.completed'
   | 'run.eval_attached'
+  | 'pipeline.stage_started'
+  | 'pipeline.run_completed'
+  | 'pipeline.run_failed'
 
 class ServerEventBus extends EventEmitter {
   private static instance: ServerEventBus | null = null

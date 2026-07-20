@@ -30,11 +30,7 @@ const navGroups: NavGroup[] = [
     items: [
       { id: 'overview', label: 'Overview', icon: <OverviewIcon />, priority: true, essential: true },
       { id: 'agents', label: 'Agents', icon: <AgentsIcon />, priority: true, essential: true },
-      { id: 'tasks', label: 'Tasks', icon: <TasksIcon />, priority: true, essential: true },
-      { id: 'chat', label: 'Chat', icon: <ChatIcon />, priority: false, essential: true },
       { id: 'channels', label: 'Channels', icon: <ChannelsIcon />, priority: false },
-      { id: 'skills', label: 'Skills', icon: <SkillsIcon />, priority: false },
-      { id: 'memory', label: 'Memory', icon: <MemoryIcon />, priority: false },
     ],
   },
   {
@@ -42,7 +38,6 @@ const navGroups: NavGroup[] = [
     label: 'OBSERVE',
     items: [
       { id: 'activity', label: 'Activity', icon: <ActivityIcon />, priority: true, essential: true },
-      { id: 'logs', label: 'Logs', icon: <LogsIcon />, priority: false, essential: true },
       { id: 'cost-tracker', label: 'Cost Tracker', icon: <TokensIcon />, priority: false },
       { id: 'nodes', label: 'Nodes', icon: <NodesIcon />, priority: false },
       { id: 'exec-approvals', label: 'Approvals', icon: <ApprovalsIcon />, priority: false },
@@ -54,18 +49,14 @@ const navGroups: NavGroup[] = [
     id: 'automate',
     label: 'AUTOMATE',
     items: [
-      { id: 'cron', label: 'Cron', icon: <CronIcon />, priority: false },
-      { id: 'webhooks', label: 'Webhooks', icon: <WebhookIcon />, priority: false },
-      { id: 'alerts', label: 'Alerts', icon: <AlertIcon />, priority: false },
-      { id: 'github', label: 'GitHub', icon: <GitHubIcon />, priority: false },
-      { id: 'work-pipeline', label: 'Work pipeline', icon: <WorkPipelineIcon />, priority: false },
+      { id: 'github', label: 'Repositórios Git', icon: <GitHubIcon />, priority: false },
+      { id: 'work-pipeline', label: 'Fluxos', icon: <WorkPipelineIcon />, priority: false },
     ],
   },
   {
     id: 'admin',
     label: 'ADMIN',
     items: [
-      { id: 'security', label: 'Security', icon: <SecurityIcon />, priority: false },
       { id: 'users', label: 'Users', icon: <UsersIcon />, priority: false },
       { id: 'audit', label: 'Audit', icon: <AuditIcon />, priority: false },
       {
@@ -76,8 +67,6 @@ const navGroups: NavGroup[] = [
         ],
       },
       { id: 'integrations', label: 'Integrations', icon: <IntegrationsIcon />, priority: false },
-      { id: 'debug', label: 'Debug', icon: <DebugIcon />, priority: false },
-      { id: 'settings', label: 'Settings', icon: <SettingsIcon />, priority: false, essential: true },
     ],
   },
 ]
@@ -86,7 +75,6 @@ const navGroups: NavGroup[] = [
 const navItemTranslationKeys: Record<string, string> = {
   overview: 'overview',
   agents: 'agents',
-  tasks: 'tasks',
   chat: 'chat',
   channels: 'channels',
   skills: 'skills',
@@ -98,18 +86,16 @@ const navItemTranslationKeys: Record<string, string> = {
   'exec-approvals': 'approvals',
   office: 'office',
   cron: 'cron',
-  webhooks: 'webhooks',
-  alerts: 'alerts',
   github: 'github',
   'work-pipeline': 'workPipeline',
-  security: 'security',
+  configuration: 'configuration',
+  'workspace-parameters': 'workspaceParameters',
   users: 'users',
   audit: 'audit',
   'gateway-parent': 'gateway',
   gateways: 'gateways',
   'gateway-config': 'config',
   integrations: 'integrations',
-  debug: 'debug',
   settings: 'settings',
 }
 
@@ -255,7 +241,7 @@ export function NavRail() {
           </div>
           {sidebarExpanded && (
             <div className="flex items-baseline gap-2 truncate flex-1 min-w-0">
-              <span className="text-sm font-semibold text-foreground truncate">Mission Control</span>
+              <span className="text-sm font-semibold text-foreground truncate">Vertex Control</span>
               <span className="text-2xs text-muted-foreground font-mono-tight shrink-0">v{APP_VERSION}</span>
             </div>
           )}
@@ -415,35 +401,6 @@ export function NavRail() {
           ))}
         </div>
 
-        {/* Promo banners */}
-        {sidebarExpanded && (
-          <div className="px-2 pb-2 space-y-2 shrink-0">
-            <a
-              href="https://x.com/nyk_builderz/status/2022996371922649192?s=20"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block rounded-lg border border-border/50 bg-surface-1 hover:bg-surface-2 hover:border-primary/30 transition-all duration-200 p-2 group"
-            >
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <span className="text-2xs font-semibold text-foreground group-hover:text-primary transition-colors">xint</span>
-                <span className="text-[9px] px-1 py-px rounded bg-primary/15 text-primary font-mono">CLI</span>
-              </div>
-              <p className="text-[10px] text-muted-foreground/70 leading-snug">X power tools for agents.</p>
-            </a>
-            <a
-              href="https://builderz.dev"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block rounded-lg border border-void-purple/20 bg-gradient-to-br from-void-purple/5 to-transparent hover:from-void-purple/10 hover:border-void-purple/40 transition-all duration-200 p-2 group"
-            >
-              <div className="flex items-center gap-1.5 mb-0.5">
-                <span className="text-2xs font-bold text-foreground group-hover:text-void-purple transition-colors">builderz</span>
-                <span className="text-[9px] px-1 py-px rounded bg-void-purple/15 text-void-purple">.dev</span>
-              </div>
-              <p className="text-[10px] text-muted-foreground/70 leading-snug">AI-native dev shop · Solana experts.</p>
-            </a>
-          </div>
-        )}
 
         {/* Context switcher (profile-style, bottom of sidebar) */}
         <ContextSwitcher
@@ -932,7 +889,7 @@ function ContextSwitcher({ currentUser, isAdmin, isLocal, isConnected, tenants, 
                   onClick={async () => {
                     if (interfaceMode === 'essential') return
                     setInterfaceMode('essential')
-                    const essentialIds = new Set(['overview', 'agents', 'tasks', 'chat', 'activity', 'logs', 'settings'])
+                    const essentialIds = new Set(['overview', 'agents', 'activity', 'logs', 'settings'])
                     if (!essentialIds.has(activeTab)) navigateToPanel('overview')
                     try { await fetch('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ settings: { 'general.interface_mode': 'essential' } }) }) } catch {}
                   }}
@@ -1228,15 +1185,6 @@ function AgentsIcon() {
   )
 }
 
-function TasksIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="1" width="12" height="14" rx="1.5" />
-      <path d="M5 5h6M5 8h6M5 11h3" />
-    </svg>
-  )
-}
-
 function ChatIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
@@ -1390,6 +1338,41 @@ function GitHubIcon() {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M6 12.5c-3 1-3-1.5-4-2m8 4v-2.2a2.1 2.1 0 00-.6-1.6c2-.2 4.1-1 4.1-4.5a3.5 3.5 0 00-1-2.4 3.2 3.2 0 00-.1-2.4s-.8-.2-2.5 1a8.7 8.7 0 00-4.6 0C3.7 3.4 2.9 3.6 2.9 3.6a3.2 3.2 0 00-.1 2.4 3.5 3.5 0 00-1 2.4c0 3.5 2.1 4.3 4.1 4.5a2.1 2.1 0 00-.6 1.6v2.2" />
+    </svg>
+  )
+}
+
+function ConfigHubIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-4 h-4">
+      <rect x="2" y="2" width="5" height="5" rx="1" />
+      <rect x="9" y="2" width="5" height="5" rx="1" />
+      <rect x="2" y="9" width="5" height="5" rx="1" />
+      <rect x="9" y="9" width="5" height="5" rx="1" />
+    </svg>
+  )
+}
+
+function WorkspaceParamsIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4">
+      <path d="M4 3v3M4 10v3M8 2v5M8 9v5M12 4v2M12 10v2" />
+      <circle cx="4" cy="8" r="1.5" />
+      <circle cx="8" cy="6.5" r="1.5" />
+      <circle cx="8" cy="11.5" r="1.5" />
+      <circle cx="12" cy="8" r="1.5" />
+    </svg>
+  )
+}
+
+function DeliveryFlowIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="w-4 h-4">
+      <circle cx="3" cy="8" r="1.8" />
+      <circle cx="8" cy="4" r="1.8" />
+      <circle cx="13" cy="8" r="1.8" />
+      <circle cx="8" cy="12" r="1.8" />
+      <path d="M4.5 7l2-2M11.5 7l-2-2M8 5.8v2.4M8 9.8v2.2" />
     </svg>
   )
 }

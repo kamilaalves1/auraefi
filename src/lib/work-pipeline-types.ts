@@ -12,6 +12,20 @@ export interface WorkPipelineConfigJson {
   azureOrganizationUrl?: string
   /** Azure DevOps project name */
   azureProject?: string
+  /** LLM provider: 'anthropic' | 'ollama' (defaults to 'anthropic') */
+  llm_simple?: string
+  llm_medium?: string
+  llm_complex?: string
+  /** Ollama base URL (default: http://localhost:11434) */
+  ollamaHost?: string
+  /** Ollama model override — used when provider is ollama and agent model is not set or is a Claude model */
+  ollamaModel?: string
+  /**
+   * The @mention name the engine responds to in JIRA/Azure comments.
+   * Example: "@pipeline" → user types "@pipeline reprocesse com foco em segurança"
+   * Defaults to "@pipeline" if not set.
+   */
+  botMention?: string
 }
 
 export interface WorkPipelineSecrets {

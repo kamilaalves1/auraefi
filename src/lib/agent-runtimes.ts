@@ -2,10 +2,9 @@ import crypto from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { config } from './config'
 import { runCommand, runOpenClaw } from './command'
-import { isHermesInstalled, isHermesGatewayRunning, clearHermesDetectionCache } from './hermes-sessions'
 import { logger } from './logger'
 
-export type RuntimeId = 'openclaw' | 'hermes' | 'claude' | 'codex'
+export type RuntimeId = 'openclaw' | 'claude' | 'codex'
 export type DeploymentMode = 'local' | 'docker'
 
 export interface RuntimeStatus {
@@ -42,12 +41,6 @@ const RUNTIME_META: Record<RuntimeId, RuntimeMeta> = {
   openclaw: {
     name: 'OpenClaw',
     description: 'Multi-agent orchestration with gateway, sessions, and memory.',
-    authRequired: false,
-    authHint: '',
-  },
-  hermes: {
-    name: 'Hermes Agent',
-    description: 'Self-improving AI agent with learning loop, skills, and multi-platform messaging.',
     authRequired: false,
     authHint: '',
   },
@@ -133,32 +126,6 @@ function detectOpenClaw(): RuntimeStatus {
   return { id: 'openclaw', ...meta, installed, version, running, authenticated: true }
 }
 
-function detectHermes(): RuntimeStatus {
-  const meta = RUNTIME_META.hermes
-  const installed = isHermesInstalled()
-  let version: string | null = null
-
-  if (installed) {
-    try {
-      const candidates = [process.env.HERMES_BIN, 'hermes-agent', 'hermes'].filter(Boolean) as string[]
-      for (const bin of candidates) {
-        try {
-          const result = require('node:child_process').spawnSync(bin, ['--version'], { stdio: 'pipe', timeout: 1200 })
-          if (result.status === 0) {
-            version = (result.stdout?.toString() || '').trim() || null
-            break
-          }
-        } catch { continue }
-      }
-    } catch {
-      // ignore
-    }
-  }
-
-  const running = installed && isHermesGatewayRunning()
-  return { id: 'hermes', ...meta, installed, version, running, authenticated: true }
-}
-
 function detectBinary(bins: string[], versionFlag = '--version'): { installed: boolean; version: string | null } {
   const { spawnSync } = require('node:child_process')
   for (const bin of bins) {
@@ -215,7 +182,6 @@ function detectCodex(): RuntimeStatus {
 
 const DETECTORS: Record<RuntimeId, () => RuntimeStatus> = {
   openclaw: detectOpenClaw,
-  hermes: detectHermes,
   claude: detectClaude,
   codex: detectCodex,
 }
@@ -260,7 +226,6 @@ export function startInstall(runtime: RuntimeId, mode: DeploymentMode): InstallJ
   // Local install — run in background
   const INSTALL_FNS: Record<RuntimeId, (job: InstallJob) => Promise<void>> = {
     openclaw: installOpenClawLocal,
-    hermes: installHermesLocal,
     claude: installClaudeLocal,
     codex: installCodexLocal,
   }
@@ -316,6 +281,9 @@ async function runInstallCmd(cmd: string, args: string[], job: InstallJob): Prom
 
 async function installOpenClawLocal(job: InstallJob): Promise<void> {
   job.output += '> Installing OpenClaw...\n'
+  job.output += '> ⚠️  AVISO DE SEGURANÇA: este instalador baixa e executa um script remoto de https://get.openclaw.dev\n'
+  job.output += '>    Verifique o conteúdo do script antes de prosseguir em ambientes de produção.\n'
+  job.output += '>    Para inspecionar: curl -fsSL https://get.openclaw.dev\n\n'
   const env = getInstallEnv()
   try {
     const result = await runCommand('bash', ['-c', 'curl -fsSL https://get.openclaw.dev | bash'], {
@@ -337,33 +305,6 @@ async function installOpenClawLocal(job: InstallJob): Promise<void> {
     } else {
       job.status = 'failed'
       job.error = `Install exited with code ${result.code}`
-      job.output += `\n> Install failed (exit code ${result.code}).\n`
-    }
-  } catch (err: any) {
-    job.status = 'failed'
-    job.error = err?.message || 'Unknown error'
-    job.output += `\n> Error: ${job.error}\n`
-  }
-  job.finishedAt = Date.now()
-}
-
-async function installHermesLocal(job: InstallJob): Promise<void> {
-  job.output += '> Installing Hermes Agent via official installer...\n'
-  const env = getInstallEnv()
-  try {
-    const result = await runCommand('bash', ['-c', 'curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash'], {
-      timeoutMs: 600_000, env,
-    })
-    if (result.stdout) job.output += result.stdout + '\n'
-    if (result.stderr) job.output += result.stderr + '\n'
-    if (result.code === 0) {
-      job.status = 'success'
-      job.output += '\n> Hermes Agent installed successfully.\n'
-      job.output += '> Run "hermes" to start chatting, or "hermes setup" for full configuration.\n'
-      clearHermesDetectionCache()
-    } else {
-      job.status = 'failed'
-      job.error = `Installer exited with code ${result.code}`
       job.output += `\n> Install failed (exit code ${result.code}).\n`
     }
   } catch (err: any) {
@@ -431,19 +372,5 @@ export function generateDockerSidecar(runtime: RuntimeId): string {
 #   openclaw-data:`
   }
 
-  return `  # Hermes Agent sidecar
-  hermes-agent:
-    image: ghcr.io/nousresearch/hermes-agent:latest
-    container_name: hermes-agent
-    environment:
-      - MC_URL=http://mission-control:\${PORT:-3000}
-      - MC_API_KEY=\${API_KEY:-}
-    volumes:
-      - hermes-data:/root/.hermes
-    networks:
-      - mc-net
-    restart: unless-stopped
-
-# Add to volumes section:
-#   hermes-data:`
+  return ''
 }

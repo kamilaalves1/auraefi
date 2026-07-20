@@ -516,7 +516,7 @@ function GatewayCard({ gateway, health, historyEntries = [], isProbing, isCurren
                 type="password"
                 value={tokenInput}
                 onChange={e => setTokenInput(e.target.value)}
-                placeholder="Paste gateway token..."
+                placeholder="Cole o token do gateway..."
                 className="flex-1 px-2 py-1 text-xs bg-secondary border border-border rounded font-mono"
                 autoFocus
                 onKeyDown={e => {
@@ -536,7 +536,7 @@ function GatewayCard({ gateway, health, historyEntries = [], isProbing, isCurren
                 size="xs"
                 className="text-2xs"
               >
-                Save
+                Salvar
               </Button>
               <Button
                 onClick={() => { setEditingToken(false); setTokenInput('') }}
@@ -544,7 +544,7 @@ function GatewayCard({ gateway, health, historyEntries = [], isProbing, isCurren
                 size="xs"
                 className="text-2xs"
               >
-                Cancel
+                Cancelar
               </Button>
             </div>
           )}

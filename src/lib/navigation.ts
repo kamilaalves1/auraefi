@@ -13,7 +13,6 @@ const PREFETCHED_ROUTES = new Set<string>()
 const DEFAULT_PREFETCH_PANELS = [
   'overview',
   'chat',
-  'tasks',
   'agents',
   'activity',
   'notifications',

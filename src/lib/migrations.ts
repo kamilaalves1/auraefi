@@ -1428,7 +1428,431 @@ const migrations: Migration[] = [
       `)
       db.exec(`CREATE INDEX IF NOT EXISTS idx_work_pipeline_workspace ON work_pipeline_configs(workspace_id)`)
     }
-  }
+  },
+  {
+    id: '050_delivery_flow_and_pipeline_client_meta',
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS workspace_delivery_flows (
+          workspace_id INTEGER PRIMARY KEY,
+          definition_json TEXT NOT NULL DEFAULT '{}',
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_by TEXT,
+          FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        )
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_workspace_delivery_flows_updated ON workspace_delivery_flows(updated_at)`)
+
+      const cols = db.prepare(`PRAGMA table_info(workflow_pipelines)`).all() as Array<{ name: string }>
+      if (!cols.some((c) => c.name === 'client_metadata_json')) {
+        db.exec(`ALTER TABLE workflow_pipelines ADD COLUMN client_metadata_json TEXT`)
+      }
+    }
+  },
+  {
+    id: '051_workspace_parameters',
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS workspace_parameters (
+          workspace_id INTEGER PRIMARY KEY,
+          values_json TEXT NOT NULL DEFAULT '{}',
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_by TEXT,
+          FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        )
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_workspace_parameters_updated ON workspace_parameters(updated_at)`)
+    }
+  },
+  {
+    id: '052_workspace_squad_state',
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS workspace_squad_state (
+          workspace_id INTEGER PRIMARY KEY,
+          squad_active INTEGER NOT NULL DEFAULT 0,
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_by TEXT,
+          FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        )
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_workspace_squad_state_updated ON workspace_squad_state(updated_at)`)
+    }
+  },
+  {
+    id: '053_pipeline_card_runs',
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS pipeline_card_runs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          workspace_id INTEGER NOT NULL,
+          provider TEXT NOT NULL,
+          card_key TEXT NOT NULL,
+          card_title TEXT NOT NULL DEFAULT '',
+          card_description TEXT DEFAULT '',
+          card_url TEXT DEFAULT '',
+          current_stage_id TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'running',
+          task_id INTEGER,
+          last_comment_ts INTEGER DEFAULT 0,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          UNIQUE(workspace_id, provider, card_key)
+        );
+        CREATE INDEX IF NOT EXISTS idx_pcr_workspace ON pipeline_card_runs(workspace_id, status);
+        CREATE INDEX IF NOT EXISTS idx_pcr_card ON pipeline_card_runs(provider, card_key);
+        CREATE TABLE IF NOT EXISTS pipeline_card_messages (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          run_id INTEGER NOT NULL,
+          direction TEXT NOT NULL,
+          stage_id TEXT,
+          body TEXT NOT NULL,
+          external_comment_id TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (run_id) REFERENCES pipeline_card_runs(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_pcm_run ON pipeline_card_messages(run_id, created_at);
+      `)
+    }
+  },
+  {
+    id: '054_delivery_flows_multi',
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS delivery_flows (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          workspace_id INTEGER NOT NULL,
+          name TEXT NOT NULL DEFAULT 'Fluxo principal',
+          git_provider TEXT,
+          git_repo_url TEXT,
+          git_branch TEXT NOT NULL DEFAULT 'main',
+          is_active INTEGER NOT NULL DEFAULT 1,
+          definition_json TEXT NOT NULL DEFAULT '{}',
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_by TEXT,
+          FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_delivery_flows_workspace ON delivery_flows(workspace_id);
+      `)
+      // Migrate existing single-row flows to the new table
+      const existing = db.prepare('SELECT * FROM workspace_delivery_flows').all() as Array<{
+        workspace_id: number; definition_json: string; updated_at: number; updated_by: string | null
+      }>
+      const insert = db.prepare(
+        `INSERT OR IGNORE INTO delivery_flows (workspace_id, name, definition_json, created_at, updated_at, updated_by)
+         VALUES (?, 'Fluxo principal', ?, ?, ?, ?)`
+      )
+      for (const row of existing) {
+        insert.run(row.workspace_id, row.definition_json, row.updated_at, row.updated_at, row.updated_by)
+      }
+    }
+  },
+  {
+    id: '056_git_repositories',
+    up(db: Database.Database) {
+      // ── Centralised repo registry ────────────────────────────────────
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS git_repositories (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          workspace_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          provider TEXT NOT NULL DEFAULT 'github',
+          repo_url TEXT NOT NULL,
+          branch TEXT NOT NULL DEFAULT 'main',
+          is_active INTEGER NOT NULL DEFAULT 1,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_git_repositories_workspace ON git_repositories(workspace_id);
+      `)
+
+      // FK on delivery_flows → git_repositories
+      const dfCols = db.prepare('PRAGMA table_info(delivery_flows)').all() as Array<{ name: string }>
+      const hasDfCol = (n: string) => dfCols.some(c => c.name === n)
+      if (!hasDfCol('git_repository_id')) {
+        db.exec(`ALTER TABLE delivery_flows ADD COLUMN git_repository_id INTEGER REFERENCES git_repositories(id) ON DELETE SET NULL`)
+      }
+
+      // Backfill: migrate existing delivery_flows git fields → git_repositories
+      const flows = db.prepare(`
+        SELECT id, workspace_id, git_provider, git_repo_url, git_branch, name
+        FROM delivery_flows
+        WHERE git_repo_url IS NOT NULL AND git_repo_url != ''
+      `).all() as Array<{
+        id: number; workspace_id: number
+        git_provider: string | null; git_repo_url: string; git_branch: string; name: string
+      }>
+
+      const insertRepo = db.prepare(`
+        INSERT INTO git_repositories (workspace_id, name, provider, repo_url, branch)
+        VALUES (?, ?, ?, ?, ?)
+      `)
+      const linkFlow = db.prepare(`
+        UPDATE delivery_flows SET git_repository_id = ? WHERE id = ?
+      `)
+
+      for (const flow of flows) {
+        const result = insertRepo.run(
+          flow.workspace_id,
+          flow.name,
+          flow.git_provider ?? 'github',
+          flow.git_repo_url,
+          flow.git_branch ?? 'main'
+        )
+        linkFlow.run(result.lastInsertRowid, flow.id)
+      }
+    }
+  },
+  {
+    id: '057_git_repo_credentials',
+    up(db: Database.Database) {
+      const cols = db.prepare('PRAGMA table_info(git_repositories)').all() as Array<{ name: string }>
+      const has = (n: string) => cols.some(c => c.name === n)
+      if (!has('access_token')) db.exec(`ALTER TABLE git_repositories ADD COLUMN access_token TEXT`)
+      if (!has('base_url'))     db.exec(`ALTER TABLE git_repositories ADD COLUMN base_url TEXT`)
+    }
+  },
+  {
+    id: '055_git_provider_sync',
+    up(db: Database.Database) {
+      // ── tasks: unified git columns (provider-agnostic) ──────────────
+      const taskCols = db.prepare('PRAGMA table_info(tasks)').all() as Array<{ name: string }>
+      const hasTaskCol = (n: string) => taskCols.some(c => c.name === n)
+
+      if (!hasTaskCol('git_provider'))     db.exec(`ALTER TABLE tasks ADD COLUMN git_provider TEXT`)
+      if (!hasTaskCol('git_issue_number')) db.exec(`ALTER TABLE tasks ADD COLUMN git_issue_number INTEGER`)
+      if (!hasTaskCol('git_repo'))         db.exec(`ALTER TABLE tasks ADD COLUMN git_repo TEXT`)
+      if (!hasTaskCol('git_synced_at'))    db.exec(`ALTER TABLE tasks ADD COLUMN git_synced_at INTEGER`)
+
+      // Backfill: copy existing GitHub columns into generic git columns
+      db.exec(`
+        UPDATE tasks
+        SET git_provider     = 'github',
+            git_issue_number = github_issue_number,
+            git_repo         = github_repo,
+            git_synced_at    = github_synced_at
+        WHERE github_issue_number IS NOT NULL
+          AND git_issue_number IS NULL
+      `)
+
+      // Unique index for dedup across all providers
+      db.exec(`
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_tasks_git_issue
+          ON tasks(workspace_id, git_provider, git_repo, git_issue_number)
+          WHERE git_issue_number IS NOT NULL
+      `)
+
+      // ── git_syncs: unified sync log replacing github_syncs ──────────
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS git_syncs (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          flow_id INTEGER,
+          workspace_id INTEGER NOT NULL DEFAULT 1,
+          provider TEXT NOT NULL DEFAULT 'github',
+          repo TEXT NOT NULL,
+          last_synced_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          changes_pulled INTEGER NOT NULL DEFAULT 0,
+          changes_pushed INTEGER NOT NULL DEFAULT 0,
+          status TEXT NOT NULL DEFAULT 'success',
+          error TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (flow_id) REFERENCES delivery_flows(id) ON DELETE SET NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_git_syncs_workspace ON git_syncs(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_git_syncs_flow ON git_syncs(flow_id);
+        CREATE INDEX IF NOT EXISTS idx_git_syncs_created ON git_syncs(created_at);
+      `)
+
+      // Backfill: migrate github_syncs → git_syncs
+      try {
+        const rows = db.prepare('SELECT * FROM github_syncs').all() as Array<{
+          id: number; repo: string; last_synced_at: number; issue_count: number
+          sync_direction: string; status: string; error: string | null
+          project_id: number | null; changes_pushed: number; changes_pulled: number
+          workspace_id: number | null; created_at: number
+        }>
+        const ins = db.prepare(`
+          INSERT OR IGNORE INTO git_syncs
+            (flow_id, workspace_id, provider, repo, last_synced_at, changes_pulled, changes_pushed, status, error, created_at)
+          VALUES (NULL, ?, 'github', ?, ?, ?, ?, ?, ?, ?)
+        `)
+        for (const r of rows) {
+          ins.run(
+            r.workspace_id ?? 1, r.repo, r.last_synced_at,
+            r.changes_pulled ?? r.issue_count ?? 0,
+            r.changes_pushed ?? 0,
+            r.status ?? 'success', r.error ?? null, r.created_at
+          )
+        }
+      } catch { /* github_syncs may not have all columns yet — skip */ }
+    }
+  },
+  {
+    id: '058_clients',
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS clients (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          workspace_id INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          description TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        )
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_clients_workspace ON clients(workspace_id)`)
+    }
+  },
+  {
+    id: '059_work_pipelines_multi',
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS work_pipelines (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          workspace_id INTEGER NOT NULL,
+          client_id INTEGER,
+          name TEXT NOT NULL DEFAULT 'Esteira',
+          provider TEXT NOT NULL DEFAULT 'none',
+          enabled INTEGER NOT NULL DEFAULT 0,
+          config_json TEXT NOT NULL DEFAULT '{}',
+          secret_blob TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+          FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL
+        )
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_work_pipelines_workspace ON work_pipelines(workspace_id)`)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_work_pipelines_client ON work_pipelines(client_id)`)
+
+      // Migrate existing singleton work_pipeline_configs rows
+      try {
+        const rows = db.prepare('SELECT * FROM work_pipeline_configs').all() as Array<{
+          workspace_id: number; provider: string; enabled: number; config_json: string; secret_blob: string | null
+        }>
+        const ins = db.prepare(`
+          INSERT OR IGNORE INTO work_pipelines (workspace_id, client_id, name, provider, enabled, config_json, secret_blob)
+          VALUES (?, NULL, 'Esteira principal', ?, ?, ?, ?)
+        `)
+        for (const r of rows) {
+          if (r.provider !== 'none') {
+            ins.run(r.workspace_id, r.provider, r.enabled, r.config_json, r.secret_blob)
+          }
+        }
+      } catch { /* work_pipeline_configs may not exist */ }
+    }
+  },
+  {
+    id: '060_pipeline_columns',
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS pipeline_columns (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          pipeline_id INTEGER NOT NULL,
+          workspace_id INTEGER NOT NULL,
+          column_name TEXT NOT NULL,
+          column_order INTEGER NOT NULL DEFAULT 0,
+          is_trigger INTEGER NOT NULL DEFAULT 0,
+          agent_id INTEGER,
+          skill_id INTEGER,
+          instructions TEXT,
+          created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+          FOREIGN KEY (pipeline_id) REFERENCES work_pipelines(id) ON DELETE CASCADE,
+          FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+          FOREIGN KEY (agent_id) REFERENCES agents(id) ON DELETE SET NULL,
+          FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE SET NULL
+        )
+      `)
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_pipeline_columns_pipeline ON pipeline_columns(pipeline_id)`)
+    }
+  },
+  {
+    id: '061_cleanup_auto_migrated_pipelines',
+    up(db: Database.Database) {
+      // Remove rows blindly migrated from the old singleton work_pipeline_configs
+      // that were never actually configured by the user in the new system
+      try {
+        db.exec(`
+          DELETE FROM work_pipelines
+          WHERE name = 'Esteira principal'
+            AND NOT EXISTS (
+              SELECT 1 FROM pipeline_columns WHERE pipeline_id = work_pipelines.id
+            )
+        `)
+      } catch { /* table may not exist yet in fresh installs */ }
+    }
+  },
+  {
+    id: '063_agent_model_instructions',
+    up(db: Database.Database) {
+      const cols = db.prepare('PRAGMA table_info(agents)').all() as Array<{ name: string }>
+      const names = cols.map(c => c.name)
+      if (!names.includes('model')) {
+        db.exec(`ALTER TABLE agents ADD COLUMN model TEXT NOT NULL DEFAULT 'claude-sonnet-4-6'`)
+      }
+      if (!names.includes('instructions')) {
+        db.exec(`ALTER TABLE agents ADD COLUMN instructions TEXT NOT NULL DEFAULT ''`)
+      }
+    }
+  },
+  {
+    id: '062_pipeline_column_assignments',
+    up(db: Database.Database) {
+      const cols = db.prepare('PRAGMA table_info(pipeline_columns)').all() as Array<{ name: string }>
+      if (!cols.some(c => c.name === 'assignments_json')) {
+        db.exec(`ALTER TABLE pipeline_columns ADD COLUMN assignments_json TEXT NOT NULL DEFAULT '[]'`)
+      }
+      // Backfill existing single agent_id into assignments_json
+      db.exec(`
+        UPDATE pipeline_columns
+        SET assignments_json = (
+          SELECT json_array(json_object('role', COALESCE(a.role, ''), 'agent_id', pipeline_columns.agent_id, 'order', 0))
+          FROM agents a WHERE a.id = pipeline_columns.agent_id
+        )
+        WHERE agent_id IS NOT NULL AND (assignments_json IS NULL OR assignments_json = '[]')
+      `)
+    }
+  },
+  {
+    id: '064_pipeline_card_runs_cost',
+    up(db: Database.Database) {
+      const cols = db.prepare('PRAGMA table_info(pipeline_card_runs)').all() as Array<{ name: string }>
+      if (!cols.some(c => c.name === 'cost_usd')) {
+        db.exec(`ALTER TABLE pipeline_card_runs ADD COLUMN cost_usd REAL NOT NULL DEFAULT 0`)
+      }
+    }
+  },
+  {
+    id: '065_pipeline_card_runs_run_count',
+    up(db: Database.Database) {
+      const cols = db.prepare('PRAGMA table_info(pipeline_card_runs)').all() as Array<{ name: string }>
+      if (!cols.some(c => c.name === 'run_count')) {
+        db.exec(`ALTER TABLE pipeline_card_runs ADD COLUMN run_count INTEGER NOT NULL DEFAULT 1`)
+      }
+    }
+  },
+  {
+    id: '066_pipeline_card_runs_llm_models',
+    up(db: Database.Database) {
+      const cols = db.prepare('PRAGMA table_info(pipeline_card_runs)').all() as Array<{ name: string }>
+      if (!cols.some(c => c.name === 'llm_models')) {
+        db.exec(`ALTER TABLE pipeline_card_runs ADD COLUMN llm_models TEXT NOT NULL DEFAULT ''`)
+      }
+    }
+  },
+  {
+    id: '067_pipeline_card_runs_pr_check',
+    up(db: Database.Database) {
+      const cols = db.prepare('PRAGMA table_info(pipeline_card_runs)').all() as Array<{ name: string }>
+      if (!cols.some(c => c.name === 'pr_check_json')) {
+        db.exec(`ALTER TABLE pipeline_card_runs ADD COLUMN pr_check_json TEXT`)
+      }
+    }
+  },
 ]
 
 export function runMigrations(db: Database.Database) {

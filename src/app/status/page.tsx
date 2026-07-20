@@ -41,7 +41,7 @@ const STATUS_CONFIG = {
     border: 'border-emerald-500/30',
     dot: 'bg-emerald-500',
     glow: 'shadow-emerald-500/20',
-    label: 'Operational',
+    label: 'Operacional',
     icon: '✓',
   },
   degraded: {
@@ -50,7 +50,7 @@ const STATUS_CONFIG = {
     border: 'border-amber-500/30',
     dot: 'bg-amber-500',
     glow: 'shadow-amber-500/20',
-    label: 'Degraded',
+    label: 'Degradado',
     icon: '!',
   },
   offline: {
@@ -68,7 +68,7 @@ const STATUS_CONFIG = {
     border: 'border-red-500/30',
     dot: 'bg-red-500',
     glow: 'shadow-red-500/20',
-    label: 'Critical',
+    label: 'Crítico',
     icon: '✕',
   },
 }
@@ -137,10 +137,10 @@ export default function StatusPage() {
             Vertex Control Center
           </div>
           <h1 className="text-3xl font-bold tracking-tight mb-2">
-            System Status
+            Status do Sistema
           </h1>
           <p className="text-sm text-zinc-500">
-            Real-time monitoring of Amy AI Operations Platform
+            Monitoramento em tempo real da Plataforma Amy AI
           </p>
         </header>
 
@@ -153,13 +153,13 @@ export default function StatusPage() {
         ) : error ? (
           <div className="rounded-2xl border border-red-500/20 bg-red-500/5 p-8 mb-8 text-center">
             <div className="text-4xl mb-3">⚠️</div>
-            <h2 className="text-lg font-semibold text-red-400">Unable to Check Status</h2>
+            <h2 className="text-lg font-semibold text-red-400">Não foi possível verificar o status</h2>
             <p className="text-sm text-red-400/60 mt-1">{error}</p>
             <button
               onClick={fetchHealth}
               className="mt-4 px-4 py-1.5 rounded-lg bg-red-500/10 text-sm text-red-400 hover:bg-red-500/20 transition-colors"
             >
-              Retry
+              Tentar novamente
             </button>
           </div>
         ) : (
@@ -169,13 +169,13 @@ export default function StatusPage() {
                 {overallConfig.icon}
               </span>
               <h2 className={`text-2xl font-bold ${overallConfig.color}`}>
-                {data?.status === 'healthy' ? 'All Systems Operational' :
-                 data?.status === 'degraded' ? 'Partial Service Degradation' :
-                 'System Outage Detected'}
+                {data?.status === 'healthy' ? 'Todos os sistemas operacionais' :
+                 data?.status === 'degraded' ? 'Degradação parcial do serviço' :
+                 'Falha no sistema detectada'}
               </h2>
             </div>
             <p className="text-sm text-zinc-400">
-              Health Score: <span className={`font-semibold ${overallConfig.color}`}>{data?.score}%</span>
+              Pontuação de saúde: <span className={`font-semibold ${overallConfig.color}`}>{data?.score}%</span>
               {data?.uptime && (
                 <span className="ml-3 text-zinc-500">
                   Uptime: {formatUptime(data.uptime)}
@@ -189,8 +189,8 @@ export default function StatusPage() {
         {history.length > 1 && (
           <div className="mb-8">
             <div className="flex items-center justify-between mb-2">
-              <span className="text-xs text-zinc-500">Health Score (last {history.length} checks)</span>
-              <span className="text-xs text-zinc-600">30s interval</span>
+              <span className="text-xs text-zinc-500">Pontuação de saúde (últimas {history.length} verificações)</span>
+              <span className="text-xs text-zinc-600">intervalo de 30s</span>
             </div>
             <div className="flex gap-0.5 h-8 items-end">
               {history.map((point, i) => {
@@ -213,7 +213,7 @@ export default function StatusPage() {
         {/* Services */}
         {data?.services && (
           <div className="space-y-3 mb-8">
-            <h3 className="text-xs uppercase tracking-wider text-zinc-500 mb-4">Services</h3>
+            <h3 className="text-xs uppercase tracking-wider text-zinc-500 mb-4">Serviços</h3>
             {data.services.map((service, idx) => {
               const cfg = STATUS_CONFIG[service.status as keyof typeof STATUS_CONFIG] || STATUS_CONFIG.offline
 
@@ -267,13 +267,13 @@ export default function StatusPage() {
               <span className="font-mono">{data.version}</span>
             )}
             {lastCheck && (
-              <span>Last checked: {lastCheck.toLocaleTimeString()}</span>
+              <span>Última verificação: {lastCheck.toLocaleTimeString('pt-BR')}</span>
             )}
             <button
               onClick={fetchHealth}
               className="text-purple-400/60 hover:text-purple-400 transition-colors"
             >
-              Check now
+              Verificar agora
             </button>
           </div>
           <div className="mt-4 flex items-center justify-center gap-2 text-xs text-zinc-700">

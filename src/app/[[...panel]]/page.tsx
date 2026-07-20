@@ -5,17 +5,16 @@ import { usePathname, useRouter } from 'next/navigation'
 import { NavRail } from '@/components/layout/nav-rail'
 import { HeaderBar } from '@/components/layout/header-bar'
 import { LiveFeed } from '@/components/layout/live-feed'
-import { Dashboard } from '@/components/dashboard/dashboard'
+import { OverviewPanel } from '@/components/panels/overview-panel'
 import { LogViewerPanel } from '@/components/panels/log-viewer-panel'
 import { CronManagementPanel } from '@/components/panels/cron-management-panel'
 import { MemoryBrowserPanel } from '@/components/panels/memory-browser-panel'
 import { CostTrackerPanel } from '@/components/panels/cost-tracker-panel'
-import { TaskBoardPanel } from '@/components/panels/task-board-panel'
 import { ActivityFeedPanel } from '@/components/panels/activity-feed-panel'
+import { ClientPipelinesPanel } from '@/components/panels/client-pipelines-panel'
 import { AgentSquadPanelPhase3 } from '@/components/panels/agent-squad-panel-phase3'
 import { AgentCommsPanel } from '@/components/panels/agent-comms-panel'
 import { StandupPanel } from '@/components/panels/standup-panel'
-import { OrchestrationBar } from '@/components/panels/orchestration-bar'
 import { NotificationsPanel } from '@/components/panels/notifications-panel'
 import { UserManagementPanel } from '@/components/panels/user-management-panel'
 import { AuditTrailPanel } from '@/components/panels/audit-trail-panel'
@@ -23,14 +22,15 @@ import { WebhookPanel } from '@/components/panels/webhook-panel'
 import { SettingsPanel } from '@/components/panels/settings-panel'
 import { GatewayConfigPanel } from '@/components/panels/gateway-config-panel'
 import { IntegrationsPanel } from '@/components/panels/integrations-panel'
-import { WorkPipelinePanel } from '@/components/panels/work-pipeline-panel'
+import { WorkPipelinePanel } from '@/components/panels/work-pipeline-panel' // legacy, kept for migrated rows
+import { ConfigurationHubPanel } from '@/components/panels/configuration-hub-panel'
+import { WorkspaceParametersPanel } from '@/components/panels/workspace-parameters-panel'
 import { AlertRulesPanel } from '@/components/panels/alert-rules-panel'
 import { MultiGatewayPanel } from '@/components/panels/multi-gateway-panel'
 import { SuperAdminPanel } from '@/components/panels/super-admin-panel'
 import { OfficePanel } from '@/components/panels/office-panel'
 import { GitHubSyncPanel } from '@/components/panels/github-sync-panel'
 import { SkillsPanel } from '@/components/panels/skills-panel'
-import { LocalAgentsDocPanel } from '@/components/panels/local-agents-doc-panel'
 import { ChannelsPanel } from '@/components/panels/channels-panel'
 import { DebugPanel } from '@/components/panels/debug-panel'
 import { SecurityAuditPanel } from '@/components/panels/security-audit-panel'
@@ -43,10 +43,6 @@ import { getPluginPanel } from '@/lib/plugins'
 import { shouldRedirectDashboardToHttps } from '@/lib/browser-security'
 import { useTranslations } from 'next-intl'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
-import { LocalModeBanner } from '@/components/layout/local-mode-banner'
-import { UpdateBanner } from '@/components/layout/update-banner'
-import { OpenClawUpdateBanner } from '@/components/layout/openclaw-update-banner'
-import { OpenClawDoctorBanner } from '@/components/layout/openclaw-doctor-banner'
 import { OnboardingWizard } from '@/components/onboarding/onboarding-wizard'
 import { Loader } from '@/components/ui/loader'
 import { ProjectManagerModal } from '@/components/modals/project-manager-modal'
@@ -80,7 +76,7 @@ const bootLabelKeys: Record<string, string> = {
 
 function renderPluginPanel(panelId: string) {
   const pluginPanel = getPluginPanel(panelId)
-  return pluginPanel ? createElement(pluginPanel) : <Dashboard />
+  return pluginPanel ? createElement(pluginPanel) : <OverviewPanel />
 }
 
 export default function Home() {
@@ -105,6 +101,11 @@ export default function Home() {
   }, [activeTab])
 
   useEffect(() => {
+    if (panelFromUrl === 'tasks') {
+      setActiveTab('work-pipeline')
+      router.replace('/work-pipeline')
+      return
+    }
     setActiveTab(normalizedPanel)
     if (normalizedPanel === 'chat') {
       setChatPanelOpen(false)
@@ -382,10 +383,6 @@ export default function Home() {
         {!showOnboarding && (
           <>
             <HeaderBar />
-            <LocalModeBanner />
-            <UpdateBanner />
-            <OpenClawUpdateBanner />
-            <OpenClawDoctorBanner />
           </>
         )}
         <main
@@ -401,7 +398,7 @@ export default function Home() {
           </div>
           <footer className="px-4 pb-4 pt-2">
             <p className="text-2xs text-muted-foreground/50 text-center">
-              {tc('builtWithCareBy')} <a href="https://x.com/nyk_builderz" target="_blank" rel="noopener noreferrer" className="text-muted-foreground/70 hover:text-primary transition-colors duration-200">nyk</a>.
+              Vertex Control Center
             </p>
           </footer>
         </main>
@@ -447,7 +444,7 @@ export default function Home() {
 }
 
 const ESSENTIAL_PANELS = new Set([
-  'overview', 'agents', 'tasks', 'chat', 'activity', 'logs', 'settings',
+  'overview', 'agents', 'chat', 'activity', 'logs', 'settings', 'configuration', 'workspace-parameters',
 ])
 
 function ContentRouter({ tab }: { tab: string }) {
@@ -489,26 +486,9 @@ function ContentRouter({ tab }: { tab: string }) {
 
   switch (tab) {
     case 'overview':
-      return (
-        <>
-          <Dashboard />
-          {!isLocal && (
-            <div className="mt-4 mx-4 mb-4 rounded-lg border border-border bg-card overflow-hidden">
-              <AgentCommsPanel />
-            </div>
-          )}
-        </>
-      )
-    case 'tasks':
-      return <TaskBoardPanel />
+      return <OverviewPanel />
     case 'agents':
-      return (
-        <>
-          <OrchestrationBar />
-          {isLocal && <LocalAgentsDocPanel />}
-          <AgentSquadPanelPhase3 />
-        </>
-      )
+      return <AgentSquadPanelPhase3 />
     case 'notifications':
       return <NotificationsPanel />
     case 'standup':
@@ -551,7 +531,11 @@ function ContentRouter({ tab }: { tab: string }) {
     case 'github':
       return <GitHubSyncPanel />
     case 'work-pipeline':
-      return <WorkPipelinePanel />
+      return <ClientPipelinesPanel />
+    case 'configuration':
+      return <ConfigurationHubPanel />
+    case 'workspace-parameters':
+      return <WorkspaceParametersPanel />
     case 'office':
       return <OfficePanel />
     case 'monitor':

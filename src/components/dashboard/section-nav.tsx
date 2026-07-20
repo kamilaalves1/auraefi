@@ -10,13 +10,13 @@ import { useState, useEffect } from 'react'
  */
 
 const SECTIONS = [
-  { id: 'section-command', label: 'Command', icon: '🎯' },
-  { id: 'section-pulse', label: 'Pulse', icon: '📡' },
-  { id: 'section-topology', label: 'Topology', icon: '🌐' },
+  { id: 'section-command', label: 'Comando', icon: '🎯' },
+  { id: 'section-pulse', label: 'Pulso', icon: '📡' },
+  { id: 'section-topology', label: 'Topologia', icon: '🌐' },
   { id: 'section-operations', label: 'Ops', icon: '⚙️' },
-  { id: 'section-knowledge', label: 'Knowledge', icon: '🧠' },
-  { id: 'section-observability', label: 'Observe', icon: '📊' },
-  { id: 'section-governance', label: 'Govern', icon: '🏛️' },
+  { id: 'section-knowledge', label: 'Conhecimento', icon: '🧠' },
+  { id: 'section-observability', label: 'Observar', icon: '📊' },
+  { id: 'section-governance', label: 'Governança', icon: '🏛️' },
   { id: 'section-infra', label: 'Infra', icon: '🔧' },
 ]
 
@@ -112,7 +112,7 @@ export function SectionNav() {
 
           {/* Section count */}
           <span className="text-[9px] text-muted-foreground/40 font-mono pr-2">
-            {SECTIONS.length} zones
+            {SECTIONS.length} zonas
           </span>
         </div>
       </div>

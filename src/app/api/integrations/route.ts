@@ -1,9 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { logAuditEvent } from '@/lib/db'
-import { config } from '@/lib/config'
-import { join } from 'path'
-import { readFile, writeFile, rename } from 'fs/promises'
+import { logAuditEvent, getDatabase } from '@/lib/db'
 import { existsSync } from 'fs'
 import os from 'os'
 import { execFileSync } from 'child_process'
@@ -24,7 +21,7 @@ interface IntegrationDef {
   name: string
   category: string
   envVars: string[]
-  vaultItem?: string // 1Password item name
+  vaultItem?: string
   testable?: boolean
   recommendation?: string
 }
@@ -48,6 +45,9 @@ const INTEGRATIONS: IntegrationDef[] = [
   { id: 'venice', name: 'Venice AI', category: 'ai', envVars: ['VENICE_API_KEY'], vaultItem: 'openclaw-venice-api-key', testable: true },
   { id: 'nvidia', name: 'NVIDIA', category: 'ai', envVars: ['NVIDIA_API_KEY'], vaultItem: 'openclaw-nvidia-api-key' },
   { id: 'moonshot', name: 'Moonshot / Kimi', category: 'ai', envVars: ['MOONSHOT_API_KEY'], vaultItem: 'openclaw-moonshot-api-key' },
+  { id: 'gemini', name: 'Google Gemini', category: 'ai', envVars: ['GEMINI_API_KEY'], vaultItem: 'openclaw-gemini-api-key', testable: true },
+  { id: 'deepseek', name: 'DeepSeek', category: 'ai', envVars: ['DEEPSEEK_API_KEY'], vaultItem: 'openclaw-deepseek-api-key', testable: true },
+  { id: 'groq', name: 'Groq', category: 'ai', envVars: ['GROQ_API_KEY'], vaultItem: 'openclaw-groq-api-key', testable: true },
   { id: 'ollama', name: 'Ollama (Local)', category: 'ai', envVars: ['OLLAMA_API_KEY'], vaultItem: 'openclaw-ollama-api-key' },
 
   // Search
@@ -63,7 +63,7 @@ const INTEGRATIONS: IntegrationDef[] = [
   },
   { id: 'linkedin', name: 'LinkedIn', category: 'social', envVars: ['LINKEDIN_ACCESS_TOKEN'] },
 
-  // Messaging — add entries here for each Telegram bot you run
+  // Messaging
   { id: 'telegram', name: 'Telegram', category: 'messaging', envVars: ['TELEGRAM_BOT_TOKEN'], vaultItem: 'openclaw-telegram-bot-token', testable: true },
 
   // Dev Tools
@@ -89,7 +89,6 @@ const INTEGRATIONS: IntegrationDef[] = [
   { id: 'hyperbrowser', name: 'Hyperbrowser', category: 'browser', envVars: ['HYPERBROWSER_API_KEY'], testable: true, recommendation: 'Cloud browser automation for AI agents. Get a key at hyperbrowser.ai' },
 ]
 
-// Category metadata
 const CATEGORIES: Record<string, { label: string; order: number }> = {
   ai: { label: 'AI Providers', order: 0 },
   search: { label: 'Search', order: 1 },
@@ -102,76 +101,51 @@ const CATEGORIES: Record<string, { label: string; order: number }> = {
   browser: { label: 'Browser Automation', order: 8 },
 }
 
-// Vars that must never be written via this API
 const BLOCKED_VARS = new Set([
   'PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'TERM', 'PWD', 'LOGNAME', 'HOSTNAME',
 ])
 const BLOCKED_PREFIXES = ['LD_', 'DYLD_']
 
 // ---------------------------------------------------------------------------
-// .env parser  — preserves comments, blanks, and ordering
+// DB-backed integration settings
 // ---------------------------------------------------------------------------
 
-interface EnvLine {
-  type: 'comment' | 'blank' | 'var'
-  raw: string
-  key?: string
-  value?: string
-}
+const DB_KEY_PREFIX = 'integration.'
 
-function parseEnv(content: string): EnvLine[] {
-  const lines: EnvLine[] = []
-  for (const raw of content.split('\n')) {
-    const trimmed = raw.trim()
-    if (trimmed === '') {
-      lines.push({ type: 'blank', raw })
-    } else if (trimmed.startsWith('#')) {
-      lines.push({ type: 'comment', raw })
-    } else {
-      const eqIdx = raw.indexOf('=')
-      if (eqIdx > 0) {
-        const key = raw.slice(0, eqIdx).trim()
-        const value = raw.slice(eqIdx + 1).trim()
-        lines.push({ type: 'var', raw, key, value })
-      } else {
-        lines.push({ type: 'comment', raw }) // malformed line preserved as-is
-      }
-    }
-  }
-  return lines
-}
-
-function serializeEnv(lines: EnvLine[]): string {
-  return lines.map(l => {
-    if (l.type === 'var') return `${l.key}=${l.value}`
-    return l.raw
-  }).join('\n')
-}
-
-function getEnvPath(): string | null {
-  if (!config.openclawStateDir) return null
-  return join(config.openclawStateDir, '.env')
-}
-
-async function readEnvFile(): Promise<{ lines: EnvLine[]; raw: string } | null> {
-  const envPath = getEnvPath()
-  if (!envPath) return null
+function readIntegrationSettings(): Map<string, string> {
   try {
-    const raw = await readFile(envPath, 'utf-8')
-    return { lines: parseEnv(raw), raw }
-  } catch (err: any) {
-    if (err.code === 'ENOENT') return { lines: [], raw: '' }
-    throw err
+    const db = getDatabase()
+    const rows = db.prepare('SELECT key, value FROM settings WHERE key LIKE ?').all(DB_KEY_PREFIX + '%') as { key: string; value: string }[]
+    const map = new Map<string, string>()
+    for (const row of rows) {
+      const envVar = row.key.slice(DB_KEY_PREFIX.length)
+      if (row.value?.trim()) map.set(envVar, row.value.trim())
+    }
+    return map
+  } catch {
+    return new Map()
   }
 }
 
-async function writeEnvFile(lines: EnvLine[]): Promise<void> {
-  const envPath = getEnvPath()!
-  const tmpPath = envPath + '.tmp'
-  const content = serializeEnv(lines)
-  await writeFile(tmpPath, content, 'utf-8')
-  await rename(tmpPath, envPath)
+function writeIntegrationSetting(envVar: string, value: string): void {
+  const db = getDatabase()
+  const trimmed = value.trim()
+  if (trimmed) {
+    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
+      .run(DB_KEY_PREFIX + envVar, trimmed)
+  } else {
+    db.prepare('DELETE FROM settings WHERE key = ?').run(DB_KEY_PREFIX + envVar)
+  }
 }
+
+function deleteIntegrationSetting(envVar: string): void {
+  const db = getDatabase()
+  db.prepare('DELETE FROM settings WHERE key = ?').run(DB_KEY_PREFIX + envVar)
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 function redactValue(value: string): string {
   if (value.length <= 4) return '****'
@@ -183,12 +157,10 @@ function isVarBlocked(key: string): boolean {
   return BLOCKED_PREFIXES.some(p => key.startsWith(p))
 }
 
-function getEffectiveEnvValue(envMap: Map<string, string>, key: string): string {
-  const fromFile = envMap.get(key)
-  if (typeof fromFile === 'string' && fromFile.length > 0) return fromFile
-  const fromProcess = process.env[key]
-  if (typeof fromProcess === 'string' && fromProcess.length > 0) return fromProcess
-  return ''
+function getEffectiveEnvValue(dbMap: Map<string, string>, key: string): string {
+  const fromDb = dbMap.get(key) || ''
+  if (fromDb) return fromDb
+  return (process.env[key] || '').trim()
 }
 
 function isPathLikeEnvVar(key: string): boolean {
@@ -198,11 +170,7 @@ function isPathLikeEnvVar(key: string): boolean {
 function isConfiguredValue(key: string, value: string): boolean {
   if (!value || value.length === 0) return false
   if (isPathLikeEnvVar(key)) {
-    try {
-      return existsSync(value)
-    } catch {
-      return false
-    }
+    try { return existsSync(value) } catch { return false }
   }
   return true
 }
@@ -210,32 +178,24 @@ function isConfiguredValue(key: string, value: string): boolean {
 function checkOpAuthenticated(opEnv?: NodeJS.ProcessEnv): boolean {
   try {
     execFileSync('op', ['whoami', '--format', 'json'], {
-      stdio: 'pipe',
-      timeout: 3000,
-      env: opEnv || process.env,
+      stdio: 'pipe', timeout: 3000, env: opEnv || process.env,
     })
     return true
-  } catch {
-    return false
-  }
+  } catch { return false }
 }
 
 function checkCommandAvailable(command: string): boolean {
   try {
     execFileSync('which', [command], { stdio: 'pipe', timeout: 3000 })
     return true
-  } catch {
-    return false
-  }
+  } catch { return false }
 }
 
 function checkXintState(): { installed: boolean; oauthConfigured: boolean; envConfigured: boolean } {
   const installed = checkCommandAvailable('xint')
-  const oauthPath = join(os.homedir(), '.xint', 'data', 'oauth-tokens.json')
-  const envPath = join(os.homedir(), '.xint', '.env')
-  const oauthConfigured = existsSync(oauthPath)
-  const envConfigured = existsSync(envPath)
-  return { installed, oauthConfigured, envConfigured }
+  const oauthPath = `${os.homedir()}/.xint/data/oauth-tokens.json`
+  const envPath = `${os.homedir()}/.xint/.env`
+  return { installed, oauthConfigured: existsSync(oauthPath), envConfigured: existsSync(envPath) }
 }
 
 function resolveOllamaBaseUrl(): string {
@@ -250,9 +210,14 @@ async function checkOllamaReachable(): Promise<boolean> {
     const base = resolveOllamaBaseUrl().replace(/\/+$/, '')
     const res = await fetch(`${base}/api/tags`, { signal: AbortSignal.timeout(1200) })
     return res.ok
-  } catch {
-    return false
-  }
+  } catch { return false }
+}
+
+function checkOpAvailable(): boolean {
+  try {
+    execFileSync('which', ['op'], { stdio: 'pipe', timeout: 3000 })
+    return true
+  } catch { return false }
 }
 
 async function getIntegrationProbeSnapshot(): Promise<IntegrationProbeSnapshot> {
@@ -260,7 +225,6 @@ async function getIntegrationProbeSnapshot(): Promise<IntegrationProbeSnapshot> 
   if (integrationProbeCache && (now - integrationProbeCache.ts) < INTEGRATION_PROBE_TTL_MS) {
     return integrationProbeCache.value
   }
-
   const value: IntegrationProbeSnapshot = {
     opAvailable: checkOpAvailable(),
     xint: checkXintState(),
@@ -272,86 +236,40 @@ async function getIntegrationProbeSnapshot(): Promise<IntegrationProbeSnapshot> 
   return value
 }
 
-// Uses execFileSync (no shell) to avoid command injection
-function checkOpAvailable(): boolean {
-  try {
-    execFileSync('which', ['op'], { stdio: 'pipe', timeout: 3000 })
-    return true
-  } catch {
-    return false
-  }
-}
-
-/**
- * Build env for op CLI. The OP_SERVICE_ACCOUNT_TOKEN may live in the
- * OpenClaw .env (not the MC .env that systemd loads). Read it at
- * runtime so the op CLI can authenticate.
- */
-async function getOpEnv(): Promise<NodeJS.ProcessEnv> {
+function getOpEnv(dbMap: Map<string, string>): NodeJS.ProcessEnv {
   const base: NodeJS.ProcessEnv = { ...process.env }
-  // Already in process env? Use it.
   if (base.OP_SERVICE_ACCOUNT_TOKEN) return base
-  // Try reading from the OpenClaw .env
-  const envData = await readEnvFile()
-  if (envData) {
-    for (const line of envData.lines) {
-      if (line.type === 'var' && line.key === 'OP_SERVICE_ACCOUNT_TOKEN' && line.value) {
-        base.OP_SERVICE_ACCOUNT_TOKEN = line.value
-        break
-      }
-    }
-  }
+  const fromDb = dbMap.get('OP_SERVICE_ACCOUNT_TOKEN')
+  if (fromDb) { base.OP_SERVICE_ACCOUNT_TOKEN = fromDb; return base }
   return base
 }
 
 // ---------------------------------------------------------------------------
-// GET /api/integrations — list all integrations with status + redacted values
+// GET /api/integrations
 // ---------------------------------------------------------------------------
 
 export async function GET(request: NextRequest) {
   const auth = requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  const envData = await readEnvFile()
-  if (!envData) {
-    return NextResponse.json({ error: 'OPENCLAW_STATE_DIR not configured' }, { status: 404 })
-  }
-
-  const envMap = new Map<string, string>()
-  for (const line of envData.lines) {
-    if (line.type === 'var' && line.key) {
-      envMap.set(line.key, line.value!)
-    }
-  }
-
+  const dbMap = readIntegrationSettings()
   const probe = await getIntegrationProbeSnapshot()
   const { opAvailable, xint, ollamaInstalled, ollamaReachable, gwsInstalled } = probe
   const providerSubscriptions = detectProviderSubscriptions()
 
-  // Merge plugin integrations and categories
   const pluginIntegrations = getPluginIntegrations()
   const allIntegrations: IntegrationDef[] = [...INTEGRATIONS]
   const pluginIntegrationMap = new Map<string, PluginIntegrationDef>()
   for (const pi of pluginIntegrations) {
     if (!allIntegrations.some(i => i.id === pi.id)) {
-      allIntegrations.push({
-        id: pi.id,
-        name: pi.name,
-        category: pi.category,
-        envVars: pi.envVars,
-        vaultItem: pi.vaultItem,
-        testable: pi.testable,
-        recommendation: pi.recommendation,
-      })
+      allIntegrations.push({ id: pi.id, name: pi.name, category: pi.category, envVars: pi.envVars, vaultItem: pi.vaultItem, testable: pi.testable, recommendation: pi.recommendation })
     }
     pluginIntegrationMap.set(pi.id, pi)
   }
 
   const allCategories = { ...CATEGORIES }
   for (const pc of getPluginCategories()) {
-    if (!(pc.id in allCategories)) {
-      allCategories[pc.id] = { label: pc.label, order: pc.order }
-    }
+    if (!(pc.id in allCategories)) allCategories[pc.id] = { label: pc.label, order: pc.order }
   }
 
   const integrations = allIntegrations.map(def => {
@@ -360,7 +278,7 @@ export async function GET(request: NextRequest) {
     let anySet = false
 
     for (const envVar of def.envVars) {
-      const val = getEffectiveEnvValue(envMap, envVar)
+      const val = getEffectiveEnvValue(dbMap, envVar)
       if (isConfiguredValue(envVar, val)) {
         vars[envVar] = { redacted: redactValue(val), set: true }
         anySet = true
@@ -371,68 +289,45 @@ export async function GET(request: NextRequest) {
     }
 
     if (def.id === 'onepassword' && !anySet && opAvailable) {
-      const opEnv = { ...process.env }
-      const fileToken = envMap.get('OP_SERVICE_ACCOUNT_TOKEN')
-      if (fileToken) opEnv.OP_SERVICE_ACCOUNT_TOKEN = fileToken
+      const opEnv = getOpEnv(dbMap)
       if (checkOpAuthenticated(opEnv)) {
-        vars.OP_SERVICE_ACCOUNT_TOKEN = {
-          redacted: fileToken ? redactValue(fileToken) : 'op session',
-          set: true,
-        }
-        allSet = true
-        anySet = true
+        const token = dbMap.get('OP_SERVICE_ACCOUNT_TOKEN')
+        vars.OP_SERVICE_ACCOUNT_TOKEN = { redacted: token ? redactValue(token) : 'op session', set: true }
+        allSet = true; anySet = true
       }
     }
 
-    // Support OAuth/subscription-based auth for providers that may not expose API keys.
     if ((def.id === 'anthropic' || def.id === 'openai') && !anySet) {
       const sub = providerSubscriptions.active[def.id]
       if (sub) {
         const primaryVar = def.envVars[0]
-        vars[primaryVar] = {
-          redacted: `${sub.type} (${sub.source})`,
-          set: true,
-        }
-        allSet = true
-        anySet = true
+        vars[primaryVar] = { redacted: `${sub.type} (${sub.source})`, set: true }
+        allSet = true; anySet = true
       }
     }
 
-    // Local Ollama can be available without API key-based auth.
     if (def.id === 'ollama' && !anySet) {
       const primaryVar = def.envVars[0]
       if (ollamaReachable) {
-        vars[primaryVar] = { redacted: 'local daemon', set: true }
-        allSet = true
-        anySet = true
+        vars[primaryVar] = { redacted: 'local daemon', set: true }; allSet = true; anySet = true
       } else if (ollamaInstalled) {
-        vars[primaryVar] = { redacted: 'installed (daemon not reachable)', set: true }
-        allSet = false
-        anySet = true
+        vars[primaryVar] = { redacted: 'installed (daemon not reachable)', set: true }; allSet = false; anySet = true
       }
     }
 
-    // Google Workspace CLI detection
     if (def.id === 'google_workspace' && !anySet) {
       const primaryVar = def.envVars[0]
       if (gwsInstalled) {
-        vars[primaryVar] = { redacted: 'gws CLI installed (run `gws auth login`)', set: true }
-        allSet = false
-        anySet = true
+        vars[primaryVar] = { redacted: 'gws CLI installed (run `gws auth login`)', set: true }; allSet = false; anySet = true
       }
     }
 
-    // X integration should default to xint auth when present.
     if (def.id === 'x_twitter' && !anySet) {
       const primaryVar = def.envVars[0]
       if (xint.oauthConfigured) {
-        vars[primaryVar] = { redacted: 'xint oauth', set: true }
-        allSet = true
-        anySet = true
+        vars[primaryVar] = { redacted: 'xint oauth', set: true }; allSet = true; anySet = true
       } else if (xint.installed || xint.envConfigured) {
-        vars[primaryVar] = { redacted: 'xint installed (run `xint auth`)', set: true }
-        allSet = false
-        anySet = true
+        vars[primaryVar] = { redacted: 'xint installed (run `xint auth`)', set: true }; allSet = false; anySet = true
       }
     }
 
@@ -457,13 +352,12 @@ export async function GET(request: NextRequest) {
       .sort(([, a], [, b]) => a.order - b.order)
       .map(([id, meta]) => ({ id, label: meta.label })),
     opAvailable,
-    envPath: getEnvPath(),
+    envPath: null,
   })
 }
 
 // ---------------------------------------------------------------------------
-// PUT /api/integrations — update/add env vars
-// Body: { vars: { KEY: "value", ... } }
+// PUT /api/integrations — save env vars to DB
 // ---------------------------------------------------------------------------
 
 export async function PUT(request: NextRequest) {
@@ -476,38 +370,15 @@ export async function PUT(request: NextRequest) {
   }
 
   for (const key of Object.keys(body.vars)) {
-    if (isVarBlocked(key)) {
-      return NextResponse.json({ error: `Cannot set protected variable: ${key}` }, { status: 403 })
-    }
-    if (!/^[A-Z_][A-Z0-9_]*$/i.test(key)) {
-      return NextResponse.json({ error: `Invalid variable name: ${key}` }, { status: 400 })
-    }
+    if (isVarBlocked(key)) return NextResponse.json({ error: `Cannot set protected variable: ${key}` }, { status: 403 })
+    if (!/^[A-Z_][A-Z0-9_]*$/i.test(key)) return NextResponse.json({ error: `Invalid variable name: ${key}` }, { status: 400 })
   }
 
-  const envData = await readEnvFile()
-  if (!envData) {
-    return NextResponse.json({ error: 'OPENCLAW_STATE_DIR not configured' }, { status: 404 })
-  }
-
-  const { lines } = envData
   const updatedKeys: string[] = []
-
   for (const [key, value] of Object.entries(body.vars)) {
-    const strValue = String(value)
-    const existing = lines.find(l => l.type === 'var' && l.key === key)
-
-    if (existing) {
-      existing.value = strValue
-    } else {
-      if (lines.length > 0 && lines[lines.length - 1].type !== 'blank') {
-        lines.push({ type: 'blank', raw: '' })
-      }
-      lines.push({ type: 'var', raw: `${key}=${strValue}`, key, value: strValue })
-    }
+    writeIntegrationSetting(key, String(value))
     updatedKeys.push(key)
   }
-
-  await writeEnvFile(lines)
 
   const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
   logAuditEvent({
@@ -522,47 +393,34 @@ export async function PUT(request: NextRequest) {
 }
 
 // ---------------------------------------------------------------------------
-// DELETE /api/integrations?keys=KEY1,KEY2 — remove env vars
+// DELETE /api/integrations — remove env vars from DB
 // ---------------------------------------------------------------------------
 
 export async function DELETE(request: NextRequest) {
   const auth = requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  let body: any
-  try { body = await request.json() } catch { return NextResponse.json({ error: 'Request body required' }, { status: 400 }) }
-  const keysParam = Array.isArray(body.keys) ? body.keys.join(',') : body.keys
+  // Keys can come from URL query (?keys=A,B) or request body ({ keys: [...] })
+  let keysParam: string | null = request.nextUrl.searchParams.get('keys')
   if (!keysParam) {
-    return NextResponse.json({ error: 'keys parameter required (comma-separated string or array)' }, { status: 400 })
+    try {
+      const body = await request.json()
+      keysParam = Array.isArray(body.keys) ? body.keys.join(',') : (body.keys ?? null)
+    } catch { /* body not provided */ }
   }
+  if (!keysParam) return NextResponse.json({ error: 'keys parameter required' }, { status: 400 })
 
   const keysToRemove = new Set<string>(keysParam.split(',').map((k: string) => k.trim()).filter(Boolean))
-  if (keysToRemove.size === 0) {
-    return NextResponse.json({ error: 'At least one key required' }, { status: 400 })
-  }
+  if (keysToRemove.size === 0) return NextResponse.json({ error: 'At least one key required' }, { status: 400 })
 
   for (const key of keysToRemove) {
-    if (isVarBlocked(key)) {
-      return NextResponse.json({ error: `Cannot remove protected variable: ${key}` }, { status: 403 })
-    }
-  }
-
-  const envData = await readEnvFile()
-  if (!envData) {
-    return NextResponse.json({ error: 'OPENCLAW_STATE_DIR not configured' }, { status: 404 })
+    if (isVarBlocked(key)) return NextResponse.json({ error: `Cannot remove protected variable: ${key}` }, { status: 403 })
   }
 
   const removed: string[] = []
-  const newLines = envData.lines.filter(l => {
-    if (l.type === 'var' && l.key && keysToRemove.has(l.key)) {
-      removed.push(l.key)
-      return false
-    }
-    return true
-  })
-
-  if (removed.length > 0) {
-    await writeEnvFile(newLines)
+  for (const key of keysToRemove) {
+    deleteIntegrationSetting(key)
+    removed.push(key)
   }
 
   const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
@@ -579,7 +437,6 @@ export async function DELETE(request: NextRequest) {
 
 // ---------------------------------------------------------------------------
 // POST /api/integrations — action dispatcher (test, pull)
-// Body: { action: "test"|"pull", integrationId: "..." }
 // ---------------------------------------------------------------------------
 
 export async function POST(request: NextRequest) {
@@ -593,48 +450,25 @@ export async function POST(request: NextRequest) {
   if ('error' in result) return result.error
   const body = result.data
 
-  // pull-all is a batch action — no integrationId needed
-  if (body.action === 'pull-all') {
-    return handlePullAll(request, auth.user, body.category)
-  }
+  if (body.action === 'pull-all') return handlePullAll(request, auth.user, body.category)
 
-  if (!body.integrationId) {
-    return NextResponse.json({ error: 'integrationId required' }, { status: 400 })
-  }
+  if (!body.integrationId) return NextResponse.json({ error: 'integrationId required' }, { status: 400 })
 
   let integration: IntegrationDef | undefined = INTEGRATIONS.find(i => i.id === body.integrationId)
   if (!integration) {
-    // Check plugin integrations
     const pi = getPluginIntegrations().find(i => i.id === body.integrationId)
-    if (pi) {
-      integration = {
-        id: pi.id,
-        name: pi.name,
-        category: pi.category,
-        envVars: pi.envVars,
-        vaultItem: pi.vaultItem,
-        testable: pi.testable,
-        recommendation: pi.recommendation,
-      }
-    }
+    if (pi) integration = { id: pi.id, name: pi.name, category: pi.category, envVars: pi.envVars, vaultItem: pi.vaultItem, testable: pi.testable, recommendation: pi.recommendation }
   }
-  if (!integration) {
-    return NextResponse.json({ error: `Unknown integration: ${body.integrationId}` }, { status: 404 })
-  }
+  if (!integration) return NextResponse.json({ error: `Unknown integration: ${body.integrationId}` }, { status: 404 })
 
-  if (body.action === 'test') {
-    return handleTest(integration, request, auth.user)
-  }
-
-  if (body.action === 'pull') {
-    return handlePull(integration, request, auth.user)
-  }
+  if (body.action === 'test') return handleTest(integration, request, auth.user)
+  if (body.action === 'pull') return handlePull(integration, request, auth.user)
 
   return NextResponse.json({ error: `Unknown action: ${body.action}` }, { status: 400 })
 }
 
 // ---------------------------------------------------------------------------
-// Test connection for an integration
+// Test connection
 // ---------------------------------------------------------------------------
 
 async function handleTest(
@@ -642,19 +476,9 @@ async function handleTest(
   request: NextRequest,
   user: { username: string; id: number }
 ) {
-  if (!integration.testable) {
-    return NextResponse.json({ error: 'This integration does not support testing' }, { status: 400 })
-  }
+  if (!integration.testable) return NextResponse.json({ error: 'This integration does not support testing' }, { status: 400 })
 
-  const envData = await readEnvFile()
-  if (!envData) {
-    return NextResponse.json({ error: 'OPENCLAW_STATE_DIR not configured' }, { status: 404 })
-  }
-
-  const envMap = new Map<string, string>()
-  for (const line of envData.lines) {
-    if (line.type === 'var' && line.key) envMap.set(line.key, line.value!)
-  }
+  const dbMap = readIntegrationSettings()
 
   try {
     let result: { ok: boolean; detail: string }
@@ -662,34 +486,25 @@ async function handleTest(
 
     switch (integration.id) {
       case 'telegram': {
-        const token = getEffectiveEnvValue(envMap, integration.envVars[0])
+        const token = getEffectiveEnvValue(dbMap, integration.envVars[0])
         if (!token) return NextResponse.json({ ok: false, detail: 'Token not set' })
         const res = await fetch(`https://api.telegram.org/bot${token}/getMe`, { signal: AbortSignal.timeout(5000) })
         const data = await res.json()
-        result = data.ok
-          ? { ok: true, detail: `Bot: @${data.result.username}` }
-          : { ok: false, detail: data.description || 'Failed' }
+        result = data.ok ? { ok: true, detail: `Bot: @${data.result.username}` } : { ok: false, detail: data.description || 'Failed' }
         break
       }
-
       case 'github': {
-        const token = getEffectiveEnvValue(envMap, 'GITHUB_TOKEN')
+        const token = getEffectiveEnvValue(dbMap, 'GITHUB_TOKEN')
         if (!token) return NextResponse.json({ ok: false, detail: 'Token not set' })
         const res = await fetch('https://api.github.com/user', {
           headers: { Authorization: `Bearer ${token}`, 'User-Agent': 'MissionControl/1.0' },
           signal: AbortSignal.timeout(5000),
         })
-        if (res.ok) {
-          const data = await res.json()
-          result = { ok: true, detail: `User: ${data.login}` }
-        } else {
-          result = { ok: false, detail: `HTTP ${res.status}` }
-        }
+        result = res.ok ? { ok: true, detail: `User: ${(await res.json()).login}` } : { ok: false, detail: `HTTP ${res.status}` }
         break
       }
-
       case 'anthropic': {
-        const key = getEffectiveEnvValue(envMap, 'ANTHROPIC_API_KEY')
+        const key = getEffectiveEnvValue(dbMap, 'ANTHROPIC_API_KEY')
         if (!key) {
           const sub = providerSubscriptions.active.anthropic
           if (sub) return NextResponse.json({ ok: true, detail: `OAuth/subscription detected: ${sub.type}` })
@@ -700,100 +515,93 @@ async function handleTest(
           headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01' },
           signal: AbortSignal.timeout(5000),
         })
-        result = res.ok
-          ? { ok: true, detail: 'API key valid' }
-          : { ok: false, detail: `HTTP ${res.status}` }
+        result = res.ok ? { ok: true, detail: 'API key valid' } : { ok: false, detail: `HTTP ${res.status}` }
         break
       }
-
       case 'openai': {
-        const key = getEffectiveEnvValue(envMap, 'OPENAI_API_KEY')
+        const key = getEffectiveEnvValue(dbMap, 'OPENAI_API_KEY')
         if (!key) {
           const sub = providerSubscriptions.active.openai
           if (sub) return NextResponse.json({ ok: true, detail: `OAuth/subscription detected: ${sub.type}` })
           return NextResponse.json({ ok: false, detail: 'API key not set' })
         }
         const res = await fetch('https://api.openai.com/v1/models', {
-          headers: { Authorization: `Bearer ${key}` },
-          signal: AbortSignal.timeout(5000),
+          headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(5000),
         })
-        result = res.ok
-          ? { ok: true, detail: 'API key valid' }
-          : { ok: false, detail: `HTTP ${res.status}` }
+        result = res.ok ? { ok: true, detail: 'API key valid' } : { ok: false, detail: `HTTP ${res.status}` }
         break
       }
-
       case 'openrouter': {
-        const key = getEffectiveEnvValue(envMap, 'OPENROUTER_API_KEY')
+        const key = getEffectiveEnvValue(dbMap, 'OPENROUTER_API_KEY')
         if (!key) return NextResponse.json({ ok: false, detail: 'API key not set' })
         const res = await fetch('https://openrouter.ai/api/v1/models', {
-          headers: { Authorization: `Bearer ${key}` },
-          signal: AbortSignal.timeout(5000),
+          headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(5000),
         })
-        result = res.ok
-          ? { ok: true, detail: 'API key valid' }
-          : { ok: false, detail: `HTTP ${res.status}` }
+        result = res.ok ? { ok: true, detail: 'API key valid' } : { ok: false, detail: `HTTP ${res.status}` }
         break
       }
-
+      case 'gemini': {
+        const key = getEffectiveEnvValue(dbMap, 'GEMINI_API_KEY')
+        if (!key) return NextResponse.json({ ok: false, detail: 'API key not set' })
+        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`, {
+          signal: AbortSignal.timeout(5000),
+        })
+        result = res.ok ? { ok: true, detail: 'API key valid' } : { ok: false, detail: `HTTP ${res.status}` }
+        break
+      }
       case 'venice': {
-        const key = getEffectiveEnvValue(envMap, 'VENICE_API_KEY')
+        const key = getEffectiveEnvValue(dbMap, 'VENICE_API_KEY')
         if (!key) return NextResponse.json({ ok: false, detail: 'API key not set' })
         const res = await fetch('https://api.venice.ai/api/v1/models', {
-          headers: { Authorization: `Bearer ${key}` },
-          signal: AbortSignal.timeout(5000),
+          headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(5000),
         })
-        result = res.ok
-          ? { ok: true, detail: 'API key valid' }
-          : { ok: false, detail: `HTTP ${res.status}` }
+        result = res.ok ? { ok: true, detail: 'API key valid' } : { ok: false, detail: `HTTP ${res.status}` }
         break
       }
-
+      case 'deepseek': {
+        const key = getEffectiveEnvValue(dbMap, 'DEEPSEEK_API_KEY')
+        if (!key) return NextResponse.json({ ok: false, detail: 'API key not set' })
+        const res = await fetch('https://api.deepseek.com/models', {
+          headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(5000),
+        })
+        result = res.ok ? { ok: true, detail: 'API key valid' } : { ok: false, detail: `HTTP ${res.status}` }
+        break
+      }
+      case 'groq': {
+        const key = getEffectiveEnvValue(dbMap, 'GROQ_API_KEY')
+        if (!key) return NextResponse.json({ ok: false, detail: 'API key not set' })
+        const res = await fetch('https://api.groq.com/openai/v1/models', {
+          headers: { Authorization: `Bearer ${key}` }, signal: AbortSignal.timeout(5000),
+        })
+        result = res.ok ? { ok: true, detail: 'API key valid' } : { ok: false, detail: `HTTP ${res.status}` }
+        break
+      }
       case 'hyperbrowser': {
-        const key = getEffectiveEnvValue(envMap, 'HYPERBROWSER_API_KEY')
+        const key = getEffectiveEnvValue(dbMap, 'HYPERBROWSER_API_KEY')
         if (!key) return NextResponse.json({ ok: false, detail: 'API key not set' })
         const res = await fetch('https://app.hyperbrowser.ai/api/v2/sessions', {
-          headers: { 'x-api-key': key },
-          signal: AbortSignal.timeout(5000),
+          headers: { 'x-api-key': key }, signal: AbortSignal.timeout(5000),
         })
-        result = res.ok
-          ? { ok: true, detail: 'API key valid' }
-          : { ok: false, detail: `HTTP ${res.status}` }
+        result = res.ok ? { ok: true, detail: 'API key valid' } : { ok: false, detail: `HTTP ${res.status}` }
         break
       }
-
       case 'google_workspace': {
-        const credsFile = getEffectiveEnvValue(envMap, 'GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE')
+        const credsFile = getEffectiveEnvValue(dbMap, 'GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE')
         const gwsAvail = checkCommandAvailable('gws')
-        if (!gwsAvail) {
-          result = { ok: false, detail: 'gws CLI not installed — run: npm i -g @googleworkspace/cli' }
-          break
-        }
+        if (!gwsAvail) { result = { ok: false, detail: 'gws CLI not installed — run: npm i -g @googleworkspace/cli' }; break }
         try {
           const env: NodeJS.ProcessEnv = { ...process.env }
           if (credsFile) env.GOOGLE_WORKSPACE_CLI_CREDENTIALS_FILE = credsFile
-          execFileSync('gws', ['auth', 'status'], {
-            timeout: 10000,
-            stdio: ['pipe', 'pipe', 'pipe'],
-            env,
-          })
+          execFileSync('gws', ['auth', 'status'], { timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'], env })
           result = { ok: true, detail: 'Authenticated' }
         } catch (err: any) {
-          const stderr = err.stderr?.toString() || ''
-          result = { ok: false, detail: stderr.slice(0, 120) || 'Not authenticated — run `gws auth login`' }
+          result = { ok: false, detail: (err.stderr?.toString() || '').slice(0, 120) || 'Not authenticated — run `gws auth login`' }
         }
         break
       }
-
       default: {
-        // Check plugin testHandler first
         const pluginDef = getPluginIntegrations().find(pi => pi.id === integration.id)
-        if (pluginDef?.testHandler) {
-          result = await pluginDef.testHandler(envMap)
-          break
-        }
-
-        // Generic connectivity test: attempt a HEAD request to known base URLs
+        if (pluginDef?.testHandler) { result = await pluginDef.testHandler(dbMap); break }
         const baseUrls: Record<string, string> = {
           nvidia: 'https://api.nvidia.com',
           moonshot: 'https://api.moonshot.cn',
@@ -809,7 +617,7 @@ async function handleTest(
             ? { ok: true, detail: `Reachable (HTTP ${res.status})` }
             : { ok: false, detail: `Unreachable (HTTP ${res.status})` }
         } else {
-          return NextResponse.json({ ok: false, detail: 'No test available — configure the integration URL to enable testing' })
+          return NextResponse.json({ ok: false, detail: 'No test available' })
         }
         break
       }
@@ -831,7 +639,7 @@ async function handleTest(
 }
 
 // ---------------------------------------------------------------------------
-// Pull value from 1Password vault — uses execFileSync (no shell) for safety
+// Pull from 1Password — stores value to DB
 // ---------------------------------------------------------------------------
 
 async function handlePull(
@@ -839,21 +647,14 @@ async function handlePull(
   request: NextRequest,
   user: { username: string; id: number }
 ) {
-  if (!integration.vaultItem) {
-    return NextResponse.json({ error: 'No vault item configured for this integration' }, { status: 400 })
-  }
+  if (!integration.vaultItem) return NextResponse.json({ error: 'No vault item configured' }, { status: 400 })
+  if (!checkOpAvailable()) return NextResponse.json({ error: '1Password CLI (op) is not installed' }, { status: 400 })
 
-  if (!checkOpAvailable()) {
-    return NextResponse.json({ error: '1Password CLI (op) is not installed' }, { status: 400 })
-  }
+  const dbMap = readIntegrationSettings()
+  const opEnv = getOpEnv(dbMap)
+  if (!opEnv.OP_SERVICE_ACCOUNT_TOKEN) return NextResponse.json({ error: 'OP_SERVICE_ACCOUNT_TOKEN not configured' }, { status: 400 })
 
   try {
-    const opEnv = await getOpEnv()
-    if (!opEnv.OP_SERVICE_ACCOUNT_TOKEN) {
-      return NextResponse.json({ error: 'OP_SERVICE_ACCOUNT_TOKEN not found in environment or .env' }, { status: 400 })
-    }
-
-    // execFileSync passes args as array — no shell interpolation possible
     const secret = execFileSync('op', [
       'item', 'get', integration.vaultItem,
       '--vault', process.env.OP_VAULT_NAME || 'default',
@@ -862,61 +663,29 @@ async function handlePull(
     ], { timeout: 15000, stdio: ['pipe', 'pipe', 'pipe'], env: opEnv }).toString().trim()
 
     let value: string
-    try {
-      const parsed = JSON.parse(secret)
-      value = parsed.value || parsed
-    } catch {
-      value = secret
-    }
+    try { const parsed = JSON.parse(secret); value = parsed.value || parsed } catch { value = secret }
 
-    if (!value || value.length === 0) {
-      return NextResponse.json({ error: 'Empty value returned from 1Password' }, { status: 400 })
-    }
+    if (!value?.length) return NextResponse.json({ error: 'Empty value from 1Password' }, { status: 400 })
 
-    // Write to .env
-    const envData = await readEnvFile()
-    if (!envData) {
-      return NextResponse.json({ error: 'OPENCLAW_STATE_DIR not configured' }, { status: 404 })
-    }
-
-    const { lines } = envData
     const envVar = integration.envVars[0]
-
-    const existing = lines.find(l => l.type === 'var' && l.key === envVar)
-    if (existing) {
-      existing.value = value
-    } else {
-      if (lines.length > 0 && lines[lines.length - 1].type !== 'blank') {
-        lines.push({ type: 'blank', raw: '' })
-      }
-      lines.push({ type: 'var', raw: `${envVar}=${value}`, key: envVar, value })
-    }
-
-    await writeEnvFile(lines)
+    writeIntegrationSetting(envVar, value)
 
     const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
     logAuditEvent({
       action: 'integration_pull_1password',
-      actor: user.username,
-      actor_id: user.id,
+      actor: user.username, actor_id: user.id,
       detail: { integration: integration.id, env_var: envVar },
       ip_address: ipAddress,
     })
 
-    return NextResponse.json({
-      ok: true,
-      detail: `Pulled ${envVar} from 1Password`,
-      redacted: redactValue(value),
-    })
+    return NextResponse.json({ ok: true, detail: `Pulled ${envVar} from 1Password`, redacted: redactValue(value) })
   } catch (err: any) {
-    return NextResponse.json({
-      error: `1Password pull failed: ${err.message}`,
-    }, { status: 500 })
+    return NextResponse.json({ error: `1Password pull failed: ${err.message}` }, { status: 500 })
   }
 }
 
 // ---------------------------------------------------------------------------
-// Pull ALL vault-backed integrations from 1Password (optionally by category)
+// Pull ALL vault-backed integrations from 1Password
 // ---------------------------------------------------------------------------
 
 async function handlePullAll(
@@ -924,31 +693,15 @@ async function handlePullAll(
   user: { username: string; id: number },
   category?: string,
 ) {
-  if (!checkOpAvailable()) {
-    return NextResponse.json({ error: '1Password CLI (op) is not installed' }, { status: 400 })
-  }
+  if (!checkOpAvailable()) return NextResponse.json({ error: '1Password CLI (op) is not installed' }, { status: 400 })
 
-  const opEnv = await getOpEnv()
-  if (!opEnv.OP_SERVICE_ACCOUNT_TOKEN) {
-    return NextResponse.json({ error: 'OP_SERVICE_ACCOUNT_TOKEN not found in environment or .env' }, { status: 400 })
-  }
+  const dbMap = readIntegrationSettings()
+  const opEnv = getOpEnv(dbMap)
+  if (!opEnv.OP_SERVICE_ACCOUNT_TOKEN) return NextResponse.json({ error: 'OP_SERVICE_ACCOUNT_TOKEN not configured' }, { status: 400 })
 
-  const targets = INTEGRATIONS.filter(i => {
-    if (!i.vaultItem) return false
-    if (category && i.category !== category) return false
-    return true
-  })
+  const targets = INTEGRATIONS.filter(i => i.vaultItem && (!category || i.category === category))
+  if (targets.length === 0) return NextResponse.json({ error: 'No vault-backed integrations found' }, { status: 400 })
 
-  if (targets.length === 0) {
-    return NextResponse.json({ error: 'No vault-backed integrations found for this category' }, { status: 400 })
-  }
-
-  const envData = await readEnvFile()
-  if (!envData) {
-    return NextResponse.json({ error: 'OPENCLAW_STATE_DIR not configured' }, { status: 404 })
-  }
-
-  const { lines } = envData
   const results: { id: string; envVar: string; ok: boolean; detail: string }[] = []
 
   for (const integration of targets) {
@@ -962,58 +715,25 @@ async function handlePullAll(
       ], { timeout: 15000, stdio: ['pipe', 'pipe', 'pipe'], env: opEnv }).toString().trim()
 
       let value: string
-      try {
-        const parsed = JSON.parse(secret)
-        value = parsed.value || parsed
-      } catch {
-        value = secret
-      }
+      try { const parsed = JSON.parse(secret); value = parsed.value || parsed } catch { value = secret }
 
-      if (!value || value.length === 0) {
-        results.push({ id: integration.id, envVar, ok: false, detail: 'Empty value' })
-        continue
-      }
+      if (!value?.length) { results.push({ id: integration.id, envVar, ok: false, detail: 'Empty value' }); continue }
 
-      // Upsert into lines
-      const existing = lines.find(l => l.type === 'var' && l.key === envVar)
-      if (existing) {
-        existing.value = value
-      } else {
-        if (lines.length > 0 && lines[lines.length - 1].type !== 'blank') {
-          lines.push({ type: 'blank', raw: '' })
-        }
-        lines.push({ type: 'var', raw: `${envVar}=${value}`, key: envVar, value })
-      }
-
+      writeIntegrationSetting(envVar, value)
       results.push({ id: integration.id, envVar, ok: true, detail: `Pulled ${envVar}` })
     } catch (err: any) {
       results.push({ id: integration.id, envVar, ok: false, detail: err.message || 'Failed' })
     }
   }
 
-  // Write .env once after all pulls
   const successCount = results.filter(r => r.ok).length
-  if (successCount > 0) {
-    await writeEnvFile(lines)
-  }
-
   const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
   logAuditEvent({
     action: 'integration_pull_all_1password',
-    actor: user.username,
-    actor_id: user.id,
-    detail: {
-      category: category ?? 'all',
-      success: successCount,
-      failed: results.length - successCount,
-      results: results.map(r => ({ id: r.id, ok: r.ok })),
-    },
+    actor: user.username, actor_id: user.id,
+    detail: { category: category ?? 'all', success: successCount, failed: results.length - successCount },
     ip_address: ipAddress,
   })
 
-  return NextResponse.json({
-    ok: successCount > 0,
-    detail: `Pulled ${successCount}/${results.length} integrations`,
-    results,
-  })
+  return NextResponse.json({ ok: successCount > 0, detail: `Pulled ${successCount}/${results.length} integrations`, results })
 }

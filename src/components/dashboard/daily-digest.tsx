@@ -25,9 +25,9 @@ type DigestData = {
 }
 
 const HEALTH_STYLES: Record<string, { bg: string; text: string; border: string; icon: string; label: string }> = {
-  excellent: { bg: 'bg-emerald-400/10', text: 'text-emerald-400', border: 'border-emerald-400/20', icon: '💚', label: 'Excellent' },
-  good:      { bg: 'bg-blue-400/10', text: 'text-blue-400', border: 'border-blue-400/20', icon: '💙', label: 'Good' },
-  attention: { bg: 'bg-amber-400/10', text: 'text-amber-400', border: 'border-amber-400/20', icon: '💛', label: 'Needs Attention' },
+  excellent: { bg: 'bg-emerald-400/10', text: 'text-emerald-400', border: 'border-emerald-400/20', icon: '💚', label: 'Excelente' },
+  good:      { bg: 'bg-blue-400/10', text: 'text-blue-400', border: 'border-blue-400/20', icon: '💙', label: 'Bom' },
+  attention: { bg: 'bg-amber-400/10', text: 'text-amber-400', border: 'border-amber-400/20', icon: '💛', label: 'Atenção Necessária' },
 }
 
 const CHANNEL_COLORS: Record<string, string> = {
@@ -68,7 +68,7 @@ export function DailyDigest() {
 
   if (!data) return (
     <div className="bg-surface-1 rounded-xl border border-border/50 p-6">
-      <p className="text-muted-foreground text-sm">Daily digest unavailable</p>
+      <p className="text-muted-foreground text-sm">Resumo diário indisponível</p>
     </div>
   )
 
@@ -79,7 +79,7 @@ export function DailyDigest() {
   const dateStr = (() => {
     try {
       const d = new Date(data.date + 'T12:00:00')
-      return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
+      return d.toLocaleDateString('pt-BR', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
     } catch { return data.date }
   })()
 
@@ -91,7 +91,7 @@ export function DailyDigest() {
           <div className="flex items-center gap-3">
             <span className="text-lg">📝</span>
             <div>
-              <h3 className="text-sm font-semibold text-foreground">Daily Digest</h3>
+              <h3 className="text-sm font-semibold text-foreground">Resumo Diário</h3>
               <p className="text-xs text-muted-foreground">{dateStr}</p>
             </div>
           </div>
@@ -102,7 +102,7 @@ export function DailyDigest() {
             </span>
             {/* Events count */}
             <span className="px-2 py-0.5 rounded-full text-2xs font-mono bg-violet-400/10 text-violet-300 border border-violet-400/20">
-              {data.total_events > 999 ? `${(data.total_events / 1000).toFixed(1)}K` : data.total_events} events
+              {data.total_events > 999 ? `${(data.total_events / 1000).toFixed(1)}K` : data.total_events} eventos
             </span>
           </div>
         </div>
@@ -122,7 +122,7 @@ export function DailyDigest() {
       <div className="grid grid-cols-2 divide-x divide-border/20">
         {/* Highlights */}
         <div className="px-5 py-3">
-          <span className="text-2xs text-muted-foreground uppercase tracking-wider">Highlights</span>
+          <span className="text-2xs text-muted-foreground uppercase tracking-wider">Destaques</span>
           <div className="mt-2 space-y-1.5">
             {data.highlights.map((h, i) => (
               <div key={i} className="text-xs text-foreground/80 flex items-start gap-2">
@@ -135,7 +135,7 @@ export function DailyDigest() {
 
         {/* Channel breakdown */}
         <div className="px-5 py-3">
-          <span className="text-2xs text-muted-foreground uppercase tracking-wider">Channel Breakdown</span>
+          <span className="text-2xs text-muted-foreground uppercase tracking-wider">Canais</span>
           <div className="mt-2 space-y-1.5">
             {Object.entries(data.channels)
               .sort(([, a], [, b]) => b - a)
@@ -167,9 +167,9 @@ export function DailyDigest() {
       {/* Stats strip */}
       <div className="grid grid-cols-4 divide-x divide-border/20 border-t border-border/20">
         {[
-          { icon: '⏰', label: 'Routines', value: `${data.routines.ran}/${data.routines.total}` },
-          { icon: '✍️', label: 'Drafts', value: String(data.drafts_today) },
-          { icon: data.errors_today === 0 ? '✅' : '⚠️', label: 'Errors', value: data.errors_today > 999 ? `${(data.errors_today / 1000).toFixed(1)}K` : String(data.errors_today) },
+          { icon: '⏰', label: 'Rotinas', value: `${data.routines.ran}/${data.routines.total}` },
+          { icon: '✍️', label: 'Rascunhos', value: String(data.drafts_today) },
+          { icon: data.errors_today === 0 ? '✅' : '⚠️', label: 'Erros', value: data.errors_today > 999 ? `${(data.errors_today / 1000).toFixed(1)}K` : String(data.errors_today) },
           { icon: '⬆️', label: 'Uptime', value: data.uptime || '—' },
         ].map(({ icon, label, value }) => (
           <div key={label} className="px-3 py-2.5 text-center">

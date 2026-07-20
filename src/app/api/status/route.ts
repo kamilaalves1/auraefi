@@ -12,13 +12,22 @@ import { MODEL_CATALOG } from '@/lib/models'
 import { logger } from '@/lib/logger'
 import { detectProviderSubscriptions, getPrimarySubscription } from '@/lib/provider-subscriptions'
 import { APP_VERSION } from '@/lib/version'
-import { isHermesInstalled, scanHermesSessions } from '@/lib/hermes-sessions'
 import { registerMcAsDashboard } from '@/lib/gateway-runtime'
 
 export async function GET(request: NextRequest) {
-  // Docker/Kubernetes health probes must work without auth/cookies.
+  // Health probes for Docker/Kubernetes: restrict to loopback or authenticated callers only.
+  // This prevents external fingerprinting (version, RAM, disk usage).
   const preAction = new URL(request.url).searchParams.get('action') || 'overview'
   if (preAction === 'health') {
+    const clientIp = request.headers.get('x-real-ip')
+      || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+      || '127.0.0.1'
+    const isLoopback = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp.startsWith('172.') || clientIp.startsWith('10.') || clientIp.startsWith('192.168.')
+    if (!isLoopback) {
+      // External caller — require at least viewer auth
+      const healthAuth = requireRole(request, 'viewer')
+      if ('error' in healthAuth) return NextResponse.json({ status: 'ok' }, { status: 200 }) // minimal response without details
+    }
     const health = await performHealthCheck()
     return NextResponse.json(health)
   }
@@ -681,14 +690,6 @@ async function getCapabilities(request?: NextRequest) {
     // settings table may not exist yet
   }
 
-  const hermesInstalled = isHermesInstalled()
-  let hermesSessions = 0
-  if (hermesInstalled) {
-    try {
-      hermesSessions = scanHermesSessions(50).filter(s => s.isActive).length
-    } catch { /* ignore */ }
-  }
-
   // Auto-register MC as default dashboard when gateway + openclaw home detected
   let dashboardRegistration: { registered: boolean; alreadySet: boolean } | null = null
   if (gateway && openclawHome) {
@@ -709,7 +710,7 @@ async function getCapabilities(request?: NextRequest) {
 
   const isDocker = existsSync('/.dockerenv')
 
-  return { gateway, openclawHome, claudeHome, claudeSessions, hermesInstalled, hermesSessions, subscription, subscriptions, processUser, interfaceMode, dashboardRegistration, isDocker }
+  return { gateway, openclawHome, claudeHome, claudeSessions, subscription, subscriptions, processUser, interfaceMode, dashboardRegistration, isDocker }
 }
 
 function isPortOpen(host: string, port: number): Promise<boolean> {

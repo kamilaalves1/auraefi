@@ -146,13 +146,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'path must start with /' }, { status: 400 })
   }
 
-  const normalizedPath = path.split('?')[0]
+  const normalizedPath = path.split('?')[0].replace(/\/\.\.(?=\/|$)/g, '').replace(/\/\./g, '')
   if (!ALLOWED_GATEWAY_PATHS.some(allowed => normalizedPath === allowed || normalizedPath.startsWith(allowed + '/'))) {
     return NextResponse.json({ error: 'Path not in allowed gateway paths' }, { status: 403 })
   }
 
+  const queryStr = path.includes('?') ? path.slice(path.indexOf('?')) : ''
+  const safePath = normalizedPath + queryStr
+
   try {
-    const res = await gatewayFetch(path, {
+    const res = await gatewayFetch(safePath, {
       method,
       body: callBody ? JSON.stringify(callBody) : undefined,
       timeoutMs: 5000,

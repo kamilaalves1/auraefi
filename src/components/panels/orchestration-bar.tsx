@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { PipelineTab } from './pipeline-tab'
+import { useWorkspaceSquadActive } from '@/lib/use-workspace-squad-active'
+import { SquadSetupGate } from '@/components/workspace/squad-setup-gate'
 
 interface Agent {
   id: number
@@ -43,15 +45,10 @@ const emptyForm: TemplateFormData = {
 
 export function OrchestrationBar() {
   const t = useTranslations('orchestration')
+  const { squadActive, squadActiveLoading } = useWorkspaceSquadActive()
   const [agents, setAgents] = useState<Agent[]>([])
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([])
-  const [activeTab, setActiveTab] = useState<'command' | 'templates' | 'pipelines' | 'fleet'>('command')
-
-  // Command state
-  const [selectedAgent, setSelectedAgent] = useState('')
-  const [message, setMessage] = useState('')
-  const [sending, setSending] = useState(false)
-  const [commandResult, setCommandResult] = useState<{ ok: boolean; text: string } | null>(null)
+  const [activeTab, setActiveTab] = useState<'templates' | 'pipelines' | 'fleet'>('templates')
 
   // Template state
   const [formMode, setFormMode] = useState<'hidden' | 'create' | 'edit'>('hidden')
@@ -61,6 +58,7 @@ export function OrchestrationBar() {
   const [filterTag, setFilterTag] = useState<string | null>(null)
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [spawning, setSpawning] = useState<number | null>(null)
+  const [templateRunFeedback, setTemplateRunFeedback] = useState<{ ok: boolean; text: string } | null>(null)
 
   const fetchData = useCallback(async () => {
     const [agentRes, templateRes] = await Promise.all([
@@ -80,32 +78,6 @@ export function OrchestrationBar() {
   const filteredTemplates = filterTag
     ? templates.filter(t => t.tags?.includes(filterTag))
     : templates
-
-  // Send message to agent
-  const sendCommand = async () => {
-    if (!selectedAgent || !message.trim()) return
-    setSending(true)
-    setCommandResult(null)
-
-    try {
-      const res = await fetch('/api/agents/message', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ to: selectedAgent, content: message, from: 'operator' })
-      })
-      const data = await res.json()
-      if (res.ok) {
-        setCommandResult({ ok: true, text: `Message sent to ${selectedAgent}` })
-        setMessage('')
-      } else {
-        setCommandResult({ ok: false, text: data.error || 'Failed to send' })
-      }
-    } catch {
-      setCommandResult({ ok: false, text: 'Network error' })
-    } finally {
-      setSending(false)
-    }
-  }
 
   // Execute workflow template
   const executeTemplate = async (template: WorkflowTemplate) => {
@@ -128,14 +100,14 @@ export function OrchestrationBar() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ id: template.id })
         })
-        setCommandResult({ ok: true, text: `Spawned "${template.name}"` })
+        setTemplateRunFeedback({ ok: true, text: `Spawned "${template.name}"` })
         fetchData()
       } else {
         const data = await res.json()
-        setCommandResult({ ok: false, text: data.error || 'Spawn failed' })
+        setTemplateRunFeedback({ ok: false, text: data.error || 'Spawn failed' })
       }
     } catch {
-      setCommandResult({ ok: false, text: 'Network error' })
+      setTemplateRunFeedback({ ok: false, text: 'Network error' })
     } finally {
       setSpawning(null)
     }
@@ -229,7 +201,7 @@ export function OrchestrationBar() {
     <div className="border-b border-border bg-card/50">
       {/* Tab bar */}
       <div className="flex items-center gap-1 px-4 pt-2">
-        {(['command', 'templates', 'pipelines', 'fleet'] as const).map(tab => (
+        {(['templates', 'pipelines', 'fleet'] as const).map(tab => (
           <Button
             key={tab}
             onClick={() => setActiveTab(tab)}
@@ -241,7 +213,7 @@ export function OrchestrationBar() {
                 : ''
             }`}
           >
-            {tab === 'command' ? t('tabCommand') : tab === 'templates' ? t('tabWorkflows') : tab === 'pipelines' ? t('tabPipelines') : t('tabFleet')}
+            {tab === 'templates' ? t('tabWorkflows') : tab === 'pipelines' ? t('tabPipelines') : t('tabFleet')}
             {tab === 'fleet' && (
               <span className={`ml-1.5 text-2xs ${errorCount > 0 ? 'text-red-400' : 'text-green-400'}`}>
                 {onlineCount}/{agents.length}
@@ -250,53 +222,25 @@ export function OrchestrationBar() {
           </Button>
         ))}
 
-        {/* Result toast inline */}
-        {commandResult && (
-          <span className={`ml-auto text-xs ${commandResult.ok ? 'text-green-400' : 'text-red-400'}`}>
-            {commandResult.text}
-          </span>
-        )}
       </div>
-
-      {/* Command Tab */}
-      {activeTab === 'command' && (
-        <div className="p-4 pt-3">
-          <div className="flex gap-2">
-            <select
-              value={selectedAgent}
-              onChange={(e) => setSelectedAgent(e.target.value)}
-              className="h-9 px-2 rounded-md bg-secondary border border-border text-sm text-foreground min-w-[140px]"
-            >
-              <option value="">{t('selectAgent')}</option>
-              {agents.length === 0 && (
-                <option value="" disabled>{t('noAgentsRegistered')}</option>
-              )}
-              {agents.map(a => (
-                <option key={a.name} value={a.name} disabled={!a.session_key} title={!a.session_key ? 'Agent has no active session' : undefined}>
-                  {a.name} ({a.status}){!a.session_key ? ` — ${t('noSessionSuffix')}` : ''}
-                </option>
-              ))}
-            </select>
-            <input
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && sendCommand()}
-              placeholder={t('commandPlaceholder')}
-              className="flex-1 h-9 px-3 rounded-md bg-secondary border border-border text-sm text-foreground placeholder:text-muted-foreground"
-            />
-            <Button
-              onClick={sendCommand}
-              disabled={!selectedAgent || !message.trim() || sending}
-            >
-              {sending ? '...' : t('send')}
-            </Button>
-          </div>
-        </div>
-      )}
 
       {/* Workflows Tab */}
       {activeTab === 'templates' && (
         <div className="p-4 pt-3">
+          {squadActiveLoading ? (
+            <p className="text-sm text-muted-foreground">{t('loadingSquadState')}</p>
+          ) : squadActive === false ? (
+            <SquadSetupGate reasonKey="templatesLocked" />
+          ) : (
+            <>
+          {templateRunFeedback && (
+            <p
+              className={`text-xs mb-2 ${templateRunFeedback.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'}`}
+              role="status"
+            >
+              {templateRunFeedback.text}
+            </p>
+          )}
           {templates.length === 0 && formMode === 'hidden' ? (
             <div className="text-center py-4">
               <p className="text-sm text-muted-foreground mb-2">{t('noTemplates')}</p>
@@ -523,13 +467,21 @@ export function OrchestrationBar() {
               </div>
             </>
           )}
+            </>
+          )}
         </div>
       )}
 
       {/* Pipelines Tab */}
       {activeTab === 'pipelines' && (
         <div className="p-4 pt-3">
-          <PipelineTab />
+          {squadActiveLoading ? (
+            <p className="text-sm text-muted-foreground">{t('loadingSquadState')}</p>
+          ) : squadActive === false ? (
+            <SquadSetupGate reasonKey="pipelinesLocked" />
+          ) : (
+            <PipelineTab />
+          )}
         </div>
       )}
 

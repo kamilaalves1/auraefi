@@ -65,7 +65,7 @@ export async function PUT(
     const { id } = await params
     const workspaceId = auth.user.workspace_id ?? 1;
     const body = await request.json()
-    const { role, gateway_config, write_to_gateway } = body
+    const { role, gateway_config, write_to_gateway, model, instructions } = body
 
     let agent
     if (isNaN(Number(id))) {
@@ -112,6 +112,16 @@ export async function PUT(
       if (role !== undefined) {
         fields.push('role = ?')
         values.push(role)
+      }
+
+      if (model !== undefined) {
+        fields.push('model = ?')
+        values.push(String(model))
+      }
+
+      if (instructions !== undefined) {
+        fields.push('instructions = ?')
+        values.push(String(instructions))
       }
 
       if (gateway_config) {

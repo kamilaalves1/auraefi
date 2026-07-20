@@ -2,7 +2,7 @@
  * Spawn History — durable persistence for agent spawn events.
  *
  * Replaces log-scraping fallback with DB-backed spawn tracking.
- * Every agent session spawn (claude-code, codex-cli, hermes) is recorded
+ * Every agent session spawn (claude-code, codex-cli) is recorded
  * with status, duration, and error details for diagnostics and attribution.
  */
 

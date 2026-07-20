@@ -1,5 +1,9 @@
 const withNextIntl = require('next-intl/plugin')('./src/i18n/request.ts')
 
+if (process.env.NODE_ENV === 'production' && process.env.MC_DISABLE_HSTS === '1') {
+  console.warn('[security] MC_DISABLE_HSTS=1 is set in production — HSTS is disabled. Users are vulnerable to SSL stripping attacks.')
+}
+
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   output: 'standalone',

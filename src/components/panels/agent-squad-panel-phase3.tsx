@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { useTranslations } from 'next-intl'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
+import { useLocale, useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { Loader } from '@/components/ui/loader'
 import { useSmartPoll } from '@/lib/use-smart-poll'
@@ -9,20 +9,12 @@ import { createClientLogger } from '@/lib/client-logger'
 import { AgentAvatar } from '@/components/ui/agent-avatar'
 import {
   OverviewTab,
-  SoulTab,
-  MemoryTab,
-  TasksTab,
   ActivityTab,
-  ConfigTab,
-  FilesTab,
-  ToolsTab,
-  ChannelsTab,
-  CronTab,
-  ModelsTab,
-  CreateAgentModal
 } from './agent-detail-tabs'
 import { formatModelName, buildTaskStatParts } from '@/lib/agent-card-helpers'
 import { useMissionControl, type Agent } from '@/store'
+import { getSoftwareEngineeringPhasesForLocale } from '@/lib/software-engineering-squad'
+import { useWorkspaceSquadActive } from '@/lib/use-workspace-squad-active'
 
 const log = createClientLogger('AgentSquadPhase3')
 
@@ -94,48 +86,20 @@ const statusCardStyles: Record<string, { edge: string; glow: string; dot: string
 }
 
 export function AgentSquadPanelPhase3() {
+  const locale = useLocale()
   const t = useTranslations('agentSquadPhase3')
+  const swePhases = useMemo(() => getSoftwareEngineeringPhasesForLocale(locale), [locale])
   const { agents, setAgents } = useMissionControl()
   const [loading, setLoading] = useState(agents.length === 0)
   const [error, setError] = useState<string | null>(null)
   const [selectedAgent, setSelectedAgent] = useState<Agent | null>(null)
-  const [showCreateModal, setShowCreateModal] = useState(false)
   const [showQuickSpawnModal, setShowQuickSpawnModal] = useState(false)
   const [autoRefresh, setAutoRefresh] = useState(true)
-  const [syncing, setSyncing] = useState(false)
   const [syncToast, setSyncToast] = useState<string | null>(null)
   const [showHidden, setShowHidden] = useState(false)
-
-  // Sync agents from gateway config or local disk
-  const syncFromConfig = async (source?: 'local') => {
-    setSyncing(true)
-    setSyncToast(null)
-    try {
-      const url = source === 'local' ? '/api/agents/sync?source=local' : '/api/agents/sync'
-      const response = await fetch(url, { method: 'POST' })
-      if (response.status === 401) {
-        window.location.assign('/login?next=%2Fagents')
-        return
-      }
-      const data = await response.json()
-      if (response.status === 403) {
-        throw new Error('Admin access required for agent sync')
-      }
-      if (!response.ok) throw new Error(data.error || 'Sync failed')
-      if (source === 'local') {
-        setSyncToast(data.message || 'Local agent sync complete')
-      } else {
-        setSyncToast(`Synced ${data.synced} agents (${data.created} new, ${data.updated} updated)`)
-      }
-      fetchAgents()
-      setTimeout(() => setSyncToast(null), 5000)
-    } catch (err: any) {
-      setSyncToast(`Sync failed: ${err.message}`)
-      setTimeout(() => setSyncToast(null), 5000)
-    } finally {
-      setSyncing(false)
-    }
-  }
+  const [swePresetLoading, setSwePresetLoading] = useState(false)
+  const [squadConfirmLoading, setSquadConfirmLoading] = useState(false)
+  const { squadActive, refreshSquadState } = useWorkspaceSquadActive()
 
   // Fetch agents
   const fetchAgents = useCallback(async () => {
@@ -244,6 +208,81 @@ export function AgentSquadPanelPhase3() {
     }
   }
 
+  const installSoftwareEngineeringPreset = async () => {
+    setSwePresetLoading(true)
+    setSyncToast(null)
+    try {
+      const res = await fetch('/api/agents/presets/software-engineering', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          skip_existing: true,
+          write_to_gateway: false,
+          provision_openclaw_workspace: false,
+          locale,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 401) {
+        window.location.assign('/login?next=%2Fagents')
+        return
+      }
+      if (!res.ok) throw new Error(data.error || t('swePresetError'))
+      const parts = [
+        t('swePresetResult', {
+          createdCount: data.created?.length ?? 0,
+          skippedCount: data.skipped?.length ?? 0,
+          errorCount: data.errors?.length ?? 0,
+        }),
+      ]
+      if (Array.isArray(data.errors) && data.errors.length > 0) {
+        parts.push(
+          data.errors.map((e: { name: string; error: string }) => `${e.name}: ${e.error}`).join(' · '),
+        )
+      }
+      if (Array.isArray(data.warnings) && data.warnings.length > 0) {
+        parts.push(data.warnings.join(' · '))
+      }
+      setSyncToast(parts.filter(Boolean).join(' '))
+      await fetchAgents()
+      await refreshSquadState()
+      setTimeout(() => setSyncToast(null), 8000)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : t('swePresetError')
+      setSyncToast(msg)
+      setTimeout(() => setSyncToast(null), 5000)
+    } finally {
+      setSwePresetLoading(false)
+    }
+  }
+
+  const confirmSquadReady = async () => {
+    if (agents.length === 0) return
+    setSquadConfirmLoading(true)
+    setSyncToast(null)
+    try {
+      const res = await fetch('/api/workspace/squad-state', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ squad_active: true }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 401) {
+        window.location.assign('/login?next=%2Fagents')
+        return
+      }
+      if (!res.ok) throw new Error(data.error || t('squadConfirmError'))
+      setSyncToast(t('squadConfirmedToast'))
+      await refreshSquadState()
+      setTimeout(() => setSyncToast(null), 6000)
+    } catch (e: unknown) {
+      setSyncToast(e instanceof Error ? e.message : t('squadConfirmError'))
+      setTimeout(() => setSyncToast(null), 5000)
+    } finally {
+      setSquadConfirmLoading(false)
+    }
+  }
+
   const deleteAgent = async (agentId: number, removeWorkspace: boolean) => {
     const previousAgents = agents
     setAgents(agents.filter((agent) => agent.id !== agentId))
@@ -301,7 +340,7 @@ export function AgentSquadPanelPhase3() {
   }, {} as Record<string, number>)
 
   if (loading && agents.length === 0) {
-    return <Loader variant="panel" label="Loading agents" />
+    return <Loader variant="panel" label="Carregando agentes" />
   }
 
   return (
@@ -339,33 +378,11 @@ export function AgentSquadPanelPhase3() {
             {autoRefresh ? t('live') : t('manual')}
           </Button>
           <Button
-            onClick={() => syncFromConfig()}
-            disabled={syncing}
-            size="sm"
-            className="bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30"
-          >
-            {syncing ? t('syncing') : t('syncConfig')}
-          </Button>
-          <Button
-            onClick={() => syncFromConfig('local')}
-            disabled={syncing}
-            size="sm"
-            className="bg-violet-500/20 text-violet-400 border border-violet-500/30 hover:bg-violet-500/30"
-          >
-            {t('syncLocal')}
-          </Button>
-          <Button
             onClick={() => setShowHidden(!showHidden)}
             variant={showHidden ? 'success' : 'secondary'}
             size="sm"
           >
             {showHidden ? 'Showing hidden' : 'Show hidden'}
-          </Button>
-          <Button
-            onClick={() => setShowCreateModal(true)}
-            size="sm"
-          >
-            {t('addAgent')}
           </Button>
           <Button
             onClick={fetchAgents}
@@ -401,6 +418,85 @@ export function AgentSquadPanelPhase3() {
 
       {/* Agent Grid */}
       <div className="flex-1 p-4 overflow-y-auto">
+        <section
+          className="mb-6 rounded-xl border border-border bg-card p-4 text-foreground shadow-sm"
+          aria-labelledby="swe-preset-heading"
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 id="swe-preset-heading" className="text-base font-semibold tracking-tight">
+                {t('swePresetTitle')}
+              </h3>
+              <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{t('swePresetSubtitle')}</p>
+              <p className="mt-2 text-xs text-muted-foreground/90">{t('swePresetGatewayHint')}</p>
+              {squadActive === false && (
+                <p className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-200/90">
+                  {t('squadGateHint')}
+                </p>
+              )}
+            </div>
+            <div className="flex flex-col gap-2 shrink-0 sm:items-end">
+              {squadActive ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={swePresetLoading}
+                  onClick={() => void installSoftwareEngineeringPreset()}
+                >
+                  {swePresetLoading ? t('swePresetInstalling') : t('swePresetReinstall')}
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    disabled={swePresetLoading}
+                    onClick={() => void installSoftwareEngineeringPreset()}
+                  >
+                    {swePresetLoading ? t('swePresetInstalling') : t('swePresetInstall')}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    disabled={squadConfirmLoading || agents.length === 0}
+                    onClick={() => void confirmSquadReady()}
+                  >
+                    {squadConfirmLoading ? t('squadConfirming') : t('squadConfirmManual')}
+                  </Button>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {swePhases.map((phase) => (
+              <div
+                key={phase.id}
+                className={`rounded-lg border p-3 text-foreground ${phase.cardClass}`}
+              >
+                <div className="text-2xs font-semibold uppercase tracking-wide text-foreground/80">
+                  {t(phase.titleKey)}
+                </div>
+                <ul className="mt-2 space-y-2">
+                  {phase.members.map((m) => (
+                    <li key={m.name} className="flex items-start gap-2 text-sm">
+                      <span className="text-lg leading-none" aria-hidden>
+                        {m.emoji}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-medium leading-tight">{m.name}</div>
+                        <div className="text-2xs capitalize text-muted-foreground">{m.roleLabel}</div>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </section>
+
         {agents.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground/50">
             <div className="w-12 h-12 rounded-full bg-surface-2 flex items-center justify-center mb-3">
@@ -555,14 +651,6 @@ export function AgentSquadPanelPhase3() {
         />
       )}
 
-      {/* Create Agent Modal */}
-      {showCreateModal && (
-        <CreateAgentModal
-          onClose={() => setShowCreateModal(false)}
-          onCreated={fetchAgents}
-        />
-      )}
-
       {/* Quick Spawn Modal */}
       {showQuickSpawnModal && selectedAgent && (
         <QuickSpawnModal
@@ -595,7 +683,7 @@ function AgentDetailModalPhase3({
   onDelete: (agentId: number, removeWorkspace: boolean) => Promise<void>
 }) {
   const [agentState, setAgentState] = useState<Agent & { config?: any; working_memory?: string }>(agent as Agent & { config?: any; working_memory?: string })
-  const [activeTab, setActiveTab] = useState<'overview' | 'soul' | 'memory' | 'config' | 'tasks' | 'activity' | 'files' | 'tools' | 'channels' | 'cron' | 'models'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'instructions' | 'activity'>('overview')
   const [editing, setEditing] = useState(false)
   const [formData, setFormData] = useState({
     role: agent.role,
@@ -717,10 +805,7 @@ function AgentDetailModalPhase3({
       }
     }
     
-    if (activeTab === 'soul') {
-      loadTemplates()
-    }
-  }, [activeTab, agent.name])
+  }, [agent.name])
 
   // Perform heartbeat check
   const performHeartbeat = async () => {
@@ -822,16 +907,8 @@ function AgentDetailModalPhase3({
 
   const tabs = [
     { id: 'overview', label: 'Overview', icon: 'O' },
-    { id: 'files', label: 'Files', icon: 'F' },
-    { id: 'tools', label: 'Tools', icon: 'W' },
-    { id: 'models', label: 'Models', icon: 'P' },
-    { id: 'channels', label: 'Channels', icon: 'H' },
-    { id: 'cron', label: 'Cron', icon: 'R' },
-    { id: 'soul', label: 'SOUL', icon: 'S' },
-    { id: 'memory', label: 'Memory', icon: 'M' },
-    { id: 'tasks', label: 'Tasks', icon: 'T' },
-    { id: 'config', label: 'Config', icon: 'C' },
-    { id: 'activity', label: 'Activity', icon: 'A' }
+    { id: 'instructions', label: 'Instruções', icon: 'I' },
+    { id: 'activity', label: 'Atividade', icon: 'A' },
   ]
 
   const handleDelete = async (removeWorkspace: boolean) => {
@@ -891,7 +968,7 @@ function AgentDetailModalPhase3({
                   variant="ghost"
                   size="icon-sm"
                   className="text-muted-foreground hover:text-rose-400"
-                  title="Delete agent"
+                  title="Excluir agente"
                   onClick={() => setShowDeleteMenu(prev => !prev)}
                 >
                   <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -988,55 +1065,9 @@ function AgentDetailModalPhase3({
               onPerformHeartbeat={performHeartbeat}
             />
           )}
-          
-          {activeTab === 'soul' && (
-            <SoulTab
-              agent={agentState}
-              soulContent={formData.soul_content}
-              templates={soulTemplates}
-              onSave={handleSoulSave}
-            />
-          )}
-          
-          {activeTab === 'memory' && (
-            <MemoryTab
-              agent={agentState}
-              workingMemory={formData.working_memory}
-              onSave={handleMemorySave}
-            />
-          )}
-          
-          {activeTab === 'tasks' && (
-            <TasksTab agent={agentState} />
-          )}
-          
-          {activeTab === 'config' && (
-            <ConfigTab
-              agent={agentState}
-              workspaceFiles={workspaceFiles}
-              onSaveWorkspaceFile={handleWorkspaceFileSave}
-              onSave={onUpdate}
-            />
-          )}
 
-          {activeTab === 'files' && (
-            <FilesTab agent={agentState} />
-          )}
-
-          {activeTab === 'tools' && (
-            <ToolsTab agent={agentState} />
-          )}
-
-          {activeTab === 'channels' && (
-            <ChannelsTab agent={agentState} />
-          )}
-
-          {activeTab === 'cron' && (
-            <CronTab agent={agentState} />
-          )}
-
-          {activeTab === 'models' && (
-            <ModelsTab agent={agentState} />
+          {activeTab === 'instructions' && (
+            <InstructionsTab agent={agentState} onSaved={(patch) => setAgentState(prev => ({ ...prev, ...patch }))} />
           )}
 
           {activeTab === 'activity' && (
@@ -1215,6 +1246,65 @@ function QuickSpawnModal({
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+function InstructionsTab({
+  agent,
+  onSaved,
+}: {
+  agent: Agent & { model?: string; instructions?: string }
+  onSaved: (patch: { instructions?: string }) => void
+}) {
+  const [instructions, setInstructions] = useState(agent.instructions || '')
+  const [saving, setSaving] = useState(false)
+  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/agents/${agent.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instructions }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Erro ao salvar')
+      onSaved({ instructions })
+      setFeedback({ ok: true, text: 'Salvo com sucesso' })
+    } catch (err: any) {
+      setFeedback({ ok: false, text: err.message || 'Erro ao salvar' })
+    } finally {
+      setSaving(false)
+      setTimeout(() => setFeedback(null), 3000)
+    }
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="space-y-2">
+        <label className="block text-sm font-medium text-foreground">Instruções (system prompt)</label>
+        <p className="text-xs text-muted-foreground">
+          Descreva o comportamento, responsabilidades e contexto deste agente. Será usado como system prompt em todas as tarefas.
+        </p>
+        <textarea
+          value={instructions}
+          onChange={(e) => setInstructions(e.target.value)}
+          rows={12}
+          className="w-full px-3 py-2 bg-surface-1 border border-border rounded text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50 text-sm font-mono resize-y"
+          placeholder={`Exemplo:\nVocê é um desenvolvedor backend sênior especialista em TypeScript e Node.js.\nSua responsabilidade é analisar os requisitos do card, implementar a solução e descrever as mudanças realizadas de forma clara.\nSempre siga as boas práticas de código limpo e escreva código testável.`}
+        />
+      </div>
+
+      {feedback && (
+        <div className={`rounded-md px-3 py-2 text-xs font-medium ${feedback.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+          {feedback.text}
+        </div>
+      )}
+
+      <Button onClick={handleSave} disabled={saving} size="sm">
+        {saving ? 'Salvando...' : 'Salvar'}
+      </Button>
     </div>
   )
 }

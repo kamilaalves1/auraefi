@@ -97,6 +97,12 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
     }
 
+    if (password !== undefined && password !== null) {
+      if (typeof password !== 'string' || password.length < 12) {
+        return NextResponse.json({ error: 'Password must be at least 12 characters' }, { status: 400 })
+      }
+    }
+
     // Prevent demoting yourself
     if (userId === currentUser.id && role && role !== currentUser.role) {
       return NextResponse.json({ error: 'Cannot change your own role' }, { status: 400 })

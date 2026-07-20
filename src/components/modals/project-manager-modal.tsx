@@ -69,7 +69,7 @@ export function ProjectManagerModal({
         fetch('/api/agents')
       ])
       const projectsData = await projectsRes.json()
-      if (!projectsRes.ok) throw new Error(projectsData.error || 'Failed to load projects')
+      if (!projectsRes.ok) throw new Error(projectsData.error || 'Falha ao carregar projetos')
       setProjects(projectsData.projects || [])
 
       if (agentsRes.ok) {
@@ -78,7 +78,7 @@ export function ProjectManagerModal({
       }
       setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load projects')
+      setError(err instanceof Error ? err.message : 'Falha ao carregar projetos')
     } finally {
       setLoading(false)
     }
@@ -102,12 +102,12 @@ export function ProjectManagerModal({
         })
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to create project')
+      if (!response.ok) throw new Error(data.error || 'Falha ao criar projeto')
       setForm({ name: '', ticket_prefix: '', description: '' })
       await load()
       await onChanged?.()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create project')
+      setError(err instanceof Error ? err.message : 'Falha ao criar projeto')
     }
   }
 
@@ -119,24 +119,24 @@ export function ProjectManagerModal({
         body: JSON.stringify({ status: project.status === 'active' ? 'archived' : 'active' })
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to update project')
+      if (!response.ok) throw new Error(data.error || 'Falha ao atualizar projeto')
       await load()
       await onChanged?.()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update project')
+      setError(err instanceof Error ? err.message : 'Falha ao atualizar projeto')
     }
   }
 
   const deleteProject = async (project: Project) => {
-    if (!confirm(`Delete project "${project.name}"? Existing tasks will be moved to General.`)) return
+    if (!confirm(`Excluir projeto "${project.name}"? As tarefas existentes serão movidas para Geral.`)) return
     try {
       const response = await fetch(`/api/projects/${project.id}?mode=delete`, { method: 'DELETE' })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to delete project')
+      if (!response.ok) throw new Error(data.error || 'Falha ao excluir projeto')
       await load()
       await onChanged?.()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete project')
+      setError(err instanceof Error ? err.message : 'Falha ao excluir projeto')
     }
   }
 
@@ -173,7 +173,7 @@ export function ProjectManagerModal({
         body: JSON.stringify(body)
       })
       const data = await response.json()
-      if (!response.ok) throw new Error(data.error || 'Failed to update project')
+      if (!response.ok) throw new Error(data.error || 'Falha ao atualizar projeto')
 
       // Sync agent assignments
       const currentAgents = project.assigned_agents || []
@@ -198,7 +198,7 @@ export function ProjectManagerModal({
       await load()
       await onChanged?.()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update project')
+      setError(err instanceof Error ? err.message : 'Falha ao atualizar projeto')
     }
   }
 
@@ -218,7 +218,7 @@ export function ProjectManagerModal({
       <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="projects-title" className="bg-card border border-border rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto">
         <div className="p-6 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 id="projects-title" className="text-xl font-bold text-foreground">Project Management</h3>
+            <h3 id="projects-title" className="text-xl font-bold text-foreground">Gerenciamento de Projetos</h3>
             <Button variant="ghost" size="icon-sm" onClick={onClose} className="text-xl">&times;</Button>
           </div>
 
@@ -230,7 +230,7 @@ export function ProjectManagerModal({
                 type="text"
                 value={form.name}
                 onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                placeholder="Project name"
+                placeholder="Nome do projeto"
                 className="bg-surface-1 text-foreground border border-border rounded-md px-3 py-2"
                 required
               />
@@ -238,24 +238,24 @@ export function ProjectManagerModal({
                 type="text"
                 value={form.ticket_prefix}
                 onChange={(e) => setForm((prev) => ({ ...prev, ticket_prefix: e.target.value }))}
-                placeholder="Ticket prefix (e.g. PA)"
+                placeholder="Prefixo do ticket (ex: PA)"
                 className="bg-surface-1 text-foreground border border-border rounded-md px-3 py-2"
               />
               <Button type="submit">
-                Add Project
+                Adicionar Projeto
               </Button>
             </div>
             <textarea
               value={form.description}
               onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
-              placeholder="Description (optional)"
+              placeholder="Descrição (opcional)"
               rows={2}
               className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 text-sm resize-none"
             />
           </form>
 
           {loading ? (
-            <div className="text-sm text-muted-foreground">Loading projects...</div>
+            <div className="text-sm text-muted-foreground">Carregando projetos...</div>
           ) : (
             <div className="space-y-2">
               {projects.map((project) => (
@@ -274,11 +274,11 @@ export function ProjectManagerModal({
                           {project.name}
                           {typeof project.task_count === 'number' && (
                             <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-muted-foreground">
-                              {project.task_count} tasks
+                              {project.task_count} tarefa{project.task_count !== 1 ? 's' : ''}
                             </span>
                           )}
                           {project.deadline && project.deadline < Math.floor(Date.now() / 1000) && (
-                            <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" title="Overdue" />
+                            <span className="w-2 h-2 rounded-full bg-red-500 shrink-0" title="Atrasado" />
                           )}
                         </div>
                         <div className="text-xs text-muted-foreground">
@@ -305,10 +305,10 @@ export function ProjectManagerModal({
                       {project.slug !== 'general' && (
                         <div className="flex gap-1" onClick={(e) => e.stopPropagation()}>
                           <Button variant="outline" size="xs" onClick={() => archiveProject(project)}>
-                            {project.status === 'active' ? 'Archive' : 'Activate'}
+                            {project.status === 'active' ? 'Arquivar' : 'Ativar'}
                           </Button>
                           <Button variant="destructive" size="xs" onClick={() => deleteProject(project)}>
-                            Delete
+                            Excluir
                           </Button>
                         </div>
                       )}
@@ -320,23 +320,23 @@ export function ProjectManagerModal({
                     <div className="border-t border-border p-3 bg-surface-1/50 space-y-3" onClick={(e) => e.stopPropagation()}>
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs text-muted-foreground mb-1">Description</label>
+                          <label className="block text-xs text-muted-foreground mb-1">Descrição</label>
                           <textarea
                             value={editForm.description}
                             onChange={(e) => setEditForm(prev => ({ ...prev, description: e.target.value }))}
                             rows={2}
                             className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 text-sm resize-none"
-                            placeholder="Project description"
+                            placeholder="Descrição do projeto"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs text-muted-foreground mb-1">GitHub Repo</label>
+                          <label className="block text-xs text-muted-foreground mb-1">Repositório GitHub</label>
                           <input
                             type="text"
                             value={editForm.github_repo}
                             onChange={(e) => setEditForm(prev => ({ ...prev, github_repo: e.target.value }))}
                             className="w-full bg-surface-1 text-foreground border border-border rounded-md px-3 py-2 text-sm"
-                            placeholder="owner/repo"
+                            placeholder="dono/repo"
                           />
                         </div>
                       </div>
@@ -344,7 +344,7 @@ export function ProjectManagerModal({
                       {editForm.github_repo && (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           <div>
-                            <label className="block text-xs text-muted-foreground mb-1">Default Branch</label>
+                            <label className="block text-xs text-muted-foreground mb-1">Branch padrão</label>
                             <input
                               type="text"
                               value={editForm.github_default_branch}
@@ -365,14 +365,14 @@ export function ProjectManagerModal({
                                 editForm.github_sync_enabled ? 'translate-x-4' : 'translate-x-0.5'
                               }`} />
                             </button>
-                            <label className="text-xs text-muted-foreground">Enable Two-Way Sync</label>
+                            <label className="text-xs text-muted-foreground">Ativar sincronização bidirecional</label>
                           </div>
                         </div>
                       )}
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <div>
-                          <label className="block text-xs text-muted-foreground mb-1">Deadline</label>
+                          <label className="block text-xs text-muted-foreground mb-1">Prazo</label>
                           <input
                             type="date"
                             value={editForm.deadline}
@@ -381,7 +381,7 @@ export function ProjectManagerModal({
                           />
                         </div>
                         <div>
-                          <label className="block text-xs text-muted-foreground mb-1">Color</label>
+                          <label className="block text-xs text-muted-foreground mb-1">Cor</label>
                           <div className="flex gap-1.5 items-center flex-wrap">
                             {COLOR_PALETTE.map(c => (
                               <button
@@ -398,7 +398,7 @@ export function ProjectManagerModal({
 
                       {agents.length > 0 && (
                         <div>
-                          <label className="block text-xs text-muted-foreground mb-1">Assigned Agents</label>
+                          <label className="block text-xs text-muted-foreground mb-1">Agentes atribuídos</label>
                           <div className="flex flex-wrap gap-1.5">
                             {agents.map(agent => (
                               <button
@@ -419,8 +419,8 @@ export function ProjectManagerModal({
                       )}
 
                       <div className="flex gap-2 pt-1">
-                        <Button size="sm" onClick={() => saveEdit(project)}>Save</Button>
-                        <Button size="sm" variant="secondary" onClick={() => setEditingId(null)}>Cancel</Button>
+                        <Button size="sm" onClick={() => saveEdit(project)}>Salvar</Button>
+                        <Button size="sm" variant="secondary" onClick={() => setEditingId(null)}>Cancelar</Button>
                       </div>
                     </div>
                   )}

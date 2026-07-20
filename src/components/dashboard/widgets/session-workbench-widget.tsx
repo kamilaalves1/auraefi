@@ -8,7 +8,7 @@ export function SessionWorkbenchWidget({ data }: { data: DashboardData }) {
   return (
     <div className="panel">
       <div className="panel-header">
-        <h3 className="text-sm font-semibold">{isLocal ? 'Session Workbench' : 'Session Router'}</h3>
+        <h3 className="text-sm font-semibold">{isLocal ? 'Bancada de Sessões' : 'Roteador de Sessões'}</h3>
         <span className="text-2xs text-muted-foreground font-mono-tight">{sessions.length}</span>
       </div>
       <div className="divide-y divide-border/50 max-h-80 overflow-y-auto">
@@ -16,15 +16,15 @@ export function SessionWorkbenchWidget({ data }: { data: DashboardData }) {
           <div className="px-4 py-8 text-center">
             <p className="text-xs text-muted-foreground">
               {isSessionsLoading
-                ? 'Loading sessions...'
+                ? 'Carregando sessões...'
                 : isLocal
-                  ? 'No active sessions'
-                  : 'No gateway sessions'}
+                  ? 'Nenhuma sessão ativa'
+                  : 'Nenhuma sessão de gateway'}
             </p>
             <p className="text-2xs text-muted-foreground/60 mt-1">
               {isLocal
-                ? 'Start a Claude or Codex session to see it here.'
-                : 'Sessions appear when gateway agents connect.'}
+                ? 'Inicie uma sessão Claude ou Codex para vê-la aqui.'
+                : 'As sessões aparecem quando agentes do gateway se conectam.'}
             </p>
           </div>
         ) : (
@@ -39,7 +39,7 @@ export function SessionWorkbenchWidget({ data }: { data: DashboardData }) {
                 <div className="flex-1 min-w-0">
                   <div className="text-xs font-medium truncate font-mono-tight">{session.key || session.id}</div>
                   <div className="text-2xs text-muted-foreground">
-                    {session.kind === 'codex-cli' ? 'Codex' : session.kind === 'claude-code' ? 'Claude' : session.kind === 'hermes' ? 'Hermes' : session.kind} · {session.model?.split('/').pop() || 'unknown'}
+                    {session.kind === 'codex-cli' ? 'Codex' : session.kind === 'claude-code' ? 'Claude' : session.kind} · {session.model?.split('/').pop() || 'unknown'}
                   </div>
                 </div>
                 <div className="text-right shrink-0">

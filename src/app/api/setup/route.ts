@@ -3,6 +3,7 @@ import { needsFirstTimeSetup } from '@/lib/db'
 import { createUser, createSession } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/db'
 import { getMcSessionCookieName, getMcSessionCookieOptions, isRequestSecure } from '@/lib/session-cookie'
+import { selfRegisterLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
 const INSECURE_PASSWORDS = new Set([
@@ -18,6 +19,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const rateCheck = selfRegisterLimiter(request)
+  if (rateCheck) return rateCheck
+
   try {
     // Only allow setup when no users exist
     if (!needsFirstTimeSetup()) {

@@ -2,7 +2,7 @@ export interface DashboardWidget {
   id: string
   label: string
   description: string
-  category: 'health' | 'sessions' | 'tasks' | 'metrics' | 'integrations' | 'events'
+  category: 'health' | 'sessions' | 'metrics' | 'integrations' | 'events'
   modes: ('local' | 'full')[]
   defaultSize: 'sm' | 'md' | 'lg' | 'full'
   component: string
@@ -55,15 +55,6 @@ export const WIDGET_CATALOG: DashboardWidget[] = [
     component: 'EventStreamWidget',
   },
   {
-    id: 'task-flow',
-    label: 'Task Flow',
-    description: 'Task status counts — inbox, assigned, in progress, review, done',
-    category: 'tasks',
-    modes: ['local', 'full'],
-    defaultSize: 'sm',
-    component: 'TaskFlowWidget',
-  },
-  {
     id: 'github-signal',
     label: 'GitHub Signal',
     description: 'GitHub repo stats — issues, stars, repos',
@@ -106,7 +97,6 @@ export const LOCAL_DEFAULT_LAYOUT = [
   'runtime-health',
   'session-workbench',
   'event-stream',
-  'task-flow',
   'github-signal',
   'quick-actions',
 ]
@@ -116,7 +106,6 @@ export const GATEWAY_DEFAULT_LAYOUT = [
   'gateway-health',
   'session-workbench',
   'event-stream',
-  'task-flow',
   'security-audit',
   'maintenance',
   'quick-actions',

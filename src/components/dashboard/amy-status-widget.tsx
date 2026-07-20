@@ -203,7 +203,7 @@ export function AmyStatusWidget() {
             value={vaultQuery}
             onChange={(e) => setVaultQuery(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && searchVault()}
-            placeholder="Search neural refs & vault..."
+            placeholder="Pesquisar refs neurais e vault..."
             className="flex-1 rounded-lg bg-background/50 border border-border/50 px-3 py-1.5 text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
           />
           <button

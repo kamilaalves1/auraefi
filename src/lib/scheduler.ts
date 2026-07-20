@@ -12,6 +12,7 @@ import { syncSkillsFromDisk } from './skill-sync'
 import { syncLocalAgents } from './local-agent-sync'
 import { dispatchAssignedTasks, runAegisReviews, requeueStaleTasks, autoRouteInboxTasks } from './task-dispatch'
 import { spawnRecurringTasks } from './recurring-tasks'
+import { tickPipelineEngine } from './pipeline-engine'
 
 const BACKUP_DIR = join(dirname(config.dbPath), 'backups')
 
@@ -163,10 +164,17 @@ async function runHeartbeatCheck(): Promise<{ ok: boolean; message: string }> {
     const timeoutMinutes = getSettingNumber('general.agent_timeout_minutes', 10)
     const threshold = now - timeoutMinutes * 60
 
-    // Find agents that are not offline but haven't been seen recently
+    // Find agents that are not offline but haven't been seen recently.
+    // Exclude agents assigned to pipeline columns — those are managed by the pipeline engine.
     const staleAgents = db.prepare(`
       SELECT id, name, status, last_seen FROM agents
-      WHERE status != 'offline' AND (last_seen IS NULL OR last_seen < ?)
+      WHERE status != 'offline'
+        AND (last_seen IS NULL OR last_seen < ?)
+        AND id NOT IN (
+          SELECT DISTINCT CAST(json_extract(a.value, '$.agent_id') AS INTEGER)
+          FROM pipeline_columns pc, json_each(pc.assignments_json) a
+          WHERE json_extract(a.value, '$.agent_id') IS NOT NULL
+        )
     `).all(threshold) as Array<{ id: number; name: string; status: string; last_seen: number | null }>
 
     if (staleAgents.length === 0) {
@@ -273,7 +281,7 @@ async function syncAgentLiveStatuses(): Promise<number> {
 
 const DAILY_MS = 24 * 60 * 60 * 1000
 const FIVE_MINUTES_MS = 5 * 60 * 1000
-const TICK_MS = 60 * 1000 // Check every minute
+const TICK_MS = 10 * 1000 // Check every 10s so pipeline_engine fires at its 10s interval
 
 /** Initialize the scheduler */
 export function initScheduler() {
@@ -398,6 +406,15 @@ export function initScheduler() {
     running: false,
   })
 
+  tasks.set('pipeline_engine', {
+    name: 'Pipeline Engine',
+    intervalMs: 10_000, // Every 10s — poll JIRA/Azure for new cards and advance running stages
+    lastRun: null,
+    nextRun: now + 15_000, // First poll 15s after startup (after other syncs settle)
+    enabled: true,
+    running: false,
+  })
+
   // Start the tick loop
   tickInterval = setInterval(tick, TICK_MS)
   logger.info('Scheduler initialized - backup at ~3AM, cleanup at ~4AM, heartbeat every 5m, webhook/claude/skill/local-agent/gateway-agent sync every 60s')
@@ -433,8 +450,9 @@ async function tick() {
       : id === 'aegis_review' ? 'general.aegis_review'
       : id === 'recurring_task_spawn' ? 'general.recurring_task_spawn'
       : id === 'stale_task_requeue' ? 'general.stale_task_requeue'
+      : id === 'pipeline_engine' ? 'general.pipeline_engine'
       : 'general.agent_heartbeat'
-    const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan' || id === 'skill_sync' || id === 'local_agent_sync' || id === 'gateway_agent_sync' || id === 'task_dispatch' || id === 'aegis_review' || id === 'recurring_task_spawn' || id === 'stale_task_requeue'
+    const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan' || id === 'skill_sync' || id === 'local_agent_sync' || id === 'gateway_agent_sync' || id === 'task_dispatch' || id === 'aegis_review' || id === 'recurring_task_spawn' || id === 'stale_task_requeue' || id === 'pipeline_engine'
     if (!isSettingEnabled(settingKey, defaultEnabled)) continue
 
     task.running = true
@@ -457,6 +475,7 @@ async function tick() {
         : id === 'aegis_review' ? await runAegisReviews()
         : id === 'recurring_task_spawn' ? await spawnRecurringTasks()
         : id === 'stale_task_requeue' ? await requeueStaleTasks()
+        : id === 'pipeline_engine' ? await tickPipelineEngine()
         : await runCleanup()
       task.lastResult = { ...result, timestamp: now }
     } catch (err: any) {
@@ -493,8 +512,9 @@ export function getSchedulerStatus() {
       : id === 'aegis_review' ? 'general.aegis_review'
       : id === 'recurring_task_spawn' ? 'general.recurring_task_spawn'
       : id === 'stale_task_requeue' ? 'general.stale_task_requeue'
+      : id === 'pipeline_engine' ? 'general.pipeline_engine'
       : 'general.agent_heartbeat'
-    const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan' || id === 'skill_sync' || id === 'local_agent_sync' || id === 'gateway_agent_sync' || id === 'task_dispatch' || id === 'aegis_review' || id === 'recurring_task_spawn' || id === 'stale_task_requeue'
+    const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan' || id === 'skill_sync' || id === 'local_agent_sync' || id === 'gateway_agent_sync' || id === 'task_dispatch' || id === 'aegis_review' || id === 'recurring_task_spawn' || id === 'stale_task_requeue' || id === 'pipeline_engine'
     result.push({
       id,
       name: task.name,
@@ -523,6 +543,7 @@ export async function triggerTask(taskId: string): Promise<{ ok: boolean; messag
   if (taskId === 'aegis_review') return runAegisReviews()
   if (taskId === 'recurring_task_spawn') return spawnRecurringTasks()
   if (taskId === 'stale_task_requeue') return requeueStaleTasks()
+  if (taskId === 'pipeline_engine') return tickPipelineEngine()
   return { ok: false, message: `Unknown task: ${taskId}` }
 }
 

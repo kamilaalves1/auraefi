@@ -411,7 +411,8 @@ function resolveOrProvisionProxyUser(username: string): User | null {
 
 export function getUserFromRequest(request: Request): User | null {
   // Extract agent identity header (optional, for attribution)
-  const agentName = (request.headers.get('x-agent-name') || '').trim() || null
+  const rawAgentName = (request.headers.get('x-agent-name') || '').trim()
+  const agentName = rawAgentName ? rawAgentName.replace(/[^a-zA-Z0-9._\-\s]/g, '').slice(0, 100) || null : null
 
   // Proxy / trusted-header auth (MC_PROXY_AUTH_HEADER)
   // When the gateway has already authenticated the user and injects their username
@@ -437,12 +438,14 @@ export function getUserFromRequest(request: Request): User | null {
         }
       }
     } else {
-      // No trusted IPs configured — log warning and still allow (backward compat)
-      const proxyUsername = (request.headers.get(proxyAuthHeader) || '').trim()
-      if (proxyUsername) {
-        const user = resolveOrProvisionProxyUser(proxyUsername)
-        if (user) return { ...user, agent_name: agentName }
-      }
+      // MC_PROXY_AUTH_HEADER is set but MC_PROXY_AUTH_TRUSTED_IPS is empty.
+      // Allowing any client to send this header would let anyone impersonate any user —
+      // so we reject proxy auth entirely and force normal credential-based login.
+      // Set MC_PROXY_AUTH_TRUSTED_IPS to the IP(s) of your reverse proxy to enable this feature.
+      console.error(
+        '[security] MC_PROXY_AUTH_HEADER is configured but MC_PROXY_AUTH_TRUSTED_IPS is empty. ' +
+        'Proxy auth DISABLED — set MC_PROXY_AUTH_TRUSTED_IPS to your reverse proxy IP(s) to enable it.'
+      )
     }
   }
 

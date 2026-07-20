@@ -522,25 +522,28 @@ export async function GET(request: NextRequest) {
     }
 
     if (action === 'trends') {
-      const now = Date.now()
-      const twentyFourHoursAgo = now - 24 * 60 * 60 * 1000
-      const recentData = filteredData.filter(r => r.timestamp >= twentyFourHoursAgo)
+      // Group by hour for short timeframes, by day for longer ones
+      const byHour = timeframe === 'hour' || timeframe === 'day'
 
-      const hourlyTrends: Record<string, { tokens: number; cost: number; requests: number }> = {}
+      const buckets: Record<string, { tokens: number; cost: number; requests: number }> = {}
 
-      recentData.forEach(record => {
-        const hour = new Date(record.timestamp).toISOString().slice(0, 13) + ':00:00.000Z'
-        if (!hourlyTrends[hour]) {
-          hourlyTrends[hour] = { tokens: 0, cost: 0, requests: 0 }
-        }
-        hourlyTrends[hour].tokens += record.totalTokens
-        hourlyTrends[hour].cost += record.cost
-        hourlyTrends[hour].requests += 1
+      filteredData.forEach(record => {
+        const key = byHour
+          ? new Date(record.timestamp).toISOString().slice(0, 13) + ':00:00.000Z'
+          : new Date(record.timestamp).toISOString().slice(0, 10) // "YYYY-MM-DD"
+        if (!buckets[key]) buckets[key] = { tokens: 0, cost: 0, requests: 0 }
+        buckets[key].tokens += record.totalTokens
+        buckets[key].cost += record.cost
+        buckets[key].requests += 1
       })
 
-      const trends = Object.entries(hourlyTrends)
+      const trends = Object.entries(buckets)
         .sort(([a], [b]) => a.localeCompare(b))
-        .map(([timestamp, data]) => ({ timestamp, ...data }))
+        .map(([key, data]) => ({
+          // Daily buckets use noon UTC to prevent timezone day-flip in the browser
+          timestamp: byHour ? key : key + 'T12:00:00.000Z',
+          ...data,
+        }))
 
       return NextResponse.json({ trends, timeframe })
     }

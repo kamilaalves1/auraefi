@@ -136,7 +136,7 @@ function ToolCallBubble({ message }: { message: ChatMessage }) {
           <div className="mt-1 ml-5 space-y-1">
             {toolArgs != null && (
               <div>
-                <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-0.5">Args</div>
+                <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-0.5">Parâmetros</div>
                 <pre className="bg-black/20 rounded-md px-2 py-1.5 text-[11px] font-mono text-muted-foreground overflow-x-auto max-h-32 whitespace-pre-wrap">
                   {typeof toolArgs === 'string' ? toolArgs : JSON.stringify(toolArgs, null, 2)}
                 </pre>
@@ -144,7 +144,7 @@ function ToolCallBubble({ message }: { message: ChatMessage }) {
             )}
             {toolOutput != null && (
               <div>
-                <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-0.5">Output</div>
+                <div className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mb-0.5">Saída</div>
                 <pre className={`rounded-md px-2 py-1.5 text-[11px] font-mono overflow-x-auto max-h-48 whitespace-pre-wrap ${
                   toolStatus === 'error' ? 'bg-red-500/10 text-red-300' : 'bg-black/20 text-muted-foreground'
                 }`}>

@@ -483,7 +483,7 @@ export function ChatWorkspace({ mode = 'embedded', onClose }: ChatWorkspaceProps
               onClick={onClose}
               variant="ghost"
               size="icon-xs"
-              title="Close chat (Esc)"
+              title="Fechar chat (Esc)"
             >
               <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                 <path d="M4 4l8 8M12 4l-8 8" />
@@ -700,13 +700,13 @@ function SessionConversationView({
         {!isGatewaySession && (
           <details className="mt-2">
             <summary className="cursor-pointer select-none text-[10px] uppercase tracking-wider text-muted-foreground/60 hover:text-muted-foreground/80">
-              Settings
+              Configurações
             </summary>
             <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_120px_auto]">
               <input
                 value={nameDraft}
                 onChange={(e) => setNameDraft(e.target.value)}
-                placeholder="Rename session"
+                placeholder="Renomear sessão"
                 maxLength={80}
                 className="h-7 rounded border border-border/60 bg-surface-1 px-2 text-xs text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
@@ -715,15 +715,15 @@ function SessionConversationView({
                 onChange={(e) => setColorDraft(e.target.value)}
                 className="h-7 rounded border border-border/60 bg-surface-1 px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30"
               >
-                <option value="">No color</option>
-                <option value="slate">Slate</option>
-                <option value="blue">Blue</option>
-                <option value="green">Green</option>
-                <option value="amber">Amber</option>
-                <option value="red">Red</option>
-                <option value="purple">Purple</option>
-                <option value="pink">Pink</option>
-                <option value="teal">Teal</option>
+                <option value="">Sem cor</option>
+                <option value="slate">Cinza</option>
+                <option value="blue">Azul</option>
+                <option value="green">Verde</option>
+                <option value="amber">Âmbar</option>
+                <option value="red">Vermelho</option>
+                <option value="purple">Roxo</option>
+                <option value="pink">Rosa</option>
+                <option value="teal">Petróleo</option>
               </select>
               <Button
                 onClick={handleSavePrefs}
@@ -874,7 +874,6 @@ function getConversationStatus(agents: Array<{ name: string; status: string }>, 
   if (conversationId.startsWith('session:')) {
     if (conversationId.includes('claude-code')) return 'Local Claude session'
     if (conversationId.includes('codex-cli')) return 'Local Codex session'
-    if (conversationId.includes('hermes')) return 'Local Hermes session'
     return 'Gateway session'
   }
   const name = conversationId.replace('agent_', '')

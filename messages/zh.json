@@ -106,7 +106,10 @@
     "collapseSidebar": "折叠侧边栏",
     "expandSidebar": "展开侧边栏",
     "more": "更多",
-    "workPipeline": "Work pipeline"
+    "workPipeline": "Work pipeline",
+    "deliveryFlow": "交付流程",
+    "configuration": "配置中心",
+    "workspaceParameters": "参数"
   },
   "settings": {
     "language": "语言",
@@ -194,7 +197,9 @@
     "goToOffice": "前往办公室",
     "goToSkills": "前往技能",
     "quickNavigation": "快速导航",
-    "goToWorkPipeline": "Go to Work pipeline"
+    "goToWorkPipeline": "Go to Work pipeline",
+    "goToDeliveryFlow": "前往交付流程",
+    "goToConfiguration": "前往配置中心"
   },
   "contextSwitcher": {
     "localMode": "本地模式",
@@ -710,7 +715,22 @@
     "noAgents": "No agents registered",
     "noAgentsHint": "Sync from config or create your first agent to get started.",
     "wake": "Wake",
-    "spawn": "Spawn"
+    "spawn": "Spawn",
+    "swePresetTitle": "Software engineering squad",
+    "swePresetSubtitle": "Install the full software-engineering squad in one step. Fictional agent names; each soul points at playbooks under skills/swe-* in the repo.",
+    "swePresetInstall": "Install default squad",
+    "swePresetInstalling": "Creating agents…",
+    "swePresetResult": "Created {createdCount}, skipped {skippedCount}, failed {errorCount}.",
+    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and OpenClaw provisioning stay off unless you enable them in the API body.",
+    "swePhaseOrchestration": "Orchestration",
+    "swePhaseDiscovery": "Discovery",
+    "swePhaseTechnicalDesign": "Technical design",
+    "swePhaseUx": "UX discovery",
+    "swePhaseDevelopment": "Development",
+    "swePhaseSecurity": "Security gate",
+    "swePhaseQa": "QA gate",
+    "swePhaseDeploy": "Production deploy",
+    "swePresetError": "Could not install the preset"
   },
   "orchestration": {
     "tabCommand": "命令",

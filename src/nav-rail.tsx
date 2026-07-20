@@ -24,7 +24,6 @@ const navGroups: NavGroup[] = [
     items: [
       { id: 'overview', label: 'Overview', icon: <OverviewIcon />, priority: true },
       { id: 'agents', label: 'Agents', icon: <AgentsIcon />, priority: true },
-      { id: 'tasks', label: 'Tasks', icon: <TasksIcon />, priority: true },
       { id: 'chat', label: 'Chat', icon: <SessionsIcon />, priority: false },
     ],
   },
@@ -341,15 +340,6 @@ function AgentsIcon() {
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="8" cy="5" r="3" />
       <path d="M2 14c0-3.3 2.7-6 6-6s6 2.7 6 6" />
-    </svg>
-  )
-}
-
-function TasksIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <rect x="2" y="1" width="12" height="14" rx="1.5" />
-      <path d="M5 5h6M5 8h6M5 11h3" />
     </svg>
   )
 }

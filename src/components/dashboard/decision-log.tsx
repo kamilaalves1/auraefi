@@ -69,7 +69,7 @@ export function DecisionLog() {
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search decisions..."
+          placeholder="Pesquisar decisões..."
           className="w-full rounded-md border border-border/30 bg-surface-1/20 px-3 py-1.5 text-[11px] text-foreground placeholder:text-muted-foreground/30 focus:border-primary/40 focus:outline-none"
         />
         <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-muted-foreground/20">{total} decisions</span>

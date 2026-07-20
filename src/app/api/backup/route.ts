@@ -33,9 +33,9 @@ export async function GET(request: NextRequest) {
       })
       .sort((a, b) => b.created_at - a.created_at)
 
-    return NextResponse.json({ backups: files, dir: BACKUP_DIR })
+    return NextResponse.json({ backups: files })
   } catch {
-    return NextResponse.json({ backups: [], dir: BACKUP_DIR })
+    return NextResponse.json({ backups: [] })
   }
 }
 
@@ -68,9 +68,8 @@ export async function POST(request: NextRequest) {
         stderr = error.stderr || ''
         const combined = `${stdout}\n${stderr}`
         if (!combined.includes('Created')) {
-          const message = stderr || error.message || 'Unknown error'
           logger.error({ err: error }, 'Gateway backup failed')
-          return NextResponse.json({ error: `Gateway backup failed: ${message}` }, { status: 500 })
+          return NextResponse.json({ error: 'Gateway backup failed' }, { status: 500 })
         }
       }
 
@@ -87,7 +86,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: true, output })
     } catch (error: any) {
       logger.error({ err: error }, 'Gateway backup failed')
-      return NextResponse.json({ error: `Gateway backup failed: ${error.message}` }, { status: 500 })
+      return NextResponse.json({ error: 'Gateway backup failed' }, { status: 500 })
     }
   }
 
@@ -125,7 +124,7 @@ export async function POST(request: NextRequest) {
     })
   } catch (error: any) {
     logger.error({ err: error }, 'Backup failed')
-    return NextResponse.json({ error: `Backup failed: ${error.message}` }, { status: 500 })
+    return NextResponse.json({ error: 'Backup creation failed' }, { status: 500 })
   }
 }
 
@@ -140,7 +139,7 @@ export async function DELETE(request: NextRequest) {
   try { body = await request.json() } catch { return NextResponse.json({ error: 'Request body required' }, { status: 400 }) }
   const name = body.name
 
-  if (!name || !name.endsWith('.db') || name.includes('/') || name.includes('..')) {
+  if (!name || !/^[a-zA-Z0-9_.-]+\.db$/.test(name)) {
     return NextResponse.json({ error: 'Invalid backup name' }, { status: 400 })
   }
 

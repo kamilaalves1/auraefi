@@ -259,7 +259,7 @@ export function ChatInput({ onSend, onAbort, disabled, agents = [], isGenerating
       {/* Drag overlay hint */}
       {isDragOver && (
         <div className="absolute inset-0 flex items-center justify-center bg-primary/10 border-2 border-dashed border-primary/40 rounded-lg z-20 pointer-events-none">
-          <span className="text-sm text-primary font-medium">Drop files here</span>
+          <span className="text-sm text-primary font-medium">Solte os arquivos aqui</span>
         </div>
       )}
 
@@ -294,7 +294,7 @@ export function ChatInput({ onSend, onAbort, disabled, agents = [], isGenerating
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={disabled ? 'Select a conversation...' : 'Message... (@ to mention, Enter to send)'}
+          placeholder={disabled ? 'Selecione uma conversa...' : 'Mensagem... (@ para mencionar, Enter para enviar)'}
           disabled={disabled || isSendingMessage}
           rows={1}
           className="flex-1 resize-none bg-surface-1 rounded-lg px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/50 disabled:opacity-40 transition-all"

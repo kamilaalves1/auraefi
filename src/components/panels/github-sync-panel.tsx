@@ -1,708 +1,953 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useTranslations } from 'next-intl'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
+import type { GitRepository, GitProvider } from '@/lib/delivery-flow-types'
 
-interface GitHubLabel {
+// ── Import helpers ────────────────────────────────────────────────────────────
+
+interface ImportRow {
+  id: string
   name: string
-  color?: string
+  url: string
+  branch: string
+  token: string
+  provider: GitProvider
+  valid: boolean
+  error?: string
 }
 
-interface GitHubIssue {
-  number: number
-  title: string
-  body: string | null
-  state: 'open' | 'closed'
-  labels: GitHubLabel[]
-  assignee: { login: string } | null
-  html_url: string
-  created_at: string
-  updated_at: string
+function detectProvider(url: string): GitProvider {
+  if (url.includes('gitlab')) return 'gitlab'
+  if (url.includes('bitbucket')) return 'bitbucket'
+  return 'github'
 }
 
-interface SyncRecord {
-  id: number
-  repo: string
-  last_synced_at: number
-  issue_count: number
-  sync_direction: string
-  status: string
-  error: string | null
-  created_at: number
-}
-
-interface LinkedTask {
-  id: number
-  title: string
-  status: string
-  priority: string
-  metadata: {
-    github_repo?: string
-    github_issue_number?: number
-    github_issue_url?: string
-    github_synced_at?: string
-    github_state?: string
+function nameFromUrl(url: string): string {
+  try {
+    const path = new URL(url).pathname.replace(/^\//, '').replace(/\.git$/, '')
+    const parts = path.split('/').filter(Boolean)
+    return parts[parts.length - 1] ?? url
+  } catch {
+    return url.split('/').pop()?.replace(/\.git$/, '') ?? url
   }
 }
 
+function parseImportText(raw: string): ImportRow[] {
+  const lines = raw.trim().split(/\r?\n/).filter(l => l.trim())
+  if (!lines.length) return []
+
+  let id = 0
+  const next = () => String(id++)
+
+  // Detect CSV: any line has a comma or semicolon
+  const isCsv = lines.some(l => /[,;]/.test(l))
+
+  if (isCsv) {
+    // Find header row or assume col order: nome, url, branch, token
+    const firstLower = lines[0].toLowerCase()
+    const hasHeader = firstLower.includes('url') || firstLower.includes('nome') || firstLower.includes('name')
+    let urlCol = 1, nameCol = 0, branchCol = 2, tokenCol = 3
+    let startIdx = 0
+
+    if (hasHeader) {
+      const headers = lines[0].split(/[,;]/).map(h => h.trim().toLowerCase())
+      urlCol    = Math.max(0, headers.findIndex(h => h.includes('url') || h.includes('repo')))
+      nameCol   = Math.max(0, headers.findIndex(h => h.includes('nome') || h.includes('name')))
+      branchCol = headers.findIndex(h => h.includes('branch') || h.includes('ramo'))
+      tokenCol  = headers.findIndex(h => h.includes('token') || h.includes('senha') || h.includes('key') || h.includes('pat'))
+      if (branchCol < 0) branchCol = 2
+      if (tokenCol  < 0) tokenCol  = 3
+      startIdx = 1
+    }
+
+    return lines.slice(startIdx).map(line => {
+      const cols = line.split(/[,;]/).map(c => c.trim().replace(/^["']|["']$/g, ''))
+      const url    = cols[urlCol]  ?? ''
+      const name   = cols[nameCol] || nameFromUrl(url)
+      const branch = cols[branchCol]?.trim() || 'main'
+      const token  = cols[tokenCol]?.trim()  ?? ''
+      const valid  = url.startsWith('http')
+      return { id: next(), name, url, branch, token, provider: detectProvider(url), valid, error: valid ? undefined : 'URL inválida' }
+    }).filter(r => r.url)
+  }
+
+  // Plain URL list — one per line
+  return lines.map(line => {
+    const url = line.trim()
+    const valid = url.startsWith('http')
+    return { id: next(), name: nameFromUrl(url), url, branch: 'main', token: '', provider: detectProvider(url), valid, error: valid ? undefined : 'URL inválida' }
+  })
+}
+
+// ── Import panel ──────────────────────────────────────────────────────────────
+
+function ImportPanel({ onDone, onCancel }: {
+  onDone: () => void
+  onCancel: () => void
+}) {
+  const [step, setStep] = useState<'input' | 'preview' | 'importing' | 'done'>('input')
+  const [tab, setTab] = useState<'text' | 'file'>('text')
+  const [text, setText] = useState('')
+  const [rows, setRows] = useState<ImportRow[]>([])
+  const [results, setResults] = useState<Array<{ name: string; ok: boolean; error?: string }>>([])
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const EXAMPLE_CSV = `nome,url,branch,token
+API Principal,https://github.com/org/api,main,ghp_xxx
+Frontend,https://github.com/org/frontend,develop,`
+
+  const handleParse = () => {
+    const parsed = parseImportText(text)
+    setRows(parsed)
+    if (parsed.length) setStep('preview')
+  }
+
+  const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const content = await file.text()
+    setText(content)
+    const parsed = parseImportText(content)
+    setRows(parsed)
+    if (parsed.length) setStep('preview')
+  }
+
+  const handleRemoveRow = (id: string) => setRows(prev => prev.filter(r => r.id !== id))
+
+  const validRows = rows.filter(r => r.valid)
+
+  const handleImport = async () => {
+    setStep('importing')
+    const res: typeof results = []
+    for (const row of validRows) {
+      try {
+        const resp = await fetch('/api/workspace/git-repositories', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: row.name,
+            provider: row.provider,
+            repo_url: row.url,
+            branch: row.branch,
+            access_token: row.token || null,
+            base_url: null,
+          }),
+        })
+        const data = await resp.json()
+        res.push(resp.ok
+          ? { name: row.name, ok: true }
+          : { name: row.name, ok: false, error: data.error ?? 'Falha' })
+      } catch {
+        res.push({ name: row.name, ok: false, error: 'Erro de rede' })
+      }
+      setResults([...res])
+    }
+    setStep('done')
+    onDone()
+  }
+
+  return (
+    <div className="rounded-xl border border-primary/30 bg-primary/5 overflow-hidden">
+
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-primary/20">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Importar repositórios em lote</h3>
+          <p className="text-[10px] text-muted-foreground mt-0.5">Cole URLs, CSV ou envie um arquivo .csv</p>
+        </div>
+        <button onClick={onCancel} className="text-muted-foreground hover:text-foreground text-lg leading-none">×</button>
+      </div>
+
+      {/* Step: input */}
+      {(step === 'input' || (step === 'preview' && !rows.length)) && (
+        <div className="p-4 space-y-4">
+          {/* Tabs */}
+          <div className="flex gap-1 bg-secondary/50 rounded-lg p-1 w-fit">
+            {(['text', 'file'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => setTab(t)}
+                className={`px-3 py-1.5 rounded-md text-xs font-medium transition-all ${tab === t ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+              >
+                {t === 'text' ? '📋 Colar texto' : '📂 Arquivo'}
+              </button>
+            ))}
+          </div>
+
+          {tab === 'text' && (
+            <div className="space-y-2">
+              <textarea
+                value={text}
+                onChange={e => setText(e.target.value)}
+                placeholder={`Cole URLs (uma por linha) ou CSV:\n\n${EXAMPLE_CSV}`}
+                rows={8}
+                className="w-full rounded-lg bg-background border border-border/60 px-3 py-2.5 text-xs text-foreground font-mono placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/50 resize-none"
+              />
+              <div className="flex items-start gap-2 text-[10px] text-muted-foreground/60">
+                <span>💡</span>
+                <span>
+                  Aceita <strong className="text-muted-foreground">URLs simples</strong> (uma por linha) ou <strong className="text-muted-foreground">CSV</strong> com colunas: nome, url, branch, token.
+                  Separe com vírgula ou ponto-e-vírgula. Cabeçalho é opcional.
+                </span>
+              </div>
+            </div>
+          )}
+
+          {tab === 'file' && (
+            <div
+              onClick={() => fileRef.current?.click()}
+              className="rounded-xl border-2 border-dashed border-border/50 hover:border-primary/40 bg-secondary/20 hover:bg-primary/5 transition-all py-10 flex flex-col items-center gap-3 cursor-pointer"
+            >
+              <span className="text-3xl">📂</span>
+              <div className="text-center">
+                <p className="text-sm font-medium text-foreground">Clique para selecionar o arquivo</p>
+                <p className="text-xs text-muted-foreground mt-0.5">Aceita .csv — para Excel, exporte como CSV primeiro</p>
+              </div>
+              <p className="text-[10px] text-muted-foreground/50">Arquivo → Salvar como → CSV UTF-8 no Excel</p>
+              <input ref={fileRef} type="file" accept=".csv,.txt" className="hidden" onChange={handleFile} />
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleParse} disabled={!text.trim()}>
+              Analisar →
+            </Button>
+            <Button size="sm" variant="outline" onClick={onCancel}>Cancelar</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Step: preview */}
+      {step === 'preview' && rows.length > 0 && (
+        <div className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">
+              <span className="text-foreground font-medium">{validRows.length}</span> repositórios válidos
+              {rows.length !== validRows.length && (
+                <span className="text-red-400 ml-1">· {rows.length - validRows.length} com erro</span>
+              )}
+            </p>
+            <button onClick={() => setStep('input')} className="text-[10px] text-muted-foreground hover:text-foreground transition-colors">
+              ← Editar texto
+            </button>
+          </div>
+
+          <div className="rounded-lg border border-border/50 overflow-hidden">
+            <div className="grid grid-cols-[auto_1fr_80px_80px_32px] gap-0 text-[10px] font-medium text-muted-foreground uppercase tracking-wider px-3 py-2 bg-secondary/40 border-b border-border/40">
+              <span />
+              <span>Repositório</span>
+              <span>Branch</span>
+              <span>Token</span>
+              <span />
+            </div>
+            <div className="divide-y divide-border/30 max-h-72 overflow-y-auto">
+              {rows.map(row => (
+                <div key={row.id} className={`grid grid-cols-[auto_1fr_80px_80px_32px] items-center gap-2 px-3 py-2 ${!row.valid ? 'bg-red-500/5' : ''}`}>
+                  <span className="text-base">{PROVIDERS[row.provider].icon}</span>
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-foreground truncate">{row.name}</p>
+                    <p className="text-[10px] text-muted-foreground font-mono truncate">{row.url}</p>
+                    {row.error && <p className="text-[10px] text-red-400">{row.error}</p>}
+                  </div>
+                  <span className="text-[10px] font-mono text-muted-foreground truncate">{row.branch}</span>
+                  <span className="text-[10px]">{row.token ? '🔑 sim' : <span className="text-muted-foreground/40">—</span>}</span>
+                  <button onClick={() => handleRemoveRow(row.id)} className="text-muted-foreground/40 hover:text-red-400 transition-colors text-xs">✕</button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex gap-2">
+            <Button size="sm" onClick={handleImport} disabled={validRows.length === 0}>
+              Importar {validRows.length} {validRows.length === 1 ? 'repositório' : 'repositórios'}
+            </Button>
+            <Button size="sm" variant="outline" onClick={() => setStep('input')}>Voltar</Button>
+          </div>
+        </div>
+      )}
+
+      {/* Step: importing / done */}
+      {(step === 'importing' || step === 'done') && (
+        <div className="p-4 space-y-3">
+          <div className="flex items-center justify-between">
+            <p className="text-xs font-medium text-foreground">
+              {step === 'importing' ? 'Importando...' : `Importação concluída — ${results.filter(r => r.ok).length}/${validRows.length} adicionados`}
+            </p>
+            {step === 'done' && (
+              <Button size="sm" onClick={onCancel} variant="outline">Fechar</Button>
+            )}
+          </div>
+
+          <div className="rounded-lg border border-border/50 overflow-hidden divide-y divide-border/30 max-h-64 overflow-y-auto">
+            {validRows.map((row, i) => {
+              const result = results[i]
+              return (
+                <div key={row.id} className="flex items-center gap-3 px-3 py-2">
+                  <span className="text-base shrink-0">{PROVIDERS[row.provider].icon}</span>
+                  <span className="text-xs text-foreground flex-1 truncate">{row.name}</span>
+                  {!result && step === 'importing' && i === results.length && (
+                    <span className="text-[10px] text-primary animate-pulse">importando...</span>
+                  )}
+                  {!result && i > results.length && (
+                    <span className="text-[10px] text-muted-foreground/40">aguardando</span>
+                  )}
+                  {result && (
+                    result.ok
+                      ? <span className="text-[10px] text-green-400 font-medium">✓ adicionado</span>
+                      : <span className="text-[10px] text-red-400 truncate max-w-[120px]">✗ {result.error}</span>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Provider metadata ─────────────────────────────────────────────────────────
+
+const PROVIDERS: Record<GitProvider, { label: string; icon: string; host: string; placeholder: string; tokenHint: string }> = {
+  github:    { label: 'GitHub',    icon: '🐙', host: 'github.com',    placeholder: 'https://github.com/org/repo',           tokenHint: 'ghp_...' },
+  gitlab:    { label: 'GitLab',    icon: '🦊', host: 'gitlab.com',    placeholder: 'https://gitlab.com/grupo/projeto',       tokenHint: 'glpat-...' },
+  bitbucket: { label: 'Bitbucket', icon: '🪣', host: 'bitbucket.org', placeholder: 'https://bitbucket.org/workspace/repo',   tokenHint: 'usuario:app_password' },
+}
+
+const STATUS_LABELS: Record<string, { label: string; dot: string }> = {
+  success: { label: 'Sincronizado',  dot: 'bg-green-500' },
+  partial: { label: 'Parcial',       dot: 'bg-yellow-500' },
+  error:   { label: 'Falhou',        dot: 'bg-red-500' },
+  failed:  { label: 'Falhou',        dot: 'bg-red-500' },
+}
+
+// ── Repo form (create / edit) ─────────────────────────────────────────────────
+
+function RepoForm({
+  initial,
+  onSave,
+  onCancel,
+  saving,
+}: {
+  initial?: Partial<GitRepository>
+  onSave: (data: { name: string; provider: GitProvider; repo_url: string; branch: string; access_token: string | null; base_url: string | null }) => void
+  onCancel: () => void
+  saving: boolean
+}) {
+  const [name, setName] = useState(initial?.name ?? '')
+  const [provider, setProvider] = useState<GitProvider>(initial?.provider ?? 'github')
+  const [repoUrl, setRepoUrl] = useState(initial?.repo_url ?? '')
+  const [branch, setBranch] = useState(initial?.branch ?? 'main')
+  const [token, setToken] = useState(initial?.access_token ?? '')
+  const [baseUrl, setBaseUrl] = useState(initial?.base_url ?? '')
+  const [showToken, setShowToken] = useState(false)
+
+  return (
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-4 space-y-3">
+      <p className="text-xs font-semibold text-foreground uppercase tracking-wider">
+        {initial?.id ? 'Editar repositório' : 'Novo repositório'}
+      </p>
+
+      {/* Name */}
+      <div>
+        <label className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1 block">Nome</label>
+        <input
+          value={name}
+          onChange={e => setName(e.target.value)}
+          placeholder="Ex: API Principal, Frontend..."
+          className="w-full h-8 px-3 rounded-lg bg-background border border-border/60 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50"
+        />
+      </div>
+
+      {/* Provider selector */}
+      <div>
+        <label className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1.5 block">Provedor</label>
+        <div className="flex gap-2 flex-wrap">
+          {(Object.keys(PROVIDERS) as GitProvider[]).map(p => (
+            <button
+              key={p}
+              type="button"
+              onClick={() => setProvider(p)}
+              className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-all font-medium ${
+                provider === p
+                  ? 'border-primary/60 bg-primary/10 text-primary'
+                  : 'border-border/50 text-muted-foreground hover:border-border hover:text-foreground'
+              }`}
+            >
+              {PROVIDERS[p].icon} {PROVIDERS[p].label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* URL */}
+      <div>
+        <label className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1 block">URL do repositório</label>
+        <input
+          value={repoUrl}
+          onChange={e => setRepoUrl(e.target.value)}
+          placeholder={PROVIDERS[provider].placeholder}
+          className="w-full h-8 px-3 rounded-lg bg-background border border-border/60 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50 font-mono"
+        />
+      </div>
+
+      {/* Branch */}
+      <div>
+        <label className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1 block">Branch monitorada</label>
+        <input
+          value={branch}
+          onChange={e => setBranch(e.target.value)}
+          placeholder="main"
+          className="w-full h-8 px-3 rounded-lg bg-background border border-border/60 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50 font-mono"
+        />
+      </div>
+
+      {/* Access token */}
+      <div>
+        <label className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1 block">
+          Token de acesso
+          <span className="ml-1 normal-case font-normal text-muted-foreground/50">(para repositórios privados)</span>
+        </label>
+        <div className="relative">
+          <input
+            type={showToken ? 'text' : 'password'}
+            value={token}
+            onChange={e => setToken(e.target.value)}
+            placeholder={PROVIDERS[provider].tokenHint}
+            className="w-full h-8 px-3 pr-16 rounded-lg bg-background border border-border/60 text-xs text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/50 font-mono"
+          />
+          <button
+            type="button"
+            onClick={() => setShowToken(v => !v)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-muted-foreground/50 hover:text-foreground transition-colors px-1"
+          >
+            {showToken ? 'ocultar' : 'mostrar'}
+          </button>
+        </div>
+      </div>
+
+      {/* GitLab base URL */}
+      {provider === 'gitlab' && (
+        <div>
+          <label className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1 block">
+            URL base <span className="normal-case font-normal text-muted-foreground/50">(self-hosted — ex: https://gitlab.empresa.com)</span>
+          </label>
+          <input
+            value={baseUrl}
+            onChange={e => setBaseUrl(e.target.value)}
+            placeholder="https://gitlab.empresa.com"
+            className="w-full h-8 px-3 rounded-lg bg-background border border-border/60 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50 font-mono"
+          />
+        </div>
+      )}
+
+      <div className="flex gap-2 pt-1">
+        <Button
+          size="sm"
+          onClick={() => onSave({
+            name, provider,
+            repo_url: repoUrl.trim(),
+            branch,
+            access_token: token.trim() || null,
+            base_url: baseUrl.trim() || null,
+          })}
+          disabled={saving || !name.trim() || !repoUrl.trim()}
+          className="min-w-[80px]"
+        >
+          {saving ? '...' : initial?.id ? 'Salvar' : 'Adicionar'}
+        </Button>
+        <Button size="sm" variant="outline" onClick={onCancel}>Cancelar</Button>
+      </div>
+    </div>
+  )
+}
+
+// ── Repo card ─────────────────────────────────────────────────────────────────
+
+function RepoCard({
+  repo,
+  lastSync,
+  onEdit,
+  onDelete,
+  deletingId,
+}: {
+  repo: GitRepository
+  lastSync?: { status: string; created_at: number; changes_pulled: number }
+  onEdit: () => void
+  onDelete: () => void
+  deletingId: number | null
+}) {
+  const [testStatus, setTestStatus] = useState<{ ok: boolean; user?: string; error?: string } | null>(null)
+  const [testing, setTesting] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const p = PROVIDERS[repo.provider]
+
+  const handleTest = async () => {
+    setTesting(true)
+    setTestStatus(null)
+    try {
+      const res = await fetch(`/api/workspace/git-repositories/${repo.id}/test`, { method: 'POST' })
+      const data = await res.json()
+      setTestStatus(data)
+    } catch {
+      setTestStatus({ ok: false, error: 'Erro de rede' })
+    } finally {
+      setTesting(false)
+    }
+  }
+
+  const syncInfo = lastSync ? STATUS_LABELS[lastSync.status] : null
+
+  return (
+    <div className="rounded-xl border border-border/60 bg-card overflow-hidden">
+      {/* Card header */}
+      <div className="px-4 py-3 flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3 min-w-0">
+          {/* Provider icon */}
+          <div className="w-9 h-9 rounded-lg bg-secondary flex items-center justify-center text-lg shrink-0 mt-0.5">
+            {p.icon}
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-sm font-semibold text-foreground">{repo.name}</p>
+              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-secondary text-muted-foreground">{p.label}</span>
+              {repo.access_token && (
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-green-500/10 text-green-400 font-medium">🔑 privado</span>
+              )}
+            </div>
+            <p className="text-[11px] text-muted-foreground font-mono truncate mt-0.5 max-w-[360px]">
+              {repo.repo_url}
+            </p>
+            <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                <span className="opacity-50">branch</span>
+                <span className="font-mono text-foreground/70">{repo.branch}</span>
+              </span>
+              {syncInfo && (
+                <span className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                  <span className={`w-1.5 h-1.5 rounded-full ${syncInfo.dot}`} />
+                  {syncInfo.label}
+                  {lastSync && (
+                    <span className="opacity-50">
+                      · {new Date(lastSync.created_at * 1000).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </span>
+                  )}
+                </span>
+              )}
+              {lastSync && lastSync.changes_pulled > 0 && (
+                <span className="text-[10px] text-muted-foreground">
+                  <span className="text-primary font-mono">{lastSync.changes_pulled}</span> commits
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Actions */}
+        <div className="flex items-center gap-1 shrink-0">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={handleTest}
+            disabled={testing}
+            className="h-7 text-[11px]"
+          >
+            {testing ? '...' : 'Testar'}
+          </Button>
+          <button
+            onClick={onEdit}
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors text-sm"
+            title="Editar"
+          >
+            ✎
+          </button>
+          <button
+            onClick={() => setConfirmDelete(true)}
+            disabled={deletingId === repo.id}
+            className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-colors text-sm"
+            title="Remover"
+          >
+            {deletingId === repo.id ? '...' : '✕'}
+          </button>
+        </div>
+      </div>
+
+      {/* Test result */}
+      {testStatus && (
+        <div className={`mx-4 mb-3 text-[11px] font-medium px-3 py-2 rounded-lg flex items-center gap-1.5 ${
+          testStatus.ok
+            ? 'bg-green-500/10 text-green-400 border border-green-500/20'
+            : 'bg-red-500/10 text-red-400 border border-red-500/20'
+        }`}>
+          {testStatus.ok ? '✓' : '✗'}
+          {testStatus.ok
+            ? `Conexão OK${testStatus.user ? ` — autenticado como ${testStatus.user}` : ''}`
+            : (testStatus.error ?? 'Falha na conexão')}
+        </div>
+      )}
+
+      {/* Delete confirmation */}
+      {confirmDelete && (
+        <div className="mx-4 mb-3 rounded-lg border border-red-500/30 bg-red-500/5 px-3 py-2.5 space-y-2">
+          <p className="text-xs font-medium text-red-400">Remover &quot;{repo.name}&quot;?</p>
+          <p className="text-[11px] text-muted-foreground">
+            O repositório será removido de todos os fluxos de entrega vinculados.
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setConfirmDelete(false); onDelete() }}
+              className="text-[11px] font-medium px-3 py-1 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
+            >
+              Sim, remover
+            </button>
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="text-[11px] px-3 py-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+            >
+              Cancelar
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main panel ────────────────────────────────────────────────────────────────
+
 export function GitHubSyncPanel() {
-  const t = useTranslations('githubSync')
-  // Connection status
-  const [tokenStatus, setTokenStatus] = useState<{ connected: boolean; user?: string } | null>(null)
-
-  // Import form
-  const [repo, setRepo] = useState('')
-  const [labelFilter, setLabelFilter] = useState('')
-  const [stateFilter, setStateFilter] = useState<'open' | 'closed' | 'all'>('open')
-  const [assignAgent, setAssignAgent] = useState('')
-  const [agents, setAgents] = useState<{ name: string }[]>([])
-
-  // Preview
-  const [previewIssues, setPreviewIssues] = useState<GitHubIssue[]>([])
-  const [previewing, setPreviewing] = useState(false)
-
-  // Sync
-  const [syncing, setSyncing] = useState(false)
-  const [syncResult, setSyncResult] = useState<{ imported: number; skipped: number; errors: number } | null>(null)
-
-  // Sync history
-  const [syncHistory, setSyncHistory] = useState<SyncRecord[]>([])
-
-  // Linked tasks
-  const [linkedTasks, setLinkedTasks] = useState<LinkedTask[]>([])
-
-  // Two-way sync
-  const [projects, setProjects] = useState<Array<{
-    id: number; name: string; github_repo?: string;
-    github_sync_enabled?: boolean; github_labels_initialized?: boolean
-  }>>([])
-  const [syncingProjectId, setSyncingProjectId] = useState<number | null>(null)
-
-  // Feedback
-  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
   const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+  const [repos, setRepos] = useState<GitRepository[]>([])
+  const [syncs, setSyncs] = useState<any[]>([])
+  const [showForm, setShowForm] = useState(false)
+  const [showImport, setShowImport] = useState(false)
+  const [editingRepo, setEditingRepo] = useState<GitRepository | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
 
   const showFeedback = (ok: boolean, text: string) => {
     setFeedback({ ok, text })
     setTimeout(() => setFeedback(null), 4000)
   }
 
-  // Check GitHub token status
-  const checkToken = useCallback(async () => {
+  const load = useCallback(async () => {
     try {
-      const res = await fetch('/api/integrations', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'test', integrationId: 'github' }),
-        signal: AbortSignal.timeout(8000),
-      })
-      const data = await res.json()
-      setTokenStatus({
-        connected: data.ok === true,
-        user: data.detail?.replace('User: ', ''),
-      })
-    } catch {
-      setTokenStatus({ connected: false })
-    }
-  }, [])
-
-  // Fetch sync history
-  const fetchSyncHistory = useCallback(async () => {
-    try {
-      const res = await fetch('/api/github', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'status' }),
-        signal: AbortSignal.timeout(8000),
-      })
-      if (res.ok) {
-        const data = await res.json()
-        setSyncHistory(data.syncs || [])
-      }
+      const [reposRes, syncRes] = await Promise.all([
+        fetch('/api/workspace/git-repositories', { signal: AbortSignal.timeout(8000) }),
+        fetch('/api/git-sync?action=status', { signal: AbortSignal.timeout(8000) }),
+      ])
+      if (reposRes.ok) setRepos((await reposRes.json()).repositories ?? [])
+      if (syncRes.ok) setSyncs((await syncRes.json()).syncs ?? [])
     } catch { /* ignore */ }
   }, [])
 
-  // Fetch linked tasks
-  const fetchLinkedTasks = useCallback(async () => {
-    try {
-      const res = await fetch('/api/tasks?limit=200', { signal: AbortSignal.timeout(8000) })
-      if (res.ok) {
-        const data = await res.json()
-        const linked = (data.tasks || []).filter(
-          (t: LinkedTask) => t.metadata?.github_repo
-        )
-        setLinkedTasks(linked)
-      }
-    } catch { /* ignore */ }
-  }, [])
+  useEffect(() => { load().finally(() => setLoading(false)) }, [load])
 
-  // Fetch projects for two-way sync
-  const fetchProjects = useCallback(async () => {
-    try {
-      const res = await fetch('/api/projects', { signal: AbortSignal.timeout(8000) })
-      if (res.ok) {
-        const data = await res.json()
-        setProjects(data.projects || [])
-      }
-    } catch { /* ignore */ }
-  }, [])
-
-  // Fetch agents for assign dropdown
-  const fetchAgents = useCallback(async () => {
-    try {
-      const res = await fetch('/api/agents', { signal: AbortSignal.timeout(8000) })
-      if (res.ok) {
-        const data = await res.json()
-        setAgents((data.agents || []).map((a: any) => ({ name: a.name })))
-      }
-    } catch { /* ignore */ }
-  }, [])
-
-  useEffect(() => {
-    Promise.allSettled([checkToken(), fetchSyncHistory(), fetchLinkedTasks(), fetchAgents(), fetchProjects()])
-      .finally(() => setLoading(false))
-  }, [checkToken, fetchSyncHistory, fetchLinkedTasks, fetchAgents, fetchProjects])
-
-  // Preview issues from GitHub
-  const handlePreview = async () => {
-    if (!repo) {
-      showFeedback(false, t('enterRepo'))
-      return
-    }
-    setPreviewing(true)
-    setPreviewIssues([])
-    setSyncResult(null)
-    try {
-      const params = new URLSearchParams({ action: 'issues', repo, state: stateFilter })
-      if (labelFilter) params.set('labels', labelFilter)
-      const res = await fetch(`/api/github?${params}`)
-      const data = await res.json()
-      if (res.ok) {
-        setPreviewIssues(data.issues || [])
-        if (data.issues?.length === 0) showFeedback(true, t('noIssuesFound'))
-      } else {
-        showFeedback(false, data.error || t('failedFetchIssues'))
-      }
-    } catch {
-      showFeedback(false, t('networkError'))
-    } finally {
-      setPreviewing(false)
-    }
-  }
-
-  // Import issues as tasks
-  const handleImport = async () => {
-    if (!repo) return
+  const handleSync = async () => {
     setSyncing(true)
-    setSyncResult(null)
     try {
-      const res = await fetch('/api/github', {
+      const res = await fetch('/api/git-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'sync',
-          repo,
-          labels: labelFilter || undefined,
-          state: stateFilter,
-          assignAgent: assignAgent || undefined,
-        }),
+        body: JSON.stringify({ action: 'trigger-all' }),
+        signal: AbortSignal.timeout(30000),
       })
-      const data = await res.json()
       if (res.ok) {
-        setSyncResult({ imported: data.imported, skipped: data.skipped, errors: data.errors })
-        showFeedback(true, t('importedFeedback', { imported: data.imported, skipped: data.skipped }))
-        setPreviewIssues([])
-        fetchSyncHistory()
-        fetchLinkedTasks()
+        await load()
+        showFeedback(true, 'Sincronização concluída')
       } else {
-        showFeedback(false, data.error || t('syncFailed'))
+        showFeedback(false, 'Falha ao sincronizar')
       }
     } catch {
-      showFeedback(false, t('networkError'))
+      showFeedback(false, 'Erro de rede')
     } finally {
       setSyncing(false)
     }
   }
 
-  // Two-way sync handlers
-  const handleToggleSync = async (project: typeof projects[number]) => {
+  const handleCreate = async (data: Parameters<typeof RepoForm>[0]['onSave'] extends (d: infer D) => any ? D : never) => {
+    setSaving(true)
     try {
-      const res = await fetch(`/api/projects/${project.id}`, {
-        method: 'PATCH',
+      const res = await fetch('/api/workspace/git-repositories', {
+        method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ github_sync_enabled: !project.github_sync_enabled }),
+        body: JSON.stringify(data),
       })
-      if (res.ok) {
-        await fetchProjects()
-        showFeedback(true, `Sync ${project.github_sync_enabled ? 'disabled' : 'enabled'} for ${project.name}`)
-      } else {
-        const data = await res.json()
-        showFeedback(false, data.error || t('failedToggleSync'))
-      }
-    } catch {
-      showFeedback(false, t('networkError'))
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      setRepos(prev => [...prev, json.repository])
+      setShowForm(false)
+      showFeedback(true, `"${data.name}" adicionado`)
+    } catch (e: any) {
+      showFeedback(false, e.message ?? 'Erro ao criar')
+    } finally {
+      setSaving(false)
     }
   }
 
-  const handleSyncProject = async (projectId: number) => {
-    setSyncingProjectId(projectId)
+  const handleUpdate = async (data: Parameters<typeof RepoForm>[0]['onSave'] extends (d: infer D) => any ? D : never) => {
+    if (!editingRepo) return
+    setSaving(true)
     try {
-      const res = await fetch('/api/github/sync', {
-        method: 'POST',
+      const res = await fetch(`/api/workspace/git-repositories/${editingRepo.id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'trigger', project_id: projectId }),
+        body: JSON.stringify(data),
       })
-      const data = await res.json()
-      if (res.ok) {
-        showFeedback(true, data.message || 'Sync triggered')
-        fetchSyncHistory()
-      } else {
-        showFeedback(false, data.error || t('syncFailed'))
-      }
-    } catch {
-      showFeedback(false, t('networkError'))
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error)
+      setRepos(prev => prev.map(r => r.id === editingRepo.id ? json.repository : r))
+      setEditingRepo(null)
+      showFeedback(true, 'Repositório atualizado')
+    } catch (e: any) {
+      showFeedback(false, e.message ?? 'Erro ao salvar')
     } finally {
-      setSyncingProjectId(null)
+      setSaving(false)
     }
   }
 
-  const handleSyncAll = async () => {
-    setSyncingProjectId(-1)
+  const handleDelete = async (id: number, name: string) => {
+    setDeletingId(id)
     try {
-      const res = await fetch('/api/github/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'trigger-all' }),
-      })
-      const data = await res.json()
-      if (res.ok) {
-        showFeedback(true, data.message || 'Sync triggered for all projects')
-        fetchSyncHistory()
-      } else {
-        showFeedback(false, data.error || t('syncFailed'))
-      }
-    } catch {
-      showFeedback(false, t('networkError'))
+      const res = await fetch(`/api/workspace/git-repositories/${id}`, { method: 'DELETE' })
+      if (!res.ok) throw new Error((await res.json()).error)
+      setRepos(prev => prev.filter(r => r.id !== id))
+      showFeedback(true, `"${name}" removido`)
+    } catch (e: any) {
+      showFeedback(false, e.message ?? 'Erro ao remover')
     } finally {
-      setSyncingProjectId(null)
+      setDeletingId(null)
     }
   }
+
+  // Find the most recent sync for a given repo URL
+  const lastSyncFor = (repoUrl: string) =>
+    syncs.find((s: any) => s.repo === repoUrl)
 
   if (loading) {
     return (
-      <div className="p-6 flex flex-col items-center justify-center gap-3 min-h-[200px]">
-        <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-        <span className="text-sm text-muted-foreground">{t('loading')}</span>
+      <div className="flex items-center justify-center p-12 min-h-[200px]">
+        <div className="flex flex-col items-center gap-3 text-muted-foreground">
+          <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+          <span className="text-sm">Carregando...</span>
+        </div>
       </div>
     )
   }
 
+  const totalCommits = syncs.reduce((acc: number, s: any) => acc + (s.changes_pulled ?? 0), 0)
+  const successCount = syncs.filter((s: any) => s.status === 'success').length
+
   return (
-    <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">{t('title')}</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {t('subtitle')}
+    <div className="p-5 space-y-5">
+
+      {/* ── Header ── */}
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1 min-w-0">
+          <h2 className="text-base font-semibold text-foreground">Repositórios Git</h2>
+          <p className="text-xs text-muted-foreground max-w-2xl">
+            Conecte seus repositórios para que os agentes acompanhem commits, PRs e mudanças de código.
+            Vincule cada repo a um fluxo de entrega e a sincronização acontece automaticamente.
           </p>
+          <div className="flex items-center gap-2 pt-0.5 flex-wrap">
+            {(['Cadastre o repositório', 'Vincule a um fluxo de entrega', 'Agentes monitoram automaticamente'] as const).map((step, i) => (
+              <span key={i} className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground/70">
+                {i > 0 && <span className="text-muted-foreground/25 mr-0.5">→</span>}
+                <span className="w-4 h-4 rounded-full bg-primary/15 text-primary flex items-center justify-center text-[9px] font-bold shrink-0">{i + 1}</span>
+                {step}
+              </span>
+            ))}
+          </div>
         </div>
-        {/* Connection status badge */}
-        <div className="flex items-center gap-2">
-          <span className={`text-2xs px-2 py-1 rounded flex items-center gap-1.5 ${
-            tokenStatus?.connected
-              ? 'bg-green-500/10 text-green-400'
-              : 'bg-destructive/10 text-destructive'
-          }`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${
-              tokenStatus?.connected ? 'bg-green-500' : 'bg-destructive'
-            }`} />
-            {tokenStatus?.connected
-              ? t('connectedAs', { user: tokenStatus.user || 'connected' })
-              : t('notConfigured')}
-          </span>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {repos.length > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleSync}
+              disabled={syncing}
+              className="h-8 text-xs"
+            >
+              {syncing ? '↺ Sincronizando...' : '↺ Sincronizar agora'}
+            </Button>
+          )}
+          {!showForm && !editingRepo && !showImport && (
+            <>
+              <Button size="sm" variant="outline" onClick={() => setShowImport(true)} className="h-8 text-xs">
+                ↑ Importar em lote
+              </Button>
+              <Button size="sm" onClick={() => setShowForm(true)} className="h-8 text-xs">
+                + Adicionar repositório
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
-      {/* Not configured notice */}
-      {tokenStatus && !tokenStatus.connected && (
-        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
-          <div className="flex items-start gap-3">
-            <span className="text-amber-400 text-lg mt-0.5">!</span>
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-foreground">{t('tokenNotConfigured')}</p>
-              <p className="text-xs text-muted-foreground">
-                {t.rich('tokenNotConfiguredDesc', { code: (chunks) => <code className="px-1 py-0.5 rounded bg-secondary text-foreground font-mono text-2xs">{chunks}</code> })}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Feedback */}
       {feedback && (
-        <div className={`rounded-lg p-3 text-xs font-medium ${
-          feedback.ok ? 'bg-green-500/10 text-green-400' : 'bg-destructive/10 text-destructive'
+        <div className={`rounded-xl p-3 text-xs font-medium border ${
+          feedback.ok
+            ? 'bg-green-500/10 text-green-400 border-green-500/20'
+            : 'bg-red-500/10 text-red-400 border-red-500/20'
         }`}>
           {feedback.text}
         </div>
       )}
 
-      {/* Sync result banner */}
-      {syncResult && (
-        <div className="rounded-lg p-3 text-xs bg-blue-500/10 text-blue-400 flex items-center gap-4">
-          <span>{t('syncResultImported', { count: syncResult.imported })}</span>
-          <span>{t('syncResultSkipped', { count: syncResult.skipped })}</span>
-          {syncResult.errors > 0 && <span className="text-destructive">{t('syncResultErrors', { count: syncResult.errors })}</span>}
-        </div>
+      {/* ── Import panel ── */}
+      {showImport && (
+        <ImportPanel
+          onDone={() => { setShowImport(false); load() }}
+          onCancel={() => setShowImport(false)}
+        />
       )}
 
-      {/* Import Issues Form */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-border">
-          <h3 className="text-sm font-medium text-foreground">{t('importIssues')}</h3>
-        </div>
-        <div className="p-4 space-y-3">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {/* Repo input */}
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">{t('labelRepository')}</label>
-              <input
-                type="text"
-                value={repo}
-                onChange={e => setRepo(e.target.value)}
-                placeholder={t('placeholderRepo')}
-                className="w-full px-3 py-1.5 text-sm rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
-              />
+      {/* ── Empty state ── */}
+      {repos.length === 0 && !showForm && !showImport && (
+        <div className="rounded-xl border border-dashed border-border/60 bg-secondary/20 py-16 px-6 flex flex-col items-center gap-4 text-center">
+          <div className="w-14 h-14 rounded-2xl bg-secondary flex items-center justify-center text-3xl">🐙</div>
+          <div>
+            <p className="text-sm font-semibold text-foreground">Nenhum repositório conectado</p>
+            <p className="text-xs text-muted-foreground mt-1 max-w-sm">
+              Adicione um repositório para que os agentes acompanhem commits e PRs automaticamente.
+              Funciona com GitHub, GitLab e Bitbucket.
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-4 text-xs text-muted-foreground mt-1">
+            <div className="flex flex-col items-center gap-1.5">
+              <span className="text-lg">📋</span>
+              <span>Commits vinculados a cards do backlog</span>
             </div>
-
-            {/* Label filter */}
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">{t('labelLabels')}</label>
-              <input
-                type="text"
-                value={labelFilter}
-                onChange={e => setLabelFilter(e.target.value)}
-                placeholder={t('placeholderLabels')}
-                className="w-full px-3 py-1.5 text-sm rounded-md border border-border bg-background text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary"
-              />
+            <div className="flex flex-col items-center gap-1.5">
+              <span className="text-lg">🔀</span>
+              <span>Avisos automáticos de PRs abertos</span>
             </div>
-
-            {/* State filter */}
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">{t('labelState')}</label>
-              <select
-                value={stateFilter}
-                onChange={e => setStateFilter(e.target.value as any)}
-                className="w-full px-3 py-1.5 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              >
-                <option value="open">{t('stateOpen')}</option>
-                <option value="closed">{t('stateClosed')}</option>
-                <option value="all">{t('stateAll')}</option>
-              </select>
-            </div>
-
-            {/* Assign to agent */}
-            <div>
-              <label className="text-xs text-muted-foreground mb-1 block">{t('labelAssignAgent')}</label>
-              <select
-                value={assignAgent}
-                onChange={e => setAssignAgent(e.target.value)}
-                className="w-full px-3 py-1.5 text-sm rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-              >
-                <option value="">{t('unassigned')}</option>
-                {agents.map(a => (
-                  <option key={a.name} value={a.name}>{a.name}</option>
-                ))}
-              </select>
+            <div className="flex flex-col items-center gap-1.5">
+              <span className="text-lg">📈</span>
+              <span>Velocidade de entrega por repositório</span>
             </div>
           </div>
-
-          {/* Actions */}
-          <div className="flex items-center gap-2 pt-1">
-            <Button
-              onClick={handlePreview}
-              disabled={previewing || !repo}
-              variant="outline"
-              size="xs"
-              className="flex items-center gap-1.5"
-            >
-              {previewing ? (
-                <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="7" cy="7" r="5" />
-                  <path d="M11 11l3 3" />
-                </svg>
-              )}
-              {t('buttonPreview')}
-            </Button>
-            <Button
-              onClick={handleImport}
-              disabled={syncing || !repo}
-              size="xs"
-              className={`flex items-center gap-1.5 ${
-                !repo ? 'bg-muted text-muted-foreground cursor-not-allowed' : ''
-              }`}
-            >
-              {syncing ? (
-                <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M8 2v8M5 7l3 3 3-3" />
-                  <path d="M3 12v2h10v-2" />
-                </svg>
-              )}
-              {t('buttonImport')}
-            </Button>
-          </div>
-        </div>
-      </div>
-
-      {/* Two-Way Sync */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <h3 className="text-sm font-medium text-foreground">{t('twoWaySync')}</h3>
-          <Button
-            variant="outline"
-            size="xs"
-            onClick={handleSyncAll}
-            disabled={syncingProjectId !== null}
-            className="flex items-center gap-1.5"
-          >
-            {t('syncAll')}
+          <Button size="sm" onClick={() => setShowForm(true)} className="mt-1">
+            + Conectar primeiro repositório
           </Button>
         </div>
-        <div className="divide-y divide-border/50">
-          {projects.filter(p => p.github_repo).map(project => (
-            <div key={project.id} className="px-4 py-3 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <span className={`w-2 h-2 rounded-full ${project.github_sync_enabled ? 'bg-green-500' : 'bg-muted-foreground/30'}`} />
-                <div>
-                  <div className="text-sm text-foreground">{project.name}</div>
-                  <div className="text-xs text-muted-foreground font-mono">{project.github_repo}</div>
+      )}
+
+      {/* ── Single add form ── */}
+      {showForm && !showImport && (
+        <RepoForm onSave={handleCreate} onCancel={() => setShowForm(false)} saving={saving} />
+      )}
+
+      {/* ── Two-column layout: repos + history ── */}
+      {(repos.length > 0 || editingRepo) && (
+        <div className="grid grid-cols-1 xl:grid-cols-3 gap-5">
+
+          {/* Left: repo list */}
+          <div className="xl:col-span-2 space-y-3">
+
+            {/* Stats bar */}
+            {repos.length > 0 && (
+              <div className="grid grid-cols-3 gap-3">
+                <div className="rounded-xl border border-border/50 bg-card px-4 py-3">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Repositórios</p>
+                  <p className="text-2xl font-semibold text-foreground mt-0.5">{repos.length}</p>
+                </div>
+                <div className="rounded-xl border border-border/50 bg-card px-4 py-3">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Commits sincronizados</p>
+                  <p className="text-2xl font-semibold text-foreground mt-0.5">{totalCommits}</p>
+                </div>
+                <div className="rounded-xl border border-border/50 bg-card px-4 py-3">
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Sincronizações OK</p>
+                  <p className="text-2xl font-semibold text-foreground mt-0.5">{successCount}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="xs"
-                  onClick={() => handleToggleSync(project)}
-                  className="text-xs"
-                >
-                  {project.github_sync_enabled ? t('disableSync') : t('enableSync')}
-                </Button>
-                {project.github_sync_enabled && (
-                  <Button
-                    variant="outline"
-                    size="xs"
-                    onClick={() => handleSyncProject(project.id)}
-                    disabled={syncingProjectId === project.id}
-                    className="flex items-center gap-1.5"
-                  >
-                    {syncingProjectId === project.id ? (
-                      <div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                    ) : (
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M2 8a6 6 0 0110.472-4M14 8a6 6 0 01-10.472 4" />
-                        <path d="M13 2v4h-4M3 14v-4h4" />
-                      </svg>
-                    )}
-                    {t('syncButton')}
-                  </Button>
-                )}
-              </div>
-            </div>
-          ))}
-          {projects.filter(p => p.github_repo).length === 0 && (
-            <div className="px-4 py-6 text-center text-xs text-muted-foreground">
-              {t('noProjectsLinked')}
-            </div>
-          )}
-        </div>
-      </div>
+            )}
 
-      {/* Issue Preview Table */}
-      {previewIssues.length > 0 && (
-        <div className="rounded-lg border border-border bg-card overflow-hidden">
-          <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-            <h3 className="text-sm font-medium text-foreground">
-              {t('previewTitle', { count: previewIssues.length })}
-            </h3>
+            {/* Repo cards */}
+            {repos.map(repo => (
+              editingRepo?.id === repo.id ? (
+                <RepoForm
+                  key={repo.id}
+                  initial={repo}
+                  onSave={handleUpdate}
+                  onCancel={() => setEditingRepo(null)}
+                  saving={saving}
+                />
+              ) : (
+                <RepoCard
+                  key={repo.id}
+                  repo={repo}
+                  lastSync={lastSyncFor(repo.repo_url)}
+                  onEdit={() => setEditingRepo(repo)}
+                  onDelete={() => handleDelete(repo.id, repo.name)}
+                  deletingId={deletingId}
+                />
+              )
+            ))}
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="text-left px-4 py-2 font-medium">{t('colNumber')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colTitle')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colLabels')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colState')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colCreated')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {previewIssues.map(issue => (
-                  <tr key={issue.number} className="border-b border-border/50 hover:bg-secondary/50">
-                    <td className="px-4 py-2 text-muted-foreground">{issue.number}</td>
-                    <td className="px-4 py-2 text-foreground max-w-[300px] truncate">
-                      <a
-                        href={issue.html_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="hover:text-primary transition-colors"
-                      >
-                        {issue.title}
-                      </a>
-                    </td>
-                    <td className="px-4 py-2">
-                      <div className="flex flex-wrap gap-1">
-                        {issue.labels.map(l => (
-                          <span
-                            key={l.name}
-                            className="px-1.5 py-0.5 rounded text-2xs bg-secondary text-muted-foreground"
-                          >
-                            {l.name}
+
+          {/* Right: sync history */}
+          <div className="xl:col-span-1">
+            <div className="rounded-xl border border-border/60 bg-card overflow-hidden sticky top-0">
+              <div className="px-4 py-3 border-b border-border/50 flex items-center justify-between">
+                <div>
+                  <h3 className="text-sm font-medium text-foreground">Histórico de sincronização</h3>
+                  {syncs.length > 0 && (
+                    <p className="text-[10px] text-muted-foreground mt-0.5">Últimas {Math.min(syncs.length, 30)} sincronizações</p>
+                  )}
+                </div>
+                <button
+                  onClick={load}
+                  className="text-[10px] text-muted-foreground hover:text-foreground transition-colors px-2 py-1 rounded-lg hover:bg-secondary"
+                  title="Atualizar"
+                >
+                  ↺
+                </button>
+              </div>
+
+              {syncs.length === 0 ? (
+                <div className="px-4 py-8 text-center">
+                  <p className="text-xs text-muted-foreground">Nenhuma sincronização ainda</p>
+                  <p className="text-[10px] text-muted-foreground/50 mt-1">Clique em &quot;Sincronizar agora&quot; para começar</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-border/40 max-h-[560px] overflow-y-auto">
+                  {syncs.slice(0, 30).map((sync: any) => {
+                    const info = STATUS_LABELS[sync.status] ?? { label: sync.status, dot: 'bg-muted-foreground/40' }
+                    const p = PROVIDERS[sync.provider as GitProvider]
+                    const shortRepo = sync.repo?.replace(/^https?:\/\/[^/]+\//, '').replace(/\.git$/, '')
+                    return (
+                      <div key={sync.id} className="px-4 py-2.5 hover:bg-secondary/30 transition-colors">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${info.dot}`} />
+                            <span className="text-xs text-foreground/80 font-mono truncate">{shortRepo ?? sync.repo}</span>
+                          </div>
+                          <span className="text-[10px] text-muted-foreground shrink-0">{p?.icon}</span>
+                        </div>
+                        <div className="flex items-center gap-3 mt-0.5 pl-3.5">
+                          <span className="text-[10px] text-muted-foreground">{info.label}</span>
+                          {sync.changes_pulled > 0 && (
+                            <span className="text-[10px] text-primary font-mono">+{sync.changes_pulled}</span>
+                          )}
+                          <span className="text-[10px] text-muted-foreground/40 ml-auto">
+                            {new Date(sync.created_at * 1000).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}
                           </span>
-                        ))}
+                        </div>
                       </div>
-                    </td>
-                    <td className="px-4 py-2">
-                      <span className={`px-1.5 py-0.5 rounded text-2xs ${
-                        issue.state === 'open'
-                          ? 'bg-green-500/10 text-green-400'
-                          : 'bg-purple-500/10 text-purple-400'
-                      }`}>
-                        {issue.state}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {new Date(issue.created_at).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
 
-      {/* Sync History */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-border">
-          <h3 className="text-sm font-medium text-foreground">{t('syncHistory')}</h3>
-        </div>
-        {syncHistory.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="text-left px-4 py-2 font-medium">{t('colRepo')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colIssues')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colStatus')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colSyncedAt')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {syncHistory.map(sync => (
-                  <tr key={sync.id} className="border-b border-border/50 hover:bg-secondary/50">
-                    <td className="px-4 py-2 font-mono text-foreground">{sync.repo}</td>
-                    <td className="px-4 py-2 text-muted-foreground">{sync.issue_count}</td>
-                    <td className="px-4 py-2">
-                      <span className={`px-1.5 py-0.5 rounded text-2xs ${
-                        sync.status === 'success'
-                          ? 'bg-green-500/10 text-green-400'
-                          : sync.status === 'partial'
-                          ? 'bg-yellow-500/10 text-yellow-400'
-                          : 'bg-destructive/10 text-destructive'
-                      }`}>
-                        {sync.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {new Date(sync.created_at * 1000).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="px-4 py-6 text-center text-xs text-muted-foreground">
-            {t('noSyncHistory')}
-          </div>
-        )}
-      </div>
-
-      {/* Linked Tasks */}
-      <div className="rounded-lg border border-border bg-card overflow-hidden">
-        <div className="px-4 py-3 border-b border-border">
-          <h3 className="text-sm font-medium text-foreground">
-            {linkedTasks.length > 0 ? t('linkedTasksWithCount', { count: linkedTasks.length }) : t('linkedTasks')}
-          </h3>
-        </div>
-        {linkedTasks.length > 0 ? (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border text-muted-foreground">
-                  <th className="text-left px-4 py-2 font-medium">{t('colTask')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colStatus')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colPriority')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colGitHub')}</th>
-                  <th className="text-left px-4 py-2 font-medium">{t('colSynced')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {linkedTasks.map(task => (
-                  <tr key={task.id} className="border-b border-border/50 hover:bg-secondary/50">
-                    <td className="px-4 py-2 text-foreground max-w-[250px] truncate">{task.title}</td>
-                    <td className="px-4 py-2">
-                      <span className="px-1.5 py-0.5 rounded text-2xs bg-secondary text-muted-foreground">
-                        {task.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2">
-                      <span className={`px-1.5 py-0.5 rounded text-2xs ${
-                        task.priority === 'critical' ? 'bg-red-500/10 text-red-400' :
-                        task.priority === 'high' ? 'bg-orange-500/10 text-orange-400' :
-                        task.priority === 'low' ? 'bg-blue-500/10 text-blue-400' :
-                        'bg-secondary text-muted-foreground'
-                      }`}>
-                        {task.priority}
-                      </span>
-                    </td>
-                    <td className="px-4 py-2">
-                      {task.metadata.github_issue_url ? (
-                        <a
-                          href={task.metadata.github_issue_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-primary hover:underline font-mono"
-                        >
-                          {task.metadata.github_repo}#{task.metadata.github_issue_number}
-                        </a>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground">
-                      {task.metadata.github_synced_at
-                        ? new Date(task.metadata.github_synced_at).toLocaleDateString()
-                        : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="px-4 py-6 text-center text-xs text-muted-foreground">
-            {t('noLinkedTasks')}
-          </div>
-        )}
-      </div>
     </div>
   )
 }

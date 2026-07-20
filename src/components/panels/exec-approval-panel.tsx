@@ -26,14 +26,14 @@ const RISK_BADGE: Record<ExecApprovalRequest['risk'], { bg: string; text: string
 
 function timeAgo(timestamp: number): string {
   const seconds = Math.floor((Date.now() - timestamp) / 1000)
-  if (seconds < 5) return 'just now'
-  if (seconds < 60) return `${seconds}s ago`
+  if (seconds < 5) return 'agora'
+  if (seconds < 60) return `${seconds}s atrás`
   const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
+  if (minutes < 60) return `${minutes}m atrás`
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
+  if (hours < 24) return `${hours}h atrás`
   const days = Math.floor(hours / 24)
-  return `${days}d ago`
+  return `${days}d atrás`
 }
 
 export function ExecApprovalPanel() {
@@ -294,7 +294,7 @@ function AllowlistEditor({ execApprovals }: { execApprovals: ExecApprovalRequest
           value={newAgentId}
           onChange={(e) => setNewAgentId(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && addAgent()}
-          placeholder="Agent ID (e.g. claude, assistant)"
+          placeholder="ID do agente (ex.: claude, assistant)"
           className="flex-1 bg-secondary border border-border rounded px-2.5 py-1.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
         />
         <Button size="sm" variant="outline" onClick={addAgent} disabled={!newAgentId.trim()}>
@@ -373,7 +373,7 @@ function AgentAllowlistCard({
           <button
             onClick={onRemoveAgent}
             className="text-xs text-muted-foreground hover:text-red-400 transition-colors px-1"
-            title="Remove agent"
+            title="Remover agente"
           >
             x
           </button>
@@ -394,13 +394,13 @@ function AgentAllowlistCard({
                 onChange={(e) => onUpdatePattern(index, e.target.value)}
                 onFocus={() => setPreviewIndex(index)}
                 onBlur={() => setPreviewIndex(null)}
-                placeholder="e.g. git *, npm install *, ls"
+                placeholder="ex.: git *, npm install *, ls"
                 className="flex-1 font-mono bg-secondary border border-border rounded px-2 py-1 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
               />
               <button
                 onClick={() => onRemovePattern(index)}
                 className="text-xs text-muted-foreground hover:text-red-400 transition-colors px-1.5"
-                title="Remove pattern"
+                title="Remover padrão"
               >
                 x
               </button>

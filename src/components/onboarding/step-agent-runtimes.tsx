@@ -131,8 +131,8 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
           <Loader />
         </div>
         <div className="flex items-center justify-between pt-4 border-t border-border/30">
-          <Button variant="ghost" size="sm" onClick={onBack} className="text-xs text-muted-foreground">Back</Button>
-          <Button onClick={onNext} size="sm" className={`${mc.bgBtn} ${mc.text} border ${mc.border} ${mc.hoverBg}`}>Continue</Button>
+          <Button variant="ghost" size="sm" onClick={onBack} className="text-xs text-muted-foreground">Voltar</Button>
+          <Button onClick={onNext} size="sm" className={`${mc.bgBtn} ${mc.text} border ${mc.border} ${mc.hoverBg}`}>Continuar</Button>
         </div>
       </>
     )
@@ -141,14 +141,14 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
   return (
     <>
       <div className="flex-1">
-        <h2 className="text-lg font-semibold mb-1">Agent Runtimes</h2>
+        <h2 className="text-lg font-semibold mb-1">Runtimes de Agentes</h2>
         <p className="text-sm text-muted-foreground mb-4">
-          Install agent runtimes to run AI agents. You can skip this and install later from Settings.
+          Instale runtimes de agentes para executar agentes de IA. Você pode pular e instalar depois nas Configurações.
         </p>
 
         {isDocker && (
           <div className="mb-3 p-2.5 rounded-lg border border-void-purple/20 bg-void-purple/5 text-xs text-muted-foreground">
-            Running in Docker — install directly or use sidecar services for production.
+            Executando no Docker — instale diretamente ou use serviços sidecar para produção.
           </div>
         )}
 
@@ -171,7 +171,7 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
                 {/* Status badge */}
                 {(rt.installed || justInstalled) && (
                   <span className="absolute -top-2 right-2 text-2xs px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
-                    Detected
+                    Detectado
                   </span>
                 )}
 
@@ -187,7 +187,7 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
                 {/* Auth status for runtimes that need it */}
                 {rt.installed && rt.authRequired && (
                   <p className={`text-2xs mb-1 ${rt.authenticated ? 'text-emerald-400/70' : 'text-amber-400'}`}>
-                    {rt.authenticated ? 'Authenticated' : rt.authHint}
+                    {rt.authenticated ? 'Autenticado' : rt.authHint}
                   </p>
                 )}
 
@@ -196,16 +196,16 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
                   <div className="mt-2">
                     {isInstalling ? (
                       <div className="flex items-center gap-2 text-2xs text-muted-foreground">
-                        <Loader /> Installing...
+                        <Loader /> Instalando...
                       </div>
                     ) : installFailed ? (
                       <div className="space-y-1">
-                        <p className="text-2xs text-red-400">Install failed: {job?.error || 'Unknown error'}</p>
+                        <p className="text-2xs text-red-400">Instalação falhou: {job?.error || 'Erro desconhecido'}</p>
                         <button
                           onClick={() => handleInstall(rt.id)}
                           className="text-2xs px-2 py-1 rounded border border-border/40 hover:border-border/60 text-muted-foreground hover:text-foreground transition-colors"
                         >
-                          Retry
+                          Tentar novamente
                         </button>
                       </div>
                     ) : (
@@ -214,14 +214,14 @@ export function StepAgentRuntimes({ isGateway, onNext, onBack }: Props) {
                           onClick={() => handleInstall(rt.id)}
                           className={`text-2xs px-2 py-1 rounded border ${mc.border} ${mc.bgBtn} ${mc.text} ${mc.hoverBg} transition-colors`}
                         >
-                          Install
+                          Instalar
                         </button>
                         {isDocker && (
                           <button
                             onClick={() => handleCopyCompose(rt.id)}
                             className="text-2xs px-2 py-1 rounded border border-border/40 hover:border-border/60 text-muted-foreground hover:text-foreground transition-colors"
                           >
-                            {copiedYaml === rt.id ? 'Copied!' : 'Sidecar YAML'}
+                            {copiedYaml === rt.id ? 'Copiado!' : 'Sidecar YAML'}
                           </button>
                         )}
                       </div>

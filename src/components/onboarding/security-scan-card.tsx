@@ -76,11 +76,11 @@ const OVERALL_COLOR: Record<string, string> = {
 }
 
 const CATEGORY_LABELS: Record<string, { label: string; icon: string }> = {
-  credentials: { label: 'Credentials', icon: 'K' },
-  network: { label: 'Network', icon: 'N' },
+  credentials: { label: 'Credenciais', icon: 'K' },
+  network: { label: 'Rede', icon: 'N' },
   openclaw: { label: 'OpenClaw', icon: 'O' },
   runtime: { label: 'Runtime', icon: 'R' },
-  os: { label: 'OS Security', icon: 'S' },
+  os: { label: 'Segurança do SO', icon: 'S' },
 }
 
 export function SecurityScanCard({ compact = false, autoScan = false }: { compact?: boolean; autoScan?: boolean }) {
@@ -125,12 +125,12 @@ export function SecurityScanCard({ compact = false, autoScan = false }: { compac
     try {
       const res = await fetch('/api/security-scan')
       if (!res.ok) {
-        setError(res.status === 401 ? 'Admin access required' : 'Scan failed')
+        setError(res.status === 401 ? 'Acesso de administrador necessário' : 'Varredura falhou')
         return
       }
       setResult(await res.json())
     } catch {
-      setError('Failed to connect')
+      setError('Falha ao conectar')
     } finally {
       setLoading(false)
     }
@@ -147,7 +147,7 @@ export function SecurityScanCard({ compact = false, autoScan = false }: { compac
         body: ids ? JSON.stringify({ ids }) : '{}',
       })
       if (!res.ok) {
-        setFixResult({ attempted: 0, fixed: 0, failed: 1, remaining: 0, remainingAutoFixable: 0, remainingManual: 0, note: res.status === 401 ? 'Admin access required' : 'Fix failed' })
+        setFixResult({ attempted: 0, fixed: 0, failed: 1, remaining: 0, remainingAutoFixable: 0, remainingManual: 0, note: res.status === 401 ? 'Acesso de administrador necessário' : 'Correção falhou' })
         return
       }
       const data = await res.json()
@@ -163,7 +163,7 @@ export function SecurityScanCard({ compact = false, autoScan = false }: { compac
       // Re-scan after fixes
       setTimeout(() => runScan(), 1500)
     } catch {
-      setFixResult({ attempted: 0, fixed: 0, failed: 1, remaining: 0, remainingAutoFixable: 0, remainingManual: 0, note: 'Network error' })
+      setFixResult({ attempted: 0, fixed: 0, failed: 1, remaining: 0, remainingAutoFixable: 0, remainingManual: 0, note: 'Erro de rede' })
     } finally {
       setTimeout(() => setFixing(null), 1500)
     }
@@ -179,11 +179,11 @@ export function SecurityScanCard({ compact = false, autoScan = false }: { compac
     return (
       <div className="flex flex-col items-center gap-4 py-6">
         <div className="text-center">
-          <p className="text-sm text-muted-foreground mb-1">Run a comprehensive security scan of your installation</p>
-          <p className="text-xs text-muted-foreground/60">Checks credentials, network config, OpenClaw hardening, and runtime security</p>
+          <p className="text-sm text-muted-foreground mb-1">Execute uma varredura de segurança completa da sua instalação</p>
+          <p className="text-xs text-muted-foreground/60">Verifica credenciais, configuração de rede, proteção OpenClaw e segurança de runtime</p>
         </div>
         <Button onClick={runScan} variant="outline" size="sm" className="border-void-purple/30 text-void-purple hover:bg-void-purple/10">
-          Run Security Scan
+          Executar Varredura de Segurança
         </Button>
       </div>
     )
@@ -192,7 +192,7 @@ export function SecurityScanCard({ compact = false, autoScan = false }: { compac
   if (loading) {
     return (
       <div className="flex items-center justify-center py-8">
-        <Loader variant="inline" label="Scanning..." />
+        <Loader variant="inline" label="Verificando..." />
       </div>
     )
   }
@@ -201,7 +201,7 @@ export function SecurityScanCard({ compact = false, autoScan = false }: { compac
     return (
       <div className="flex flex-col items-center gap-3 py-6">
         <p className="text-sm text-red-400">{error}</p>
-        <Button onClick={runScan} variant="outline" size="sm">Retry</Button>
+        <Button onClick={runScan} variant="outline" size="sm">Tentar novamente</Button>
       </div>
     )
   }
@@ -224,11 +224,11 @@ export function SecurityScanCard({ compact = false, autoScan = false }: { compac
             <div className={`text-sm font-medium capitalize ${OVERALL_COLOR[result.overall]}`}>
               {result.overall.replace('-', ' ')}
             </div>
-            <div className="text-xs text-muted-foreground">Security score</div>
+            <div className="text-xs text-muted-foreground">Pontuação de segurança</div>
           </div>
         </div>
         <Button onClick={runScan} variant="ghost" size="sm" className="text-xs text-muted-foreground hover:text-foreground">
-          Re-scan
+          Verificar novamente
         </Button>
       </div>
 
@@ -250,8 +250,8 @@ export function SecurityScanCard({ compact = false, autoScan = false }: { compac
         return totalFailing > 0 ? (
           <div className="flex items-center justify-between gap-2">
             <div className="text-xs text-muted-foreground">
-              <p>{totalFailing} issue{totalFailing > 1 ? 's' : ''} found</p>
-              <p>{autoFixableChecks.length} auto-fixable, {manualChecks.length} manual/review</p>
+              <p>{totalFailing} problema{totalFailing > 1 ? 's' : ''} encontrado{totalFailing > 1 ? 's' : ''}</p>
+              <p>{autoFixableChecks.length} corrigível automático, {manualChecks.length} manual/revisão</p>
             </div>
             <Button
               onClick={() => runFix()}
@@ -260,7 +260,7 @@ export function SecurityScanCard({ compact = false, autoScan = false }: { compac
               size="sm"
               className="text-xs border-void-purple/30 text-void-purple hover:bg-void-purple/10"
             >
-              {fixing === 'all' ? 'Fixing...' : 'Fix Auto-Fixable'}
+              {fixing === 'all' ? 'Corrigindo...' : 'Corrigir Automaticamente'}
             </Button>
           </div>
         ) : null
@@ -269,11 +269,11 @@ export function SecurityScanCard({ compact = false, autoScan = false }: { compac
       {/* Fix result feedback */}
       {fixResult && (
         <div className={`text-xs px-3 py-2 rounded-lg border ${fixResult.failed > 0 ? 'bg-amber-500/10 border-amber-500/20 text-amber-300' : 'bg-green-500/10 border-green-500/20 text-green-300'}`}>
-          {fixResult.attempted > 0 && <span>{fixResult.attempted} auto-fix attempt{fixResult.attempted > 1 ? 's' : ''}. </span>}
-          {fixResult.fixed > 0 && <span>{fixResult.fixed} issue{fixResult.fixed > 1 ? 's' : ''} fixed. </span>}
-          {fixResult.failed > 0 && <span>{fixResult.failed} failed. </span>}
-          {fixResult.remaining > 0 && <span>{fixResult.remaining} issue{fixResult.remaining > 1 ? 's' : ''} remain. </span>}
-          {fixResult.remainingManual > 0 && <span>{fixResult.remainingManual} still need manual action or review. </span>}
+          {fixResult.attempted > 0 && <span>{fixResult.attempted} tentativa{fixResult.attempted > 1 ? 's' : ''} de correção automática. </span>}
+          {fixResult.fixed > 0 && <span>{fixResult.fixed} problema{fixResult.fixed > 1 ? 's' : ''} corrigido{fixResult.fixed > 1 ? 's' : ''}. </span>}
+          {fixResult.failed > 0 && <span>{fixResult.failed} falhou/falharam. </span>}
+          {fixResult.remaining > 0 && <span>{fixResult.remaining} problema{fixResult.remaining > 1 ? 's' : ''} restante{fixResult.remaining > 1 ? 's' : ''}. </span>}
+          {fixResult.remainingManual > 0 && <span>{fixResult.remainingManual} ainda precisam de ação manual ou revisão. </span>}
           {fixResult.note && <span className="text-muted-foreground">{fixResult.note}</span>}
         </div>
       )}
@@ -300,7 +300,7 @@ export function SecurityScanCard({ compact = false, autoScan = false }: { compac
                 </span>
                 {failing.length > 0 && (
                   <span className="text-xs text-muted-foreground">
-                    {failing.length} issue{failing.length > 1 ? 's' : ''}
+                    {failing.length} problema{failing.length > 1 ? 's' : ''}
                   </span>
                 )}
                 <span className="text-xs text-muted-foreground/50">{isExpanded ? '-' : '+'}</span>
@@ -325,23 +325,23 @@ export function SecurityScanCard({ compact = false, autoScan = false }: { compac
                         <p className="text-xs text-muted-foreground">{check.detail}</p>
                         {check.fix && check.status !== 'pass' && (
                           <div className="flex items-center gap-1.5 mt-0.5">
-                            <p className="text-xs text-void-purple/70 flex-1 min-w-0">Fix: {check.fix}</p>
+                            <p className="text-xs text-void-purple/70 flex-1 min-w-0">Correção: {check.fix}</p>
                             {FIXABLE_IDS.has(check.id) && (
                               <button
                                 onClick={(e) => { e.stopPropagation(); runFix([check.id]) }}
                                 disabled={fixing !== null}
                                 className="shrink-0 px-1.5 py-0.5 text-2xs rounded border border-void-purple/30 text-void-purple hover:bg-void-purple/10 transition-colors disabled:opacity-50"
-                                title={FIX_SAFETY[check.id] === 'requires-review' ? 'Requires review — may affect running services' : FIX_SAFETY[check.id] === 'requires-restart' ? 'Requires restart to take effect' : 'Auto-fix this issue'}
+                                title={FIX_SAFETY[check.id] === 'requires-review' ? 'Requer revisão — pode afetar serviços em execução' : FIX_SAFETY[check.id] === 'requires-restart' ? 'Requer reinicialização para ter efeito' : 'Corrigir automaticamente este problema'}
                               >
-                                {fixing === check.id ? 'Fixing...' : FIX_SAFETY[check.id] === 'requires-review' ? 'Fix *' : 'Fix'}
+                                {fixing === check.id ? 'Corrigindo...' : FIX_SAFETY[check.id] === 'requires-review' ? 'Corrigir *' : 'Corrigir'}
                               </button>
                             )}
                             <button
                               onClick={(e) => { e.stopPropagation(); copyFix(check.fix, check.id) }}
                               className="shrink-0 px-1.5 py-0.5 text-2xs rounded border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors"
-                              title="Copy fix command"
+                              title="Copiar comando de correção"
                             >
-                              {copiedFix === check.id ? 'Copied' : 'Copy'}
+                              {copiedFix === check.id ? 'Copiado' : 'Copiar'}
                             </button>
                           </div>
                         )}

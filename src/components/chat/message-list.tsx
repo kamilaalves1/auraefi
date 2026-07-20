@@ -11,9 +11,9 @@ function formatDateGroup(timestamp: number): string {
   const yesterday = new Date(today)
   yesterday.setDate(yesterday.getDate() - 1)
 
-  if (date.toDateString() === today.toDateString()) return 'Today'
-  if (date.toDateString() === yesterday.toDateString()) return 'Yesterday'
-  return date.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
+  if (date.toDateString() === today.toDateString()) return 'Hoje'
+  if (date.toDateString() === yesterday.toDateString()) return 'Ontem'
+  return date.toLocaleDateString('pt-BR', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
 function groupMessagesByDate(messages: ChatMessage[]): Array<{ date: string; messages: ChatMessage[] }> {
@@ -136,8 +136,8 @@ export function MessageList() {
               <path d="M6 7h.01M10 7h.01" />
             </svg>
           </div>
-          <p className="text-sm text-muted-foreground">Select a conversation</p>
-          <p className="text-xs text-muted-foreground/50 mt-1">or start a new one with an agent</p>
+          <p className="text-sm text-muted-foreground">Selecione uma conversa</p>
+          <p className="text-xs text-muted-foreground/50 mt-1">ou inicie uma nova com um agente</p>
         </div>
       </div>
     )
@@ -157,8 +157,8 @@ export function MessageList() {
               <path d="M7 11v1a1 1 0 001 1h5l2 2v-6a1 1 0 00-1-1h-1" />
             </svg>
           </div>
-          <p className="text-sm text-muted-foreground">No messages yet</p>
-          <p className="text-xs text-muted-foreground/50 mt-1">Send a message to get started</p>
+          <p className="text-sm text-muted-foreground">Nenhuma mensagem ainda</p>
+          <p className="text-xs text-muted-foreground/50 mt-1">Envie uma mensagem para começar</p>
         </div>
       </div>
     )
@@ -188,20 +188,20 @@ export function MessageList() {
                     isGrouped={isGroupedWithPrevious(group.messages, idx)}
                   />
                   <div className="flex items-center gap-2 px-3 pb-2">
-                    <span className="text-[10px] text-red-400">Failed to send</span>
+                    <span className="text-[10px] text-red-400">Falha ao enviar</span>
                     <Button
                       onClick={() => handleRetry(msg)}
                       variant="link"
                       className="text-[10px] text-primary h-auto p-0"
                     >
-                      Retry
+                      Tentar novamente
                     </Button>
                     <Button
                       onClick={() => removePendingMessage(msg.id)}
                       variant="ghost"
                       className="text-[10px] text-muted-foreground h-auto p-0"
                     >
-                      Remove
+                      Remover
                     </Button>
                   </div>
                 </div>
@@ -248,7 +248,7 @@ export function MessageList() {
           onClick={scrollToBottom}
           className="sticky bottom-3 left-1/2 -translate-x-1/2 z-10 bg-primary text-primary-foreground px-4 py-1.5 rounded-full text-xs font-medium shadow-lg hover:bg-primary/90 transition-colors flex items-center gap-1.5"
         >
-          New messages
+          Novas mensagens
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M8 3v10M4 9l4 4 4-4" />
           </svg>

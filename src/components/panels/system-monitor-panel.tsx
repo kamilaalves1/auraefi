@@ -163,7 +163,7 @@ export function SystemMonitorPanel() {
   if (!latest) {
     return (
       <div className="p-5 flex items-center justify-center h-64 text-muted-foreground">
-        {error ? `Error: ${error}` : 'Loading system metrics...'}
+        {error ? `Erro: ${error}` : 'Carregando métricas do sistema...'}
       </div>
     )
   }
@@ -171,7 +171,7 @@ export function SystemMonitorPanel() {
   return (
     <div className="p-5 space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">System Monitor</h2>
+        <h2 className="text-lg font-semibold">Monitor do Sistema</h2>
         {error && <span className="text-xs text-red-500">{error}</span>}
       </div>
 
@@ -193,7 +193,7 @@ export function SystemMonitorPanel() {
                 <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={30} tickFormatter={v => `${v}%`} />
                 <Tooltip
                   contentStyle={{ fontSize: 12, background: 'var(--color-card)', border: '1px solid var(--color-border)' }}
-                  formatter={(v: number | undefined) => [`${v ?? 0}%`, 'CPU']}
+                  formatter={(v) => [`${Number(v ?? 0)}%`, 'CPU']}
                 />
                 <Area
                   type="monotone"
@@ -212,7 +212,7 @@ export function SystemMonitorPanel() {
         {/* Memory */}
         <section className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium">Memory</h3>
+            <h3 className="text-sm font-medium">Memória</h3>
             <span className="text-2xl font-mono font-bold tabular-nums">{latest.memory.usagePercent}%</span>
           </div>
           <div className="text-xs text-muted-foreground mb-2">
@@ -229,7 +229,7 @@ export function SystemMonitorPanel() {
                 <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={30} tickFormatter={v => `${v}%`} />
                 <Tooltip
                   contentStyle={{ fontSize: 12, background: 'var(--color-card)', border: '1px solid var(--color-border)' }}
-                  formatter={(v: number | undefined) => [`${v ?? 0}%`, 'Memory']}
+                  formatter={(v) => [`${Number(v ?? 0)}%`, 'Memória']}
                 />
                 <Area
                   type="monotone"
@@ -248,10 +248,10 @@ export function SystemMonitorPanel() {
         {/* Disk */}
         <section className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium">Disk</h3>
+            <h3 className="text-sm font-medium">Disco</h3>
           </div>
           {latest.disk.length === 0 ? (
-            <div className="text-xs text-muted-foreground">No disk data available</div>
+            <div className="text-xs text-muted-foreground">Sem dados de disco disponíveis</div>
           ) : (
             <div className="space-y-3">
               {latest.disk.map(d => (
@@ -284,7 +284,7 @@ export function SystemMonitorPanel() {
           </div>
           {!latest.gpu ? (
             <div className="flex items-center justify-center h-40 text-xs text-muted-foreground">
-              No GPU detected
+              Nenhuma GPU detectada
             </div>
           ) : (
             <>
@@ -303,7 +303,7 @@ export function SystemMonitorPanel() {
                       <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} width={30} tickFormatter={v => `${v}%`} />
                       <Tooltip
                         contentStyle={{ fontSize: 12, background: 'var(--color-card)', border: '1px solid var(--color-border)' }}
-                        formatter={(v: number | undefined) => [`${v ?? 0}%`, 'GPU Memory']}
+                        formatter={(v) => [`${Number(v ?? 0)}%`, 'Memória GPU']}
                       />
                       <Area
                         type="monotone"
@@ -319,7 +319,7 @@ export function SystemMonitorPanel() {
                 </div>
               ) : (
                 <div className="flex items-center justify-center h-40 text-xs text-muted-foreground">
-                  GPU detected but live memory usage unavailable
+                  GPU detectada, mas uso de memória em tempo real indisponível
                 </div>
               )}
             </>
@@ -328,18 +328,18 @@ export function SystemMonitorPanel() {
         {/* Processes */}
         <section className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium">Top Processes</h3>
-            <span className="text-xs text-muted-foreground">{latest.processes.length} shown</span>
+            <h3 className="text-sm font-medium">Principais Processos</h3>
+            <span className="text-xs text-muted-foreground">{latest.processes.length} exibidos</span>
           </div>
           {latest.processes.length === 0 ? (
             <div className="flex items-center justify-center h-40 text-xs text-muted-foreground">
-              No process data available
+              Sem dados de processos disponíveis
             </div>
           ) : (
             <div className="space-y-0">
               {/* Header */}
               <div className="flex items-center text-[10px] text-muted-foreground uppercase tracking-wider pb-1.5 border-b border-border mb-1">
-                <span className="flex-1">Process</span>
+                <span className="flex-1">Processo</span>
                 <span className="w-14 text-right">CPU</span>
                 <span className="w-14 text-right">Mem</span>
                 <span className="w-16 text-right">RSS</span>
@@ -367,7 +367,7 @@ export function SystemMonitorPanel() {
         {/* Network I/O */}
         <section className="rounded-xl border border-border bg-card p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-medium">Network I/O</h3>
+            <h3 className="text-sm font-medium">E/S de Rede</h3>
             {history.length > 0 && (
               <div className="text-right">
                 <span className="text-xs text-muted-foreground">
@@ -378,7 +378,7 @@ export function SystemMonitorPanel() {
           </div>
           {latest.network.length === 0 ? (
             <div className="flex items-center justify-center h-40 text-xs text-muted-foreground">
-              No network data available
+              Sem dados de rede disponíveis
             </div>
           ) : (
             <>
@@ -393,9 +393,9 @@ export function SystemMonitorPanel() {
                     <YAxis tick={{ fontSize: 10 }} width={50} tickFormatter={v => formatRate(v)} />
                     <Tooltip
                       contentStyle={{ fontSize: 12, background: 'var(--color-card)', border: '1px solid var(--color-border)' }}
-                      formatter={(v: number | undefined, name?: string) => [
-                        formatRate(v ?? 0),
-                        name === 'netRxRate' ? 'Download' : 'Upload',
+                      formatter={(v, name) => [
+                        formatRate(Number(v ?? 0)),
+                        name === 'netRxRate' ? 'Download' : 'Envio',
                       ]}
                     />
                     <Area

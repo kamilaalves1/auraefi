@@ -106,7 +106,10 @@
     "collapseSidebar": "사이드바 접기",
     "expandSidebar": "사이드바 펼치기",
     "more": "더 보기",
-    "workPipeline": "Work pipeline"
+    "workPipeline": "Work pipeline",
+    "deliveryFlow": "배포 흐름",
+    "configuration": "설정 허브",
+    "workspaceParameters": "매개변수"
   },
   "settings": {
     "language": "언어",
@@ -194,7 +197,9 @@
     "goToOffice": "오피스로 이동",
     "goToSkills": "스킬로 이동",
     "quickNavigation": "빠른 탐색",
-    "goToWorkPipeline": "Go to Work pipeline"
+    "goToWorkPipeline": "Go to Work pipeline",
+    "goToDeliveryFlow": "배포 흐름으로 이동",
+    "goToConfiguration": "설정 허브로 이동"
   },
   "contextSwitcher": {
     "localMode": "로컬 모드",
@@ -1842,7 +1847,22 @@
     "noAgents": "No agents registered",
     "noAgentsHint": "Sync from config or create your first agent to get started.",
     "wake": "Wake",
-    "spawn": "Spawn"
+    "spawn": "Spawn",
+    "swePresetTitle": "Software engineering squad",
+    "swePresetSubtitle": "Install the full software-engineering squad in one step. Fictional agent names; each soul points at playbooks under skills/swe-* in the repo.",
+    "swePresetInstall": "Install default squad",
+    "swePresetInstalling": "Creating agents…",
+    "swePresetResult": "Created {createdCount}, skipped {skippedCount}, failed {errorCount}.",
+    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and OpenClaw provisioning stay off unless you enable them in the API body.",
+    "swePhaseOrchestration": "Orchestration",
+    "swePhaseDiscovery": "Discovery",
+    "swePhaseTechnicalDesign": "Technical design",
+    "swePhaseUx": "UX discovery",
+    "swePhaseDevelopment": "Development",
+    "swePhaseSecurity": "Security gate",
+    "swePhaseQa": "QA gate",
+    "swePhaseDeploy": "Production deploy",
+    "swePresetError": "Could not install the preset"
   },
   "orchestration": {
     "tabCommand": "명령",

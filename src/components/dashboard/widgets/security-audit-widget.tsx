@@ -10,10 +10,10 @@ interface PostureInfo {
 }
 
 const postureBadge: Record<string, { label: string; className: string }> = {
-  hardened: { label: 'Hardened', className: 'bg-green-500/15 text-green-400' },
-  secure: { label: 'Secure', className: 'bg-green-500/10 text-green-300' },
-  'needs-attention': { label: 'Needs Attention', className: 'bg-yellow-500/15 text-yellow-400' },
-  'at-risk': { label: 'At Risk', className: 'bg-red-500/15 text-red-400' },
+  hardened: { label: 'Reforçado', className: 'bg-green-500/15 text-green-400' },
+  secure: { label: 'Seguro', className: 'bg-green-500/10 text-green-300' },
+  'needs-attention': { label: 'Atenção Necessária', className: 'bg-yellow-500/15 text-yellow-400' },
+  'at-risk': { label: 'Em Risco', className: 'bg-red-500/15 text-red-400' },
 }
 
 export function SecurityAuditWidget({ data }: { data: DashboardData }) {
@@ -40,7 +40,7 @@ export function SecurityAuditWidget({ data }: { data: DashboardData }) {
   return (
     <div className="panel">
       <div className="panel-header">
-        <h3 className="text-sm font-semibold">Security + Audit</h3>
+        <h3 className="text-sm font-semibold">Segurança + Auditoria</h3>
         {posture && badge && (
           <span className={`text-2xs px-1.5 py-0.5 rounded font-medium ${badge.className}`}>
             {posture.score} - {badge.label}
@@ -48,15 +48,15 @@ export function SecurityAuditWidget({ data }: { data: DashboardData }) {
         )}
       </div>
       <div className="panel-body space-y-3">
-        <StatRow label="Audit events (24h)" value={dbStats?.audit.day ?? 0} />
-        <StatRow label="Audit events (7d)" value={dbStats?.audit.week ?? 0} />
-        <StatRow label="Login failures (24h)" value={dbStats?.audit.loginFailures ?? 0} alert={dbStats ? dbStats.audit.loginFailures > 0 : false} />
-        <StatRow label="Unread notifications" value={dbStats?.notifications.unread ?? 0} alert={(dbStats?.notifications.unread ?? 0) > 0} />
+        <StatRow label="Eventos de auditoria (24h)" value={dbStats?.audit.day ?? 0} />
+        <StatRow label="Eventos de auditoria (7d)" value={dbStats?.audit.week ?? 0} />
+        <StatRow label="Falhas de login (24h)" value={dbStats?.audit.loginFailures ?? 0} alert={dbStats ? dbStats.audit.loginFailures > 0 : false} />
+        <StatRow label="Notificações não lidas" value={dbStats?.notifications.unread ?? 0} alert={(dbStats?.notifications.unread ?? 0) > 0} />
         <button
           onClick={() => navigateToPanel('security')}
           className="w-full text-center text-xs text-primary hover:text-primary/80 py-1.5 mt-1 border border-border/50 rounded hover:bg-secondary transition-colors"
         >
-          View Security Panel
+          Ver Painel de Segurança
         </button>
       </div>
     </div>

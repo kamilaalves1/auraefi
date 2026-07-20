@@ -612,103 +612,6 @@ export function MemoryTab({
   )
 }
 
-// Tasks Tab Component
-export function TasksTab({ agent }: { agent: Agent }) {
-  const t = useTranslations('agentDetail')
-  const [tasks, setTasks] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-
-  useEffect(() => {
-    const fetchTasks = async () => {
-      try {
-        const response = await fetch(`/api/tasks?assigned_to=${agent.name}`)
-        if (response.ok) {
-          const data = await response.json()
-          setTasks(data.tasks || [])
-        }
-      } catch (error) {
-        log.error('Failed to fetch tasks:', error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchTasks()
-  }, [agent.name])
-
-  if (loading) {
-    return (
-      <div className="p-6 flex items-center justify-center py-8">
-        <Loader variant="inline" label={t('loadingTasks')} />
-      </div>
-    )
-  }
-
-  return (
-    <div className="p-6 space-y-4">
-      <h4 className="text-lg font-medium text-foreground">{t('assignedTasks')}</h4>
-
-      {tasks.length === 0 ? (
-        <div className="flex flex-col items-center justify-center py-8 text-muted-foreground/50">
-          <div className="w-10 h-10 rounded-full bg-surface-2 flex items-center justify-center mb-2">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-              <rect x="3" y="2" width="10" height="12" rx="1" />
-              <path d="M6 6h4M6 9h3" />
-            </svg>
-          </div>
-          <p className="text-sm">{t('noTasksAssigned')}</p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {tasks.map(task => (
-            <div key={task.id} className="bg-surface-1/50 rounded-lg p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <Link href={`/tasks?taskId=${task.id}`} className="font-medium text-foreground hover:text-primary transition-colors">
-                    {task.title}
-                  </Link>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {task.ticket_ref || `Task #${task.id}`}
-                    {task.project_name ? ` · ${task.project_name}` : ''}
-                  </div>
-                  {task.description && (
-                    <p className="text-foreground/80 text-sm mt-1">{task.description}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className={`px-2 py-1 text-xs rounded-md font-medium ${
-                    task.status === 'in_progress' ? 'bg-yellow-500/20 text-yellow-400' :
-                    task.status === 'done' ? 'bg-green-500/20 text-green-400' :
-                    task.status === 'review' ? 'bg-blue-500/20 text-blue-400' :
-                    task.status === 'quality_review' ? 'bg-indigo-500/20 text-indigo-400' :
-                    'bg-secondary text-muted-foreground'
-                  }`}>
-                    {task.status}
-                  </span>
-                  <span className={`px-2 py-1 text-xs rounded-md font-medium ${
-                    task.priority === 'urgent' ? 'bg-red-500/20 text-red-400' :
-                    task.priority === 'high' ? 'bg-orange-500/20 text-orange-400' :
-                    task.priority === 'medium' ? 'bg-yellow-500/20 text-yellow-400' :
-                    'bg-secondary text-muted-foreground'
-                  }`}>
-                    {task.priority}
-                  </span>
-                </div>
-              </div>
-              
-              {task.due_date && (
-                <div className="text-xs text-muted-foreground mt-2">
-                  {t('due')}: {new Date(task.due_date * 1000).toLocaleDateString()}
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
 // Activity Tab Component
 export function ActivityTab({ agent }: { agent: Agent }) {
   const t = useTranslations('agentDetail')
@@ -802,6 +705,14 @@ const TEMPLATES = [
   { type: 'researcher', label: 'Researcher', emoji: '\ud83d\udd0d', description: 'Browser and web access for research', modelTier: 'sonnet' as const, toolCount: 8, theme: 'research analyst' },
   { type: 'content-creator', label: 'Content Creator', emoji: '\u270f\ufe0f', description: 'Write and edit for content generation', modelTier: 'haiku' as const, toolCount: 9, theme: 'content creator' },
   { type: 'security-auditor', label: 'Security Auditor', emoji: '\ud83d\udee1\ufe0f', description: 'Read-only + bash for security scanning', modelTier: 'sonnet' as const, toolCount: 10, theme: 'security auditor' },
+  { type: 'product-manager', label: 'Product Manager', emoji: '\ud83d\udccb', description: 'Discovery: docs, sessions, research — no shell', modelTier: 'sonnet' as const, toolCount: 16, theme: 'product manager' },
+  { type: 'business-analyst', label: 'Business Analyst', emoji: '\ud83d\udcca', description: 'Read-only analysis and research', modelTier: 'sonnet' as const, toolCount: 12, theme: 'business analyst' },
+  { type: 'scrum-master', label: 'Scrum Master', emoji: '\ud83c\udfaf', description: 'Facilitation and session coordination', modelTier: 'sonnet' as const, toolCount: 16, theme: 'scrum master' },
+  { type: 'product-owner', label: 'Product Owner', emoji: '\ud83d\udc51', description: 'Prioritization and stakeholder alignment', modelTier: 'haiku' as const, toolCount: 14, theme: 'product owner' },
+  { type: 'software-architect', label: 'Software Architect', emoji: '\ud83c\udfd7\ufe0f', description: 'Technical design, read-only codebase', modelTier: 'sonnet' as const, toolCount: 11, theme: 'software architect' },
+  { type: 'ux-designer', label: 'UX Designer', emoji: '\ud83c\udfa8', description: 'UX discovery: browser and docs', modelTier: 'sonnet' as const, toolCount: 13, theme: 'ux designer' },
+  { type: 'data-engineer', label: 'Data Engineer', emoji: '\ud83e\uddf0', description: 'Data pipelines with Docker bridge', modelTier: 'sonnet' as const, toolCount: 15, theme: 'data engineer' },
+  { type: 'devops-engineer', label: 'DevOps Engineer', emoji: '\u2699\ufe0f', description: 'Deploy and infra (builder + Docker)', modelTier: 'sonnet' as const, toolCount: 21, theme: 'devops engineer' },
 ]
 
 const MODEL_TIER_COLORS: Record<string, string> = {
@@ -892,9 +803,20 @@ export function CreateAgentModal({
           emoji: tmpl.emoji,
           modelTier: tmpl.modelTier,
           modelPrimary: DEFAULT_MODEL_BY_TIER[tmpl.modelTier],
-          workspaceAccess: type === 'researcher' || type === 'content-creator' ? 'none' : type === 'reviewer' || type === 'security-auditor' ? 'ro' : 'rw',
+          workspaceAccess:
+            type === 'researcher' || type === 'content-creator'
+              ? 'none'
+              : type === 'reviewer' ||
+                  type === 'security-auditor' ||
+                  type === 'business-analyst' ||
+                  type === 'software-architect'
+                ? 'ro'
+                : 'rw',
           sandboxMode: type === 'orchestrator' ? 'non-main' : 'all',
-          dockerNetwork: type === 'developer' || type === 'specialist-dev' ? 'bridge' : 'none',
+          dockerNetwork:
+            type === 'developer' || type === 'specialist-dev' || type === 'data-engineer' || type === 'devops-engineer'
+              ? 'bridge'
+              : 'none',
         }))
       }
     }
@@ -2227,7 +2149,7 @@ export function FilesTab({ agent }: { agent: Agent }) {
   if (loading && files.length === 0) {
     return (
       <div className="p-6 flex items-center justify-center py-8">
-        <Loader variant="inline" label="Loading files" />
+        <Loader variant="inline" label="Carregando arquivos" />
       </div>
     )
   }
@@ -2560,7 +2482,7 @@ export function ChannelsTab({ agent }: { agent: Agent }) {
   if (loading && channels.length === 0) {
     return (
       <div className="p-6 flex items-center justify-center py-8">
-        <Loader variant="inline" label="Loading channels" />
+        <Loader variant="inline" label="Carregando canais" />
       </div>
     )
   }
@@ -2678,7 +2600,7 @@ export function CronTab({ agent }: { agent: Agent }) {
   if (loading && allJobs.length === 0) {
     return (
       <div className="p-6 flex items-center justify-center py-8">
-        <Loader variant="inline" label="Loading cron jobs" />
+        <Loader variant="inline" label="Carregando tarefas cron" />
       </div>
     )
   }

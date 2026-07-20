@@ -13,6 +13,17 @@ export async function POST(request: NextRequest) {
   const auth = requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
+  // Direct per-agent messaging is disabled; use workspace workflows / pipelines instead.
+  if (process.env.ALLOW_DIRECT_AGENT_MESSAGE !== 'true') {
+    return NextResponse.json(
+      {
+        error:
+          'Direct agent messaging is disabled. Enable ALLOW_DIRECT_AGENT_MESSAGE=true only if you need this legacy path.',
+      },
+      { status: 403 }
+    )
+  }
+
   const rateCheck = mutationLimiter(request)
   if (rateCheck) return rateCheck
 

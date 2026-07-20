@@ -338,22 +338,25 @@ function AgentDetailModal({
   onStatusUpdate: (name: string, status: Agent['status'], activity?: string) => Promise<void>
 }) {
   const t = useTranslations('agentSquad')
+  const MODELS = [
+    { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (padrão)' },
+    { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
+    { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+  ]
+
   const [editing, setEditing] = useState(false)
   const [formData, setFormData] = useState({
     role: agent.role,
-    session_key: agent.session_key || '',
-    soul_content: agent.soul_content || '',
+    model: (agent as any).model || 'claude-sonnet-4-6',
+    instructions: (agent as any).instructions || '',
   })
 
   const handleSave = async () => {
     try {
-      const response = await fetch('/api/agents', {
+      const response = await fetch(`/api/agents/${agent.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: agent.name,
-          ...formData
-        })
+        body: JSON.stringify(formData)
       })
 
       if (!response.ok) throw new Error(t('failedToUpdate'))
@@ -415,31 +418,34 @@ function AgentDetailModal({
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">{t('sessionKey')}</label>
+              <label className="block text-sm font-medium text-gray-400 mb-1">Modelo</label>
               {editing ? (
-                <input
-                  type="text"
-                  value={formData.session_key}
-                  onChange={(e) => setFormData(prev => ({ ...prev, session_key: e.target.value }))}
+                <select
+                  value={formData.model}
+                  onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))}
                   className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+                >
+                  {MODELS.map(m => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
               ) : (
-                <p className="text-white font-mono">{agent.session_key || t('notSet')}</p>
+                <p className="text-white font-mono">{(agent as any).model || 'claude-sonnet-4-6'}</p>
               )}
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-400 mb-1">{t('soulContent')}</label>
+              <label className="block text-sm font-medium text-gray-400 mb-1">Instruções</label>
               {editing ? (
                 <textarea
-                  value={formData.soul_content}
-                  onChange={(e) => setFormData(prev => ({ ...prev, soul_content: e.target.value }))}
-                  rows={4}
+                  value={formData.instructions}
+                  onChange={(e) => setFormData(prev => ({ ...prev, instructions: e.target.value }))}
+                  rows={5}
                   className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder={t('soulPlaceholder')}
+                  placeholder="Descreva o comportamento, responsabilidades e contexto deste agente..."
                 />
               ) : (
-                <p className="text-white whitespace-pre-wrap">{agent.soul_content || t('notSet')}</p>
+                <p className="text-white whitespace-pre-wrap text-sm">{(agent as any).instructions || t('notSet')}</p>
               )}
             </div>
 
@@ -523,11 +529,17 @@ function CreateAgentModal({
   onCreated: () => void
 }) {
   const t = useTranslations('agentSquad')
+  const MODELS = [
+    { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (padrão)' },
+    { value: 'claude-opus-4-7', label: 'Claude Opus 4.7' },
+    { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5' },
+  ]
+
   const [formData, setFormData] = useState({
     name: '',
     role: '',
-    session_key: '',
-    soul_content: '',
+    model: 'claude-sonnet-4-6',
+    instructions: '',
   })
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -580,24 +592,26 @@ function CreateAgentModal({
             </div>
 
             <div>
-              <label className="block text-sm text-gray-400 mb-1">{t('sessionKeyOptional')}</label>
-              <input
-                type="text"
-                value={formData.session_key}
-                onChange={(e) => setFormData(prev => ({ ...prev, session_key: e.target.value }))}
+              <label className="block text-sm text-gray-400 mb-1">Modelo</label>
+              <select
+                value={formData.model}
+                onChange={(e) => setFormData(prev => ({ ...prev, model: e.target.value }))}
                 className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder={t('sessionKeyPlaceholder')}
-              />
+              >
+                {MODELS.map(m => (
+                  <option key={m.value} value={m.value}>{m.label}</option>
+                ))}
+              </select>
             </div>
 
             <div>
-              <label className="block text-sm text-gray-400 mb-1">{t('soulContentOptional')}</label>
+              <label className="block text-sm text-gray-400 mb-1">Instruções</label>
               <textarea
-                value={formData.soul_content}
-                onChange={(e) => setFormData(prev => ({ ...prev, soul_content: e.target.value }))}
+                value={formData.instructions}
+                onChange={(e) => setFormData(prev => ({ ...prev, instructions: e.target.value }))}
                 className="w-full bg-gray-700 text-white rounded px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                rows={3}
-                placeholder={t('soulPlaceholder')}
+                rows={4}
+                placeholder="Descreva o comportamento, responsabilidades e contexto deste agente..."
               />
             </div>
           </div>

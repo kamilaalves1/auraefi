@@ -264,7 +264,7 @@ export async function POST(request: NextRequest) {
   }
 
   const username = String(body.username || '').trim().toLowerCase()
-  const displayName = String(body.display_name || '').trim()
+  const displayName = String(body.display_name || '').trim().slice(0, 100)
   const password = body.password ? String(body.password) : undefined
   const gatewayMode = !!body.gateway_mode
   const installOpenclaw = !!body.install_openclaw

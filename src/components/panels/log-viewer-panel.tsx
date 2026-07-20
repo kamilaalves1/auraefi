@@ -357,7 +357,7 @@ export function LogViewerPanel() {
           className="h-full overflow-auto p-4 space-y-2 font-mono text-sm"
         >
           {isLoading ? (
-            <Loader variant="panel" label="Loading logs" />
+            <Loader variant="panel" label="Carregando logs" />
           ) : filteredLogs.length === 0 ? (
             <div className="flex items-center justify-center h-32 text-muted-foreground">
               {t('noLogs')}

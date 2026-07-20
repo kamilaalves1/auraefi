@@ -5,7 +5,7 @@ Get from zero to a working agent loop with nothing but Mission Control and `curl
 ## Prerequisites
 
 - Mission Control running (`pnpm dev` or Docker)
-- An admin account (visit `/setup` on first run)
+- An admin account (default: **admin** / **admin**)
 - Your API key (auto-generated on first run, shown in Settings)
 
 ## Step 1: Start Mission Control
@@ -14,7 +14,7 @@ Get from zero to a working agent loop with nothing but Mission Control and `curl
 pnpm dev
 ```
 
-Open http://localhost:3000 and log in. If this is your first run, visit http://localhost:3000/setup to create your admin account.
+Open http://localhost:3000 and log in with **admin** / **admin**.
 
 Your API key is displayed in **Settings > API Key**. Export it for the commands below:
 

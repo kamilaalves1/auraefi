@@ -106,7 +106,10 @@
     "collapseSidebar": "طي الشريط الجانبي",
     "expandSidebar": "توسيع الشريط الجانبي",
     "more": "المزيد",
-    "workPipeline": "Work pipeline"
+    "workPipeline": "Work pipeline",
+    "deliveryFlow": "تدفق التسليم",
+    "configuration": "مركز الإعدادات",
+    "workspaceParameters": "المعاملات"
   },
   "settings": {
     "language": "اللغة",
@@ -194,7 +197,9 @@
     "goToOffice": "الانتقال إلى المكتب",
     "goToSkills": "الانتقال إلى المهارات",
     "quickNavigation": "التنقل السريع",
-    "goToWorkPipeline": "Go to Work pipeline"
+    "goToWorkPipeline": "Go to Work pipeline",
+    "goToDeliveryFlow": "الانتقال إلى تدفق التسليم",
+    "goToConfiguration": "الانتقال إلى مركز الإعدادات"
   },
   "contextSwitcher": {
     "localMode": "الوضع المحلي",
@@ -1842,7 +1847,22 @@
     "noAgents": "No agents registered",
     "noAgentsHint": "Sync from config or create your first agent to get started.",
     "wake": "Wake",
-    "spawn": "Spawn"
+    "spawn": "Spawn",
+    "swePresetTitle": "Software engineering squad",
+    "swePresetSubtitle": "Install the full software-engineering squad in one step. Fictional agent names; each soul points at playbooks under skills/swe-* in the repo.",
+    "swePresetInstall": "Install default squad",
+    "swePresetInstalling": "Creating agents…",
+    "swePresetResult": "Created {createdCount}, skipped {skippedCount}, failed {errorCount}.",
+    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and OpenClaw provisioning stay off unless you enable them in the API body.",
+    "swePhaseOrchestration": "Orchestration",
+    "swePhaseDiscovery": "Discovery",
+    "swePhaseTechnicalDesign": "Technical design",
+    "swePhaseUx": "UX discovery",
+    "swePhaseDevelopment": "Development",
+    "swePhaseSecurity": "Security gate",
+    "swePhaseQa": "QA gate",
+    "swePhaseDeploy": "Production deploy",
+    "swePresetError": "Could not install the preset"
   },
   "orchestration": {
     "tabCommand": "الأوامر",

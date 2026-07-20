@@ -11,7 +11,6 @@ import { RuntimeHealthWidget } from './widgets/runtime-health-widget'
 import { GatewayHealthWidget } from './widgets/gateway-health-widget'
 import { SessionWorkbenchWidget } from './widgets/session-workbench-widget'
 import { EventStreamWidget } from './widgets/event-stream-widget'
-import { TaskFlowWidget } from './widgets/task-flow-widget'
 import { GithubSignalWidget } from './widgets/github-signal-widget'
 import { SecurityAuditWidget } from './widgets/security-audit-widget'
 import { MaintenanceWidget } from './widgets/maintenance-widget'
@@ -23,7 +22,6 @@ const WIDGET_COMPONENTS: Record<string, React.ComponentType<{ data: DashboardDat
   'gateway-health': GatewayHealthWidget,
   'session-workbench': SessionWorkbenchWidget,
   'event-stream': EventStreamWidget,
-  'task-flow': TaskFlowWidget,
   'github-signal': GithubSignalWidget,
   'security-audit': SecurityAuditWidget,
   'maintenance': MaintenanceWidget,

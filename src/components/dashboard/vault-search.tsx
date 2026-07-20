@@ -68,7 +68,7 @@ export function VaultSearch() {
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Search the Sovereign Vault..."
+            placeholder="Pesquisar no Sovereign Vault..."
             className="w-full rounded-md border border-border/40 bg-surface-1 pl-8 pr-3 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:ring-1 focus:ring-primary/40"
           />
         </div>

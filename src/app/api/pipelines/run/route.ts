@@ -3,16 +3,34 @@ import { getDatabase, db_helpers } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
+import {
+  applyParameterSubstitution,
+  extractPipelineParameters,
+  mergeParameterLayers,
+} from '@/lib/parameter-substitution'
+import { loadParameterResolutionBase } from '@/lib/workspace-parameter-resolution'
 
 interface PipelineStep {
   template_id: number
   on_failure: 'stop' | 'continue'
+  parameters?: Record<string, string>
+}
+
+function parseClientMetadata(raw: string | null | undefined): Record<string, unknown> {
+  if (!raw) return {}
+  try {
+    const o = JSON.parse(raw) as unknown
+    return o && typeof o === 'object' && !Array.isArray(o) ? (o as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
 }
 
 interface RunStepState {
   step_index: number
   template_id: number
   template_name: string
+  on_failure?: 'stop' | 'continue'
   status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped'
   spawn_id: string | null
   started_at: number | null
@@ -120,7 +138,8 @@ export async function POST(request: NextRequest) {
 async function spawnStep(
   db: ReturnType<typeof getDatabase>,
   pipelineName: string,
-  template: { name: string; model: string; task_prompt: string; timeout_seconds: number },
+  taskPromptResolved: string,
+  timeoutSeconds: number,
   steps: RunStepState[],
   stepIdx: number,
   runId: number,
@@ -130,8 +149,8 @@ async function spawnStep(
     const { runOpenClaw } = await import('@/lib/command')
     const args = [
       'agent',
-      '--message', `[Pipeline: ${pipelineName} | Step ${stepIdx + 1}] ${template.task_prompt}`,
-      '--timeout', String(template.timeout_seconds),
+      '--message', `[Pipeline: ${pipelineName} | Step ${stepIdx + 1}] ${taskPromptResolved}`,
+      '--timeout', String(timeoutSeconds),
       '--json',
     ]
     const { stdout } = await runOpenClaw(args, { timeoutMs: 15000 })
@@ -157,11 +176,14 @@ async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: num
   const steps: PipelineStep[] = JSON.parse(pipeline.steps || '[]')
   if (steps.length === 0) return NextResponse.json({ error: 'Pipeline has no steps' }, { status: 400 })
 
+  const { defDefaults, workspaceValues } = loadParameterResolutionBase(db, workspaceId)
+  const pipelineParams = extractPipelineParameters(parseClientMetadata(pipeline.client_metadata_json))
+
   // Get template names for snapshot
   const templateIds = steps.map(s => s.template_id)
   const templates = db.prepare(
-    `SELECT id, name, model, task_prompt, timeout_seconds FROM workflow_templates WHERE id IN (${templateIds.map(() => '?').join(',')})`
-  ).all(...templateIds) as Array<{ id: number; name: string; model: string; task_prompt: string; timeout_seconds: number }>
+    `SELECT id, name, model, task_prompt, timeout_seconds FROM workflow_templates WHERE workspace_id = ? AND id IN (${templateIds.map(() => '?').join(',')})`
+  ).all(workspaceId, ...templateIds) as Array<{ id: number; name: string; model: string; task_prompt: string; timeout_seconds: number }>
   const templateMap = new Map(templates.map(t => [t.id, t]))
 
   // Build step snapshot
@@ -194,7 +216,18 @@ async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: num
   const firstTemplate = templateMap.get(steps[0].template_id)
   let spawnResult: any = null
   if (firstTemplate) {
-    spawnResult = await spawnStep(db, pipeline.name, firstTemplate, stepsSnapshot, 0, runId, workspaceId)
+    const merged = mergeParameterLayers(defDefaults, workspaceValues, pipelineParams, steps[0].parameters ?? {})
+    const resolvedPrompt = applyParameterSubstitution(firstTemplate.task_prompt, merged)
+    spawnResult = await spawnStep(
+      db,
+      pipeline.name,
+      resolvedPrompt,
+      firstTemplate.timeout_seconds,
+      stepsSnapshot,
+      0,
+      runId,
+      workspaceId
+    )
   }
 
   db_helpers.logActivity('pipeline_started', 'pipeline', pipelineId, triggeredBy, `Started pipeline: ${pipeline.name}`, { run_id: runId }, workspaceId)
@@ -267,13 +300,33 @@ async function advanceRun(db: ReturnType<typeof getDatabase>, runId: number, suc
   steps[nextIdx].status = 'running'
   steps[nextIdx].started_at = now
 
-  const template = db.prepare('SELECT id, name, model, task_prompt, timeout_seconds FROM workflow_templates WHERE id = ?')
-    .get(steps[nextIdx].template_id) as any
+  const template = db
+    .prepare('SELECT id, name, model, task_prompt, timeout_seconds FROM workflow_templates WHERE id = ? AND workspace_id = ?')
+    .get(steps[nextIdx].template_id, workspaceId) as
+    | { id: number; name: string; model: string; task_prompt: string; timeout_seconds: number }
+    | undefined
 
   let spawnResult: any = null
   if (template) {
-    const pipeline = db.prepare('SELECT name FROM workflow_pipelines WHERE id = ? AND workspace_id = ?').get(run.pipeline_id, workspaceId) as any
-    spawnResult = await spawnStep(db, pipeline?.name || '?', template, steps, nextIdx, runId, workspaceId)
+    const pipelineRow = db
+      .prepare('SELECT name, steps, client_metadata_json FROM workflow_pipelines WHERE id = ? AND workspace_id = ?')
+      .get(run.pipeline_id, workspaceId) as { name: string; steps: string; client_metadata_json: string | null } | undefined
+    const pipelineSteps: PipelineStep[] = JSON.parse(pipelineRow?.steps || '[]')
+    const stepDef = pipelineSteps[nextIdx]
+    const { defDefaults, workspaceValues } = loadParameterResolutionBase(db, workspaceId)
+    const pipelineParams = extractPipelineParameters(parseClientMetadata(pipelineRow?.client_metadata_json))
+    const merged = mergeParameterLayers(defDefaults, workspaceValues, pipelineParams, stepDef?.parameters ?? {})
+    const resolvedPrompt = applyParameterSubstitution(template.task_prompt, merged)
+    spawnResult = await spawnStep(
+      db,
+      pipelineRow?.name || '?',
+      resolvedPrompt,
+      template.timeout_seconds,
+      steps,
+      nextIdx,
+      runId,
+      workspaceId
+    )
   }
 
   db.prepare('UPDATE pipeline_runs SET current_step = ?, steps_snapshot = ? WHERE id = ? AND workspace_id = ?')

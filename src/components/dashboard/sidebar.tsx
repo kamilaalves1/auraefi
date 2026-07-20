@@ -45,22 +45,20 @@ interface MenuItem {
 }
 
 const menuItems: MenuItem[] = [
-  { id: 'overview', label: 'Overview', icon: '📊', description: 'System dashboard' },
-  { id: 'chat', label: 'Chat', icon: '💬', description: 'Agent chat sessions' },
-  { id: 'tasks', label: 'Task Board', icon: '📋', description: 'Kanban task management' },
-  { id: 'agents', label: 'Agent Squad', icon: '🤖', description: 'Agent management & status' },
-  { id: 'activity', label: 'Activity Feed', icon: '📣', description: 'Real-time activity stream' },
-  { id: 'notifications', label: 'Notifications', icon: '🔔', description: 'Mentions & alerts' },
-  { id: 'standup', label: 'Daily Standup', icon: '📈', description: 'Generate standup reports' },
-  { id: 'spawn', label: 'Spawn Agent', icon: '🚀', description: 'Launch new sub-agents' },
-  { id: 'logs', label: 'Logs', icon: '📝', description: 'Real-time log viewer' },
-  { id: 'cron', label: 'Cron Jobs', icon: '⏰', description: 'Automated tasks' },
-  { id: 'memory', label: 'Memory', icon: '🧠', description: 'Knowledge browser' },
-  { id: 'tokens', label: 'Tokens', icon: '💰', description: 'Usage & cost tracking' },
-  { id: 'channels', label: 'Channels', icon: '📡', description: 'Messaging platform status' },
-  { id: 'nodes', label: 'Nodes', icon: '🖥', description: 'Connected instances' },
-  { id: 'exec-approvals', label: 'Approvals', icon: '✅', description: 'Exec approval queue' },
-  { id: 'debug', label: 'Debug', icon: '🐛', description: 'System diagnostics' },
+  { id: 'overview', label: 'Visão Geral', icon: '📊', description: 'Painel do sistema' },
+  { id: 'agents', label: 'Agentes', icon: '🤖', description: 'Gerenciamento e status dos agentes' },
+  { id: 'activity', label: 'Feed de Atividade', icon: '📣', description: 'Fluxo de atividade em tempo real' },
+  { id: 'notifications', label: 'Notificações', icon: '🔔', description: 'Menções e alertas' },
+  { id: 'standup', label: 'Standup Diário', icon: '📈', description: 'Gerar relatórios de standup' },
+  { id: 'spawn', label: 'Criar Agente', icon: '🚀', description: 'Lançar novos sub-agentes' },
+  { id: 'logs', label: 'Logs', icon: '📝', description: 'Visualizador de logs em tempo real' },
+  { id: 'cron', label: 'Tarefas Cron', icon: '⏰', description: 'Tarefas automatizadas' },
+  { id: 'memory', label: 'Memória', icon: '🧠', description: 'Explorador de conhecimento' },
+  { id: 'tokens', label: 'Tokens', icon: '💰', description: 'Rastreamento de uso e custo' },
+  { id: 'channels', label: 'Canais', icon: '📡', description: 'Status das plataformas de mensagem' },
+  { id: 'nodes', label: 'Nós', icon: '🖥', description: 'Instâncias conectadas' },
+  { id: 'exec-approvals', label: 'Aprovações', icon: '✅', description: 'Fila de aprovações de execução' },
+  { id: 'debug', label: 'Debug', icon: '🐛', description: 'Diagnóstico do sistema' },
 ]
 
 export function Sidebar() {
@@ -141,12 +139,12 @@ export function Sidebar() {
             <span className="text-sm font-medium text-foreground">Gateway</span>
             <div className="flex items-center space-x-1">
               <div className={`w-2 h-2 rounded-full ${
-                connection.isConnected 
-                  ? 'bg-green-500 animate-pulse' 
+                connection.isConnected
+                  ? 'bg-green-500 animate-pulse'
                   : 'bg-red-500'
               }`}></div>
               <span className="text-xs text-muted-foreground">
-                {connection.isConnected ? 'Connected' : 'Disconnected'}
+                {connection.isConnected ? 'Conectado' : 'Desconectado'}
               </span>
             </div>
           </div>
@@ -156,7 +154,7 @@ export function Sidebar() {
               </div>
               {connection.latency && (
                 <div className="text-xs text-muted-foreground">
-                  Latency: {connection.latency}ms
+                  Latência: {connection.latency}ms
                 </div>
             )}
           </div>
@@ -165,31 +163,31 @@ export function Sidebar() {
         {/* Session Stats */}
         <div className="bg-secondary rounded-lg p-3">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-foreground">Sessions</span>
+            <span className="text-sm font-medium text-foreground">Sessões</span>
             <span className="text-xs text-muted-foreground">
               {activeSessions}/{totalSessions}
             </span>
           </div>
           <div className="mt-2 text-xs text-muted-foreground">
-            {activeSessions} active • {totalSessions - activeSessions} idle
+            {activeSessions} ativas • {totalSessions - activeSessions} inativas
           </div>
         </div>
 
         {/* System Stats */}
         {systemStats && (
           <div className="bg-secondary rounded-lg p-3">
-            <div className="text-sm font-medium text-foreground mb-2">System</div>
+            <div className="text-sm font-medium text-foreground mb-2">Sistema</div>
             <div className="space-y-1 text-xs text-muted-foreground">
               <div className="flex justify-between">
-                <span>Memory:</span>
+                <span>Memória:</span>
                 <span>{systemStats.memory ? Math.round((systemStats.memory.used / systemStats.memory.total) * 100) : 0}%</span>
               </div>
               <div className="flex justify-between">
-                <span>Disk:</span>
+                <span>Disco:</span>
                 <span>{systemStats.disk?.usage || 'N/A'}</span>
               </div>
               <div className="flex justify-between">
-                <span>Processes:</span>
+                <span>Processos:</span>
                 <span>{systemStats.processes?.length || 0}</span>
               </div>
             </div>

@@ -594,7 +594,7 @@ export function SuperAdminPanel() {
             variant="ghost"
             size="icon-xs"
             onClick={() => setCreateExpanded(false)}
-            aria-label="Close create form"
+            aria-label="Fechar formulário de criação"
             className="text-lg w-6 h-6"
           >
             ×

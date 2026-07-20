@@ -1,8 +1,10 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
+import { defaultPipelineStepsFromTemplates } from '@/lib/default-pipeline-form'
+import { PipelineStepsVisualCanvas, type PipelineStepsCanvasLabels } from '@/components/panels/pipeline-steps-canvas'
 
 interface WorkflowTemplate {
   id: number
@@ -14,6 +16,7 @@ interface PipelineStep {
   template_id: number
   template_name?: string
   on_failure: 'stop' | 'continue'
+  parameters?: Record<string, string>
 }
 
 interface Pipeline {
@@ -24,6 +27,23 @@ interface Pipeline {
   use_count: number
   last_used_at: number | null
   runs: { total: number; completed: number; failed: number; running: number }
+  client_metadata?: Record<string, unknown>
+}
+
+function paramsToLines(p: Record<string, string> | undefined): string {
+  if (!p || Object.keys(p).length === 0) return ''
+  return Object.entries(p)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n')
+}
+
+function linesToParams(s: string): Record<string, string> {
+  const o: Record<string, string> = {}
+  for (const line of s.split('\n')) {
+    const m = line.match(/^\s*([a-zA-Z][a-zA-Z0-9_.-]*)\s*=\s*(.*)$/)
+    if (m) o[m[1]] = m[2].trim().slice(0, 4000)
+  }
+  return o
 }
 
 interface RunStepState {
@@ -52,6 +72,15 @@ interface PipelineRun {
 
 export function PipelineTab() {
   const t = useTranslations('pipeline')
+  const pipelineCanvasLabels = useMemo<PipelineStepsCanvasLabels>(
+    () => ({
+      stepBadge: (n: number) => t('canvasStepBadge', { n }),
+      stopOnFail: t('stopOnFail'),
+      continueOnFail: t('continueOnFail'),
+      edgeThen: t('edgeThen'),
+    }),
+    [t],
+  )
   const [templates, setTemplates] = useState<WorkflowTemplate[]>([])
   const [pipelines, setPipelines] = useState<Pipeline[]>([])
   const [runs, setRuns] = useState<PipelineRun[]>([])
@@ -61,12 +90,31 @@ export function PipelineTab() {
   const [editingId, setEditingId] = useState<number | null>(null)
   const [formName, setFormName] = useState('')
   const [formDesc, setFormDesc] = useState('')
+  const [formClientLabel, setFormClientLabel] = useState('')
+  const [formClientNotes, setFormClientNotes] = useState('')
+  const [formPipelineParamsLines, setFormPipelineParamsLines] = useState('')
   const [formSteps, setFormSteps] = useState<PipelineStep[]>([])
+  const [formStepParamLines, setFormStepParamLines] = useState<string[]>([])
 
   // UI state
   const [expandedId, setExpandedId] = useState<number | null>(null)
   const [spawning, setSpawning] = useState<number | null>(null)
   const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const applyDefaultPipelineForm = useCallback(() => {
+    if (templates.length < 2) {
+      setFormSteps([])
+      setFormStepParamLines([])
+      setFormName('')
+      setFormDesc('')
+      return
+    }
+    const steps = defaultPipelineStepsFromTemplates(templates.map((x) => ({ id: x.id, name: x.name })))
+    setFormSteps(steps)
+    setFormStepParamLines(steps.map(() => ''))
+    setFormName(t('defaultPipelineName'))
+    setFormDesc(t('defaultPipelineDescription'))
+  }, [templates, t])
 
   const fetchData = useCallback(async () => {
     const [tRes, pRes, rRes] = await Promise.all([
@@ -79,7 +127,17 @@ export function PipelineTab() {
     setRuns(rRes.runs || [])
   }, [])
 
-  useEffect(() => { fetchData() }, [fetchData])
+  useEffect(() => {
+    void fetchData()
+  }, [fetchData])
+
+  /** If templates load after opening “New pipeline”, fill default steps once the list is ready. */
+  useEffect(() => {
+    if (formMode !== 'create') return
+    if (templates.length < 2) return
+    if (formSteps.length !== 0) return
+    applyDefaultPipelineForm()
+  }, [formMode, templates, formSteps.length, applyDefaultPipelineForm])
 
   // Clear result after 3s
   useEffect(() => {
@@ -93,17 +151,23 @@ export function PipelineTab() {
     setEditingId(null)
     setFormName('')
     setFormDesc('')
+    setFormClientLabel('')
+    setFormClientNotes('')
+    setFormPipelineParamsLines('')
     setFormSteps([])
+    setFormStepParamLines([])
   }
 
   const addStep = (templateId: number) => {
-    const t = templates.find(t => t.id === templateId)
-    if (!t) return
-    setFormSteps(s => [...s, { template_id: templateId, template_name: t.name, on_failure: 'stop' }])
+    const tpl = templates.find((x) => x.id === templateId)
+    if (!tpl) return
+    setFormSteps((s) => [...s, { template_id: templateId, template_name: tpl.name, on_failure: 'stop' }])
+    setFormStepParamLines((lines) => [...lines, ''])
   }
 
   const removeStep = (index: number) => {
     setFormSteps(s => s.filter((_, i) => i !== index))
+    setFormStepParamLines(lines => lines.filter((_, i) => i !== index))
   }
 
   const moveStep = (index: number, dir: -1 | 1) => {
@@ -114,16 +178,44 @@ export function PipelineTab() {
       ;[arr[index], arr[target]] = [arr[target], arr[index]]
       return arr
     })
+    setFormStepParamLines(lines => {
+      const arr = [...lines]
+      const target = index + dir
+      if (target < 0 || target >= arr.length) return arr
+      ;[arr[index], arr[target]] = [arr[target], arr[index]]
+      return arr
+    })
   }
 
   const savePipeline = async () => {
     if (!formName || formSteps.length < 2) return
     try {
+      const pipelineParams = linesToParams(formPipelineParamsLines)
+      const client_metadata: Record<string, unknown> = {}
+      if (formClientLabel.trim()) client_metadata.clientLabel = formClientLabel.trim()
+      if (formClientNotes.trim()) client_metadata.clientNotes = formClientNotes.trim()
+      if (Object.keys(pipelineParams).length > 0) client_metadata.parameters = pipelineParams
+
+      const stepsPayload = formSteps.map((s, i) => {
+        const stepPm = linesToParams(formStepParamLines[i] || '')
+        const base: { template_id: number; on_failure: 'stop' | 'continue'; parameters?: Record<string, string> } = {
+          template_id: s.template_id,
+          on_failure: s.on_failure,
+        }
+        if (Object.keys(stepPm).length > 0) base.parameters = stepPm
+        return base
+      })
+
       const payload = {
         ...(formMode === 'edit' ? { id: editingId } : {}),
         name: formName,
         description: formDesc || null,
-        steps: formSteps.map(s => ({ template_id: s.template_id, on_failure: s.on_failure })),
+        steps: stepsPayload,
+        ...(formMode === 'edit'
+          ? { client_metadata }
+          : Object.keys(client_metadata).length > 0
+            ? { client_metadata }
+            : {}),
       }
       const res = await fetch('/api/pipelines', {
         method: formMode === 'edit' ? 'PUT' : 'POST',
@@ -148,7 +240,17 @@ export function PipelineTab() {
     setEditingId(p.id)
     setFormName(p.name)
     setFormDesc(p.description || '')
+    const meta = p.client_metadata || {}
+    setFormClientLabel(typeof meta.clientLabel === 'string' ? meta.clientLabel : '')
+    setFormClientNotes(typeof meta.clientNotes === 'string' ? meta.clientNotes : '')
+    const pp = meta.parameters
+    if (pp && typeof pp === 'object' && !Array.isArray(pp)) {
+      setFormPipelineParamsLines(paramsToLines(pp as Record<string, string>))
+    } else {
+      setFormPipelineParamsLines('')
+    }
     setFormSteps(p.steps)
+    setFormStepParamLines(p.steps.map(s => paramsToLines(s.parameters)))
   }
 
   const deletePipeline = async (id: number) => {
@@ -206,6 +308,16 @@ export function PipelineTab() {
 
   return (
     <div className="space-y-3">
+      <div className="rounded-lg border border-primary/20 bg-primary/5 p-3 space-y-2">
+        <div className="text-sm font-semibold text-foreground">{t('whatIsTitle')}</div>
+        <p className="text-xs text-muted-foreground leading-relaxed">{t('whatIsBody')}</p>
+        <ol className="text-xs text-muted-foreground space-y-1.5 list-decimal list-inside max-w-xl">
+          <li>{t('whatIsStep1')}</li>
+          <li>{t('whatIsStep2')}</li>
+          <li>{t('whatIsStep3')}</li>
+        </ol>
+      </div>
+
       {/* Result message */}
       {result && (
         <div className={`text-xs px-2 py-1 rounded ${result.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
@@ -226,7 +338,18 @@ export function PipelineTab() {
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">{t('pipelineCount', { count: pipelines.length })}</span>
         <Button
-          onClick={() => formMode !== 'hidden' ? closeForm() : setFormMode('create')}
+          onClick={() => {
+            if (formMode !== 'hidden') {
+              closeForm()
+              return
+            }
+            setFormMode('create')
+            setEditingId(null)
+            setFormClientLabel('')
+            setFormClientNotes('')
+            setFormPipelineParamsLines('')
+            applyDefaultPipelineForm()
+          }}
           variant="link"
           size="xs"
         >
@@ -250,33 +373,98 @@ export function PipelineTab() {
             placeholder={t('descriptionPlaceholder')}
             className="w-full h-8 px-2 rounded-md bg-secondary border border-border text-sm text-foreground"
           />
+          <input
+            value={formClientLabel}
+            onChange={e => setFormClientLabel(e.target.value)}
+            placeholder={t('clientLabelPlaceholder')}
+            className="w-full h-8 px-2 rounded-md bg-secondary border border-border text-sm text-foreground"
+          />
+          <textarea
+            value={formClientNotes}
+            onChange={e => setFormClientNotes(e.target.value)}
+            placeholder={t('clientNotesPlaceholder')}
+            rows={2}
+            className="w-full px-2 py-1 rounded-md bg-secondary border border-border text-xs text-foreground resize-none"
+          />
+          <div>
+            <label className="text-2xs text-muted-foreground block mb-0.5">{t('pipelineParametersLabel')}</label>
+            <textarea
+              value={formPipelineParamsLines}
+              onChange={e => setFormPipelineParamsLines(e.target.value)}
+              placeholder={t('pipelineParametersPlaceholder')}
+              rows={3}
+              className="w-full px-2 py-1 rounded-md bg-secondary border border-border text-xs font-mono text-foreground resize-none"
+            />
+          </div>
+
+          <div className="space-y-1.5 rounded-lg border border-border/80 bg-muted/10 p-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span className="text-xs font-medium text-foreground">{t('diagramTitle')}</span>
+              <Button type="button" size="xs" variant="outline" onClick={applyDefaultPipelineForm} disabled={templates.length < 2}>
+                {t('useDefaultPipeline')}
+              </Button>
+            </div>
+            {templates.length < 2 ? (
+              <p className="text-2xs text-amber-500/90">{t('defaultPipelineNeedsTemplates')}</p>
+            ) : null}
+            <p className="text-2xs text-muted-foreground">{t('defaultPipelineHelper')}</p>
+            <p className="text-2xs text-muted-foreground">{t('diagramHint')}</p>
+            {formSteps.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border py-10 text-center text-xs text-muted-foreground">
+                {t('stepsSectionHint')}
+              </div>
+            ) : (
+              <PipelineStepsVisualCanvas steps={formSteps} labels={pipelineCanvasLabels} />
+            )}
+            <p className="text-2xs text-muted-foreground px-0.5">{t('canvasControlsHint')}</p>
+          </div>
 
           {/* Step builder */}
           <div className="space-y-1">
-            <span className="text-2xs text-muted-foreground">Steps ({formSteps.length})</span>
+            <span className="text-xs font-medium text-foreground">{t('stepsSectionTitle')}</span>
+            <span className="text-2xs text-muted-foreground block">{t('stepsSectionHint')}</span>
             {formSteps.map((step, i) => (
-              <div key={i} className="flex items-center gap-1.5 p-1.5 rounded bg-secondary/80 text-xs">
-                <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-2xs font-bold flex items-center justify-center shrink-0">
-                  {i + 1}
-                </span>
-                <span className="flex-1 truncate text-foreground">{step.template_name || `Template #${step.template_id}`}</span>
-                <select
-                  value={step.on_failure}
-                  onChange={e => setFormSteps(s => s.map((st, idx) => idx === i ? { ...st, on_failure: e.target.value as 'stop' | 'continue' } : st))}
-                  className="h-5 px-1 text-2xs rounded bg-secondary border border-border text-foreground"
-                >
-                  <option value="stop">{t('stopOnFail')}</option>
-                  <option value="continue">{t('continueOnFail')}</option>
-                </select>
-                <Button onClick={() => moveStep(i, -1)} variant="ghost" size="icon-xs" className="w-5 h-5" title="Move up">
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3"><path d="M8 3v10M4 7l4-4 4 4" /></svg>
-                </Button>
-                <Button onClick={() => moveStep(i, 1)} variant="ghost" size="icon-xs" className="w-5 h-5" title="Move down">
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3"><path d="M8 13V3M4 9l4 4 4-4" /></svg>
-                </Button>
-                <Button onClick={() => removeStep(i)} variant="ghost" size="icon-xs" className="w-5 h-5 text-red-400 hover:text-red-300">
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3"><path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" /></svg>
-                </Button>
+              <div key={i} className="space-y-1">
+                <div className="flex items-center gap-1.5 p-1.5 rounded bg-secondary/80 text-xs">
+                  <span className="w-5 h-5 rounded-full bg-primary/20 text-primary text-2xs font-bold flex items-center justify-center shrink-0">
+                    {i + 1}
+                  </span>
+                  <span className="flex-1 truncate text-foreground">{step.template_name || `Template #${step.template_id}`}</span>
+                  <select
+                    value={step.on_failure}
+                    onChange={e => setFormSteps(s => s.map((st, idx) => idx === i ? { ...st, on_failure: e.target.value as 'stop' | 'continue' } : st))}
+                    className="h-5 px-1 text-2xs rounded bg-secondary border border-border text-foreground"
+                  >
+                    <option value="stop">{t('stopOnFail')}</option>
+                    <option value="continue">{t('continueOnFail')}</option>
+                  </select>
+                  <Button onClick={() => moveStep(i, -1)} variant="ghost" size="icon-xs" className="w-5 h-5" title="Move up">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3"><path d="M8 3v10M4 7l4-4 4 4" /></svg>
+                  </Button>
+                  <Button onClick={() => moveStep(i, 1)} variant="ghost" size="icon-xs" className="w-5 h-5" title="Move down">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3"><path d="M8 13V3M4 9l4 4 4-4" /></svg>
+                  </Button>
+                  <Button onClick={() => removeStep(i)} variant="ghost" size="icon-xs" className="w-5 h-5 text-red-400 hover:text-red-300">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3"><path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" /></svg>
+                  </Button>
+                </div>
+                <div className="pl-7 space-y-0.5">
+                  <label className="text-2xs text-muted-foreground">{t('stepParametersLabel', { n: i + 1 })}</label>
+                  <textarea
+                    value={formStepParamLines[i] ?? ''}
+                    onChange={e =>
+                      setFormStepParamLines(lines => {
+                        const next = [...lines]
+                        while (next.length < formSteps.length) next.push('')
+                        next[i] = e.target.value
+                        return next
+                      })
+                    }
+                    placeholder={t('stepParametersPlaceholder')}
+                    rows={2}
+                    className="w-full px-2 py-1 rounded-md bg-secondary/60 border border-border text-2xs font-mono text-foreground resize-none"
+                  />
+                </div>
               </div>
             ))}
 
@@ -321,8 +509,13 @@ export function PipelineTab() {
                   onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}
                   className="flex-1 min-w-0 text-left h-auto p-0 rounded-none"
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-sm font-medium text-foreground truncate">{p.name}</span>
+                    {typeof p.client_metadata?.clientLabel === 'string' && p.client_metadata.clientLabel.trim() ? (
+                      <span className="text-2xs px-1.5 py-0.5 rounded border border-border text-muted-foreground shrink-0">
+                        {p.client_metadata.clientLabel}
+                      </span>
+                    ) : null}
                     <span className="text-2xs text-muted-foreground">{p.steps.length} steps</span>
                     {p.use_count > 0 && <span className="text-2xs text-muted-foreground">{p.use_count}x</span>}
                     {p.runs.running > 0 && (
@@ -370,7 +563,7 @@ export function PipelineTab() {
               {expandedId === p.id && (
                 <div className="px-3 pb-3 border-t border-border/50 mt-1 pt-2 space-y-3">
                   {/* Full pipeline visualization */}
-                  <PipelineViz steps={p.steps} />
+                  <PipelineViz steps={p.steps} labels={pipelineCanvasLabels} />
 
                   {p.description && <p className="text-xs text-muted-foreground">{p.description}</p>}
 
@@ -412,29 +605,9 @@ export function PipelineTab() {
   )
 }
 
-/** Full step visualization with boxes and arrows */
-function PipelineViz({ steps }: { steps: PipelineStep[] }) {
-  return (
-    <div className="flex items-center gap-1 overflow-x-auto py-1">
-      {steps.map((s, i) => (
-        <div key={i} className="flex items-center gap-1 shrink-0">
-          <div className="flex flex-col items-center gap-0.5">
-            <div className="px-2 py-1.5 rounded-md border border-border bg-secondary text-xs font-medium text-foreground whitespace-nowrap">
-              {s.template_name || `Step ${i + 1}`}
-            </div>
-            {s.on_failure === 'continue' && (
-              <span className="text-2xs text-amber-400">continue on fail</span>
-            )}
-          </div>
-          {i < steps.length - 1 && (
-            <svg viewBox="0 0 20 12" fill="none" className="w-5 h-3 text-muted-foreground/60 shrink-0">
-              <path d="M0 6h16M13 2l4 4-4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-          )}
-        </div>
-      ))}
-    </div>
-  )
+/** Full step visualization — React Flow canvas */
+function PipelineViz({ steps, labels }: { steps: PipelineStep[]; labels: PipelineStepsCanvasLabels }) {
+  return <PipelineStepsVisualCanvas steps={steps} labels={labels} compact />
 }
 
 /** Run steps visualization with colored status dots */

@@ -8,8 +8,6 @@ import { extractWsHost } from '@/lib/agent-card-helpers'
 import { useWebSocket } from '@/lib/websocket'
 import { useNavigateToPanel, usePrefetchPanel } from '@/lib/navigation'
 import { Button } from '@/components/ui/button'
-import { ThemeSelector } from '@/components/ui/theme-selector'
-import { LanguageSwitcher } from '@/components/ui/language-switcher'
 import { DigitalClock } from '@/components/ui/digital-clock'
 import { getNavigationMetrics, navigationMetricEventName } from '@/lib/navigation-metrics'
 
@@ -27,7 +25,6 @@ interface SearchResult {
 const QUICK_NAV_COMMANDS: Array<{ panel: string; titleKey: string; title: string; aliases: string[] }> = [
   { panel: 'overview', titleKey: 'goToOverview', title: 'Go to Overview', aliases: ['home', 'dashboard'] },
   { panel: 'chat', titleKey: 'goToChat', title: 'Go to Chat', aliases: ['sessions', 'messages'] },
-  { panel: 'tasks', titleKey: 'goToTasks', title: 'Go to Tasks', aliases: ['task board', 'tickets'] },
   { panel: 'agents', titleKey: 'goToAgents', title: 'Go to Agents', aliases: ['agent squad', 'workers'] },
   { panel: 'activity', titleKey: 'goToActivityFeed', title: 'Go to Activity Feed', aliases: ['events', 'feed'] },
   { panel: 'notifications', titleKey: 'goToNotifications', title: 'Go to Notifications', aliases: ['alerts inbox'] },
@@ -38,7 +35,9 @@ const QUICK_NAV_COMMANDS: Array<{ panel: string; titleKey: string; title: string
   { panel: 'settings', titleKey: 'goToSettings', title: 'Go to Settings', aliases: ['preferences', 'config'] },
   { panel: 'gateways', titleKey: 'goToGateways', title: 'Go to Gateways', aliases: ['gateway manager'] },
   { panel: 'github', titleKey: 'goToGithubSync', title: 'Go to GitHub Sync', aliases: ['github', 'sync'] },
-  { panel: 'work-pipeline', titleKey: 'goToWorkPipeline', title: 'Go to Work pipeline', aliases: ['jira', 'azure', 'devops', 'backlog', 'esteira'] },
+  { panel: 'work-pipeline', titleKey: 'goToWorkPipeline', title: 'Go to Esteiras por cliente', aliases: ['jira', 'azure', 'devops', 'backlog', 'esteira', 'cliente', 'fluxo', 'bpmn'] },
+  { panel: 'configuration', titleKey: 'goToConfiguration', title: 'Go to Configuration hub', aliases: ['config', 'settings hub'] },
+  { panel: 'workspace-parameters', titleKey: 'goToWorkspaceParameters', title: 'Go to Workspace parameters', aliases: ['params', 'placeholders', 'variaveis'] },
   { panel: 'office', titleKey: 'goToOffice', title: 'Go to Office', aliases: ['workspace', 'team'] },
   { panel: 'skills', titleKey: 'goToSkills', title: 'Go to Skills', aliases: ['skill packs', 'agent skills'] },
 ]
@@ -127,7 +126,7 @@ export function HeaderBar() {
       return
     }
     const typeToTab: Record<string, string> = {
-      task: 'tasks', agent: 'agents', activity: 'activity',
+      task: 'work-pipeline', agent: 'agents', activity: 'activity',
       audit: 'audit', message: 'agents', notification: 'notifications',
       webhook: 'webhooks', pipeline: 'agents', alert_rule: 'alerts',
     }
@@ -304,9 +303,9 @@ export function HeaderBar() {
             <Button
               variant="outline"
               size="xs"
-              onClick={() => navigateToPanel('tasks')}
-              onMouseEnter={() => prefetchPanel('tasks')}
-              onFocus={() => prefetchPanel('tasks')}
+              onClick={() => navigateToPanel('work-pipeline')}
+              onMouseEnter={() => prefetchPanel('work-pipeline')}
+              onFocus={() => prefetchPanel('work-pipeline')}
               className="hidden lg:flex items-center gap-1 text-2xs bg-secondary/50 min-w-0 max-w-[320px]"
               title={`Scoped to project: ${activeProject.name}`}
             >
@@ -364,24 +363,6 @@ export function HeaderBar() {
             <SearchIcon />
           </Button>
 
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={() => navigateToPanel('notifications')}
-            onMouseEnter={() => prefetchPanel('notifications')}
-            onFocus={() => prefetchPanel('notifications')}
-            className="relative"
-          >
-            <BellIcon />
-            {unreadNotificationCount > 0 && (
-              <span className="absolute -top-0.5 -right-0.5 w-4 h-4 rounded-full bg-primary text-primary-foreground text-2xs flex items-center justify-center font-medium">
-                {unreadNotificationCount > 9 ? '9+' : unreadNotificationCount}
-              </span>
-            )}
-          </Button>
-
-          <LanguageSwitcher />
-          <ThemeSelector />
         </div>
       </div>
 

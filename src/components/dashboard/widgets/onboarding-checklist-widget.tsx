@@ -13,13 +13,28 @@ interface ChecklistItem {
 }
 
 export function OnboardingChecklistWidget() {
-  const { agents, tasks, securityPosture, dashboardMode } = useMissionControl()
+  const { agents, securityPosture, dashboardMode } = useMissionControl()
   const navigateToPanel = useNavigateToPanel()
   const [visible, setVisible] = useState(false)
   const [dismissing, setDismissing] = useState(false)
   const [celebrating, setCelebrating] = useState(false)
+  const [workPipelineReady, setWorkPipelineReady] = useState(false)
 
   const isGateway = dashboardMode === 'full'
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/work-pipeline')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d: { enabled?: boolean; provider?: string } | null) => {
+        if (cancelled || !d) return
+        if (d.enabled && d.provider && d.provider !== 'none') setWorkPipelineReady(true)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Check if checklist should be visible
   useEffect(() => {
@@ -50,12 +65,12 @@ export function OnboardingChecklistWidget() {
 
   // Derive checklist items from real data
   const items: ChecklistItem[] = [
-    { id: 'account', label: 'Account created', checked: true },
-    { id: 'interface', label: 'Interface mode selected', checked: true },
-    { id: 'credentials', label: 'Credentials reviewed', checked: true },
-    { id: 'security', label: 'Run security scan', checked: !!securityPosture, panel: 'settings' },
-    { id: 'agent', label: 'Dock your first agent', checked: agents.length > 0, panel: 'agents' },
-    { id: 'task', label: 'Create your first task', checked: tasks.length > 0, panel: 'tasks' },
+    { id: 'account', label: 'Conta criada', checked: true },
+    { id: 'interface', label: 'Modo de interface selecionado', checked: true },
+    { id: 'credentials', label: 'Credenciais revisadas', checked: true },
+    { id: 'security', label: 'Executar varredura de segurança', checked: !!securityPosture, panel: 'settings' },
+    { id: 'agent', label: 'Conectar seu primeiro agente', checked: agents.length > 0, panel: 'agents' },
+    { id: 'backlog', label: 'Conectar JIRA ou Azure (Esteira de trabalho)', checked: workPipelineReady, panel: 'work-pipeline' },
   ]
 
   const completedCount = items.filter(i => i.checked).length
@@ -105,8 +120,8 @@ export function OnboardingChecklistWidget() {
   if (celebrating) {
     return (
       <section className={`rounded-xl border ${accentBorder} bg-card p-6 text-center`}>
-        <div className={`text-xl font-bold mb-1 ${accentText}`}>Station Fully Operational</div>
-        <p className="text-sm text-muted-foreground">All systems online. You&apos;re ready to go.</p>
+        <div className={`text-xl font-bold mb-1 ${accentText}`}>Estação Totalmente Operacional</div>
+        <p className="text-sm text-muted-foreground">Todos os sistemas online. Você está pronto para começar.</p>
       </section>
     )
   }
@@ -115,7 +130,7 @@ export function OnboardingChecklistWidget() {
     <section className="rounded-xl border border-border bg-card p-4">
       <div className="flex items-center justify-between mb-3">
         <div>
-          <h3 className="text-sm font-semibold">Setup Progress ({completedCount}/{items.length})</h3>
+          <h3 className="text-sm font-semibold">Progresso de Configuração ({completedCount}/{items.length})</h3>
         </div>
         <Button
           variant="ghost"
@@ -124,7 +139,7 @@ export function OnboardingChecklistWidget() {
           disabled={dismissing}
           onClick={handleDismiss}
         >
-          Dismiss
+          Dispensar
         </Button>
       </div>
 

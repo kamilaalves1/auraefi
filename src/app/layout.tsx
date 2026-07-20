@@ -98,6 +98,7 @@ export default async function RootLayout({
         {/* Blocking script: light default; migrate old default `void` once; toggle Tailwind `dark` before paint. */}
         <script
           nonce={nonce}
+          suppressHydrationWarning
           dangerouslySetInnerHTML={{
             __html: `(function(){try{var M='mc-light-default-v1';if(!localStorage.getItem(M)){var c=localStorage.getItem('theme');if(c==='void'||c===null||c===''){localStorage.setItem('theme','light')}localStorage.setItem(M,'1')}var t=localStorage.getItem('theme')||'light';var light=['light','paper'];if(light.indexOf(t)===-1){document.documentElement.classList.add('dark')}else{document.documentElement.classList.remove('dark')}}catch(e){}})()`,
           }}

@@ -3,6 +3,7 @@ import { getUserFromRequest, updateUser, requireRole, destroyAllUserSessions, cr
 import { logAuditEvent } from '@/lib/db'
 import { verifyPassword } from '@/lib/password'
 import { getMcSessionCookieName, getMcSessionCookieOptions, isRequestSecure } from '@/lib/session-cookie'
+import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
 export async function GET(request: Request) {
@@ -35,6 +36,9 @@ export async function GET(request: Request) {
  * Body: { current_password, new_password } and/or { display_name }
  */
 export async function PATCH(request: NextRequest) {
+  const rateCheck = mutationLimiter(request)
+  if (rateCheck) return rateCheck
+
   const user = getUserFromRequest(request)
   if (!user) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })

@@ -347,3 +347,25 @@ export async function createPullRequest(
   }
   return res.json()
 }
+
+/** Test GitHub connection. Accepts an optional token override (else reads from env). */
+export async function testGitHubConnection(
+  tokenOverride?: string
+): Promise<{ ok: boolean; user?: string; error?: string }> {
+  try {
+    const token = tokenOverride || await getGitHubToken()
+    if (!token) return { ok: false, error: 'GITHUB_TOKEN not configured' }
+    const res = await fetch('https://api.github.com/user', {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/vnd.github.v3+json',
+        'User-Agent': 'MissionControl/1.0',
+      },
+    })
+    if (!res.ok) return { ok: false, error: `HTTP ${res.status}` }
+    const data = await res.json()
+    return { ok: true, user: data.login }
+  } catch (err: any) {
+    return { ok: false, error: err.message }
+  }
+}

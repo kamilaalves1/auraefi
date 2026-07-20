@@ -21,12 +21,9 @@ export function MetricCardsWidget({ data }: { data: DashboardData }) {
     isSystemLoading,
     claudeActive,
     codexActive,
-    hermesActive,
     claudeStats,
     claudeLocalSessions,
     codexLocalSessions,
-    hermesLocalSessions,
-    hermesCronJobCount,
     systemLoad,
     memPct,
     diskPct,
@@ -50,7 +47,7 @@ export function MetricCardsWidget({ data }: { data: DashboardData }) {
           label="Claude"
           value={isClaudeLoading ? '...' : claudeActive}
           total={isClaudeLoading ? undefined : (claudeStats?.total_sessions ?? claudeLocalSessions.length)}
-          subtitle="active sessions"
+          subtitle="sessões ativas"
           icon={<SessionIcon />}
           color="blue"
         />
@@ -58,22 +55,14 @@ export function MetricCardsWidget({ data }: { data: DashboardData }) {
           label="Codex"
           value={isSessionsLoading ? '...' : codexActive}
           total={isSessionsLoading ? undefined : codexLocalSessions.length}
-          subtitle="active sessions"
+          subtitle="sessões ativas"
           icon={<SessionIcon />}
           color="green"
         />
         <MetricCard
-          label="Hermes"
-          value={isSessionsLoading ? '...' : hermesActive}
-          total={isSessionsLoading ? undefined : hermesLocalSessions.length}
-          subtitle={hermesCronJobCount > 0 ? `${hermesActive} active · ${hermesCronJobCount} cron` : 'active sessions'}
-          icon={<SessionIcon />}
-          color="purple"
-        />
-        <MetricCard
-          label="System Load"
+          label="Carga do Sistema"
           value={isSystemLoading ? '...' : `${systemLoad}%`}
-          subtitle={`mem ${memPct ?? '-'} · disk ${Number.isFinite(diskPct) ? `${diskPct}%` : '-'}`}
+          subtitle={`mem ${memPct ?? '-'} · disco ${Number.isFinite(diskPct) ? `${diskPct}%` : '-'}`}
           icon={<ActivityIconMini />}
           color={systemLoad > 85 ? 'red' : 'purple'}
         />
@@ -85,9 +74,9 @@ export function MetricCardsWidget({ data }: { data: DashboardData }) {
           color="purple"
         />
         <MetricCard
-          label="Cost"
-          value={isClaudeLoading ? '...' : (subscriptionLabel ? (subscriptionPrice ? `$${subscriptionPrice}/mo` : 'Included') : `$${(claudeStats?.total_estimated_cost ?? 0).toFixed(2)}`)}
-          subtitle={subscriptionLabel ? `${subscriptionLabel} plan` : 'estimated'}
+          label="Custo"
+          value={isClaudeLoading ? '...' : (subscriptionLabel ? (subscriptionPrice ? `$${subscriptionPrice}/mês` : 'Incluso') : `$${(claudeStats?.total_estimated_cost ?? 0).toFixed(2)}`)}
+          subtitle={subscriptionLabel ? `plano ${subscriptionLabel}` : 'estimado'}
           icon={<CostIcon />}
           color={errorCount > 0 ? 'red' : 'green'}
         />
@@ -97,11 +86,11 @@ export function MetricCardsWidget({ data }: { data: DashboardData }) {
 
   return (
     <section className="grid grid-cols-2 xl:grid-cols-5 gap-3">
-      <MetricCard label="Gateway" value={connection.isConnected ? 'Online' : 'Offline'} subtitle="transport status" icon={<GatewayIcon />} color={connection.isConnected ? 'green' : 'red'} />
-      <MetricCard label="Sessions" value={activeSessions} total={sessions.length} subtitle="active / total" icon={<SessionIcon />} color="blue" />
-      <MetricCard label="Agent Capacity" value={onlineAgents} subtitle={`${dbStats?.agents.total ?? agents.length} total`} icon={<AgentIcon />} color="green" />
-      <MetricCard label="Queue" value={backlogCount} subtitle={`${runningTasks} running`} icon={<TaskIcon />} color={backlogCount > 12 ? 'red' : 'purple'} />
-      <MetricCard label="System Load" value={isSystemLoading ? '...' : `${systemLoad}%`} subtitle={`errors ${errorCount}`} icon={<ActivityIconMini />} color={systemLoad > 85 || errorCount > 0 ? 'red' : 'blue'} />
+      <MetricCard label="Gateway" value={connection.isConnected ? 'Online' : 'Offline'} subtitle="status do transporte" icon={<GatewayIcon />} color={connection.isConnected ? 'green' : 'red'} />
+      <MetricCard label="Sessões" value={activeSessions} total={sessions.length} subtitle="ativas / total" icon={<SessionIcon />} color="blue" />
+      <MetricCard label="Capacidade de Agentes" value={onlineAgents} subtitle={`${dbStats?.agents.total ?? agents.length} total`} icon={<AgentIcon />} color="green" />
+      <MetricCard label="Fila" value={backlogCount} subtitle={`${runningTasks} em execução`} icon={<TaskIcon />} color={backlogCount > 12 ? 'red' : 'purple'} />
+      <MetricCard label="Carga do Sistema" value={isSystemLoading ? '...' : `${systemLoad}%`} subtitle={`erros ${errorCount}`} icon={<ActivityIconMini />} color={systemLoad > 85 || errorCount > 0 ? 'red' : 'blue'} />
     </section>
   )
 }

@@ -22,8 +22,9 @@ export async function GET(request: NextRequest) {
   const since = searchParams.get('since')
   const until = searchParams.get('until')
 
-  const conditions: string[] = []
-  const params: any[] = []
+  const workspaceId = auth.user.workspace_id ?? 1
+  const conditions: string[] = ['workspace_id = ?']
+  const params: any[] = [workspaceId]
 
   if (action) {
     conditions.push('action = ?')

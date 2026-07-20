@@ -54,12 +54,16 @@ export async function GET(request: NextRequest) {
     const providerSubscriptions = getProviderSubscriptionFlags()
 
     // Query per-agent totals with per-model breakdown embedded as JSON
+    // Use agent_name column when set; fall back to session_id prefix for legacy rows
     const rows = db.prepare(`
       SELECT
-        CASE
-          WHEN INSTR(session_id, ':') > 0 THEN SUBSTR(session_id, 1, INSTR(session_id, ':') - 1)
-          ELSE session_id
-        END AS agent_name,
+        COALESCE(
+          NULLIF(agent_name, ''),
+          CASE
+            WHEN INSTR(session_id, ':') > 0 THEN SUBSTR(session_id, 1, INSTR(session_id, ':') - 1)
+            ELSE session_id
+          END
+        ) AS agent_name,
         SUM(input_tokens)  AS total_input_tokens,
         SUM(output_tokens) AS total_output_tokens,
         COUNT(DISTINCT session_id) AS session_count,
@@ -76,10 +80,13 @@ export async function GET(request: NextRequest) {
     // For accurate per-model cost we need a second pass grouping by agent+model
     const modelRows = db.prepare(`
       SELECT
-        CASE
-          WHEN INSTR(session_id, ':') > 0 THEN SUBSTR(session_id, 1, INSTR(session_id, ':') - 1)
-          ELSE session_id
-        END AS agent_name,
+        COALESCE(
+          NULLIF(agent_name, ''),
+          CASE
+            WHEN INSTR(session_id, ':') > 0 THEN SUBSTR(session_id, 1, INSTR(session_id, ':') - 1)
+            ELSE session_id
+          END
+        ) AS agent_name,
         model,
         SUM(input_tokens)  AS input_tokens,
         SUM(output_tokens) AS output_tokens,

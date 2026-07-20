@@ -8,7 +8,9 @@ import { heavyLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { validateBody, spawnAgentSchema } from '@/lib/validation'
 import { scanForInjection } from '@/lib/injection-guard'
-import { logAuditEvent } from '@/lib/db'
+import { logAuditEvent, getDatabase } from '@/lib/db'
+import { applyParameterSubstitution, mergeParameterLayers } from '@/lib/parameter-substitution'
+import { loadParameterResolutionBase } from '@/lib/workspace-parameter-resolution'
 
 function getPreferredToolsProfile(): string {
   return String(process.env.OPENCLAW_TOOLS_PROFILE || 'coding').trim() || 'coding'
@@ -24,12 +26,19 @@ export async function POST(request: NextRequest) {
   try {
     const result = await validateBody(request, spawnAgentSchema)
     if ('error' in result) return result.error
-    const { task, model, label, timeoutSeconds } = result.data
+    const { task, model, label, timeoutSeconds, parameters: spawnOverrides } = result.data
 
-    // Scan the task prompt and label for injection before sending to an agent
+    const workspaceId = auth.user.workspace_id ?? 1
+    const db = getDatabase()
+    const { defDefaults, workspaceValues } = loadParameterResolutionBase(db, workspaceId)
+    const merged = mergeParameterLayers(defDefaults, workspaceValues, {}, spawnOverrides ?? {})
+    const resolvedTask = applyParameterSubstitution(task, merged)
+    const resolvedLabel = applyParameterSubstitution(label, merged)
+
+    // Scan resolved prompt and label for injection before sending to an agent
     const fieldsToScan = [
-      { name: 'task', value: task },
-      ...(label ? [{ name: 'label', value: label }] : []),
+      { name: 'task', value: resolvedTask },
+      { name: 'label', value: resolvedLabel },
     ]
     for (const field of fieldsToScan) {
       const injectionReport = scanForInjection(field.value, { context: 'prompt' })
@@ -53,8 +62,8 @@ export async function POST(request: NextRequest) {
     // Construct the spawn command
     // Using OpenClaw's sessions_spawn function via clawdbot CLI
     const spawnPayload = {
-      task,
-      label,
+      task: resolvedTask,
+      label: resolvedLabel,
       ...(model ? { model } : {}),
       runTimeoutSeconds: timeout,
       tools: {
@@ -92,8 +101,8 @@ export async function POST(request: NextRequest) {
         detail: {
           spawnId,
           model: model ?? null,
-          label,
-          task_summary: task.length > 120 ? task.slice(0, 120) + '...' : task,
+          label: resolvedLabel,
+          task_summary: resolvedTask.length > 120 ? resolvedTask.slice(0, 120) + '...' : resolvedTask,
           toolsProfile: getPreferredToolsProfile(),
           compatibilityFallbackUsed,
         },
@@ -104,9 +113,9 @@ export async function POST(request: NextRequest) {
         success: true,
         spawnId,
         sessionInfo,
-        task,
+        task: resolvedTask,
         model: model ?? null,
-        label,
+        label: resolvedLabel,
         timeoutSeconds: timeout,
         createdAt: Date.now(),
         result,
@@ -123,9 +132,9 @@ export async function POST(request: NextRequest) {
         success: false,
         spawnId,
         error: execError.message || 'Failed to spawn agent',
-        task,
+        task: resolvedTask,
         model: model ?? null,
-        label,
+        label: resolvedLabel,
         timeoutSeconds: timeout,
         createdAt: Date.now()
       }, { status: 500 })

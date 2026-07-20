@@ -29,15 +29,15 @@ export function ConnectionStatus({
 
   const getStatusText = () => {
     if (isConnected) {
-      return 'Connected'
+      return 'Conectado'
     }
     if (connection.reconnectAttempts > 0) {
-      return `Reconnecting... (${connection.reconnectAttempts}/10)`
+      return `Reconectando... (${connection.reconnectAttempts}/10)`
     }
     if (isGatewayOptional && !isConnected) {
-      return 'Gateway Optional (Standalone)'
+      return 'Gateway Opcional (Standalone)'
     }
-    return 'Disconnected'
+    return 'Desconectado'
   }
 
   return (
@@ -60,9 +60,9 @@ export function ConnectionStatus({
             variant="destructive"
             size="xs"
             onClick={onDisconnect}
-            title="Disconnect from gateway"
+            title="Desconectar do gateway"
           >
-            Disconnect
+            Desconectar
           </Button>
         ) : connection.reconnectAttempts > 0 ? (
           <Button
@@ -70,9 +70,9 @@ export function ConnectionStatus({
             size="xs"
             onClick={onDisconnect}
             className="bg-gray-500/20 text-gray-400 border-gray-500/30 hover:bg-gray-500/30"
-            title="Cancel reconnection attempts"
+            title="Cancelar tentativas de reconexão"
           >
-            Cancel
+            Cancelar
           </Button>
         ) : (
           <div className="flex space-x-1">
@@ -80,9 +80,9 @@ export function ConnectionStatus({
               variant="success"
               size="xs"
               onClick={onConnect}
-              title="Connect to gateway"
+              title="Conectar ao gateway"
             >
-              Connect
+              Conectar
             </Button>
             {onReconnect && (
               <Button
@@ -90,9 +90,9 @@ export function ConnectionStatus({
                 size="xs"
                 onClick={onReconnect}
                 className="bg-blue-500/20 text-blue-400 border-blue-500/30 hover:bg-blue-500/30"
-                title="Reconnect with fresh session"
+                title="Reconectar com nova sessão"
               >
-                Reconnect
+                Reconectar
               </Button>
             )}
           </div>
@@ -103,12 +103,12 @@ export function ConnectionStatus({
       <div className="flex items-center space-x-2 text-xs text-muted-foreground">
         {connection.latency ? (
           <>
-            <span>Latency:</span>
+            <span>Latência:</span>
             <span className="font-mono">{connection.latency}ms</span>
           </>
         ) : connection.lastConnected ? (
           <>
-            <span>Last connected:</span>
+            <span>Última conexão:</span>
             <span className="font-mono">
               {new Date(connection.lastConnected).toLocaleTimeString()}
             </span>
@@ -116,7 +116,7 @@ export function ConnectionStatus({
         ) : (
           <>
             <span>Status:</span>
-            <span className="font-mono">Not connected</span>
+            <span className="font-mono">Não conectado</span>
           </>
         )}
       </div>

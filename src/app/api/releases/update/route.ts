@@ -5,6 +5,7 @@ import { join } from 'path'
 import { requireRole } from '@/lib/auth'
 import { getDatabase } from '@/lib/db'
 import { APP_VERSION } from '@/lib/version'
+import { validateBody, releaseUpdateSchema } from '@/lib/validation'
 
 const UPDATE_TIMEOUT = 5 * 60 * 1000 // 5 minutes
 const MAX_BUFFER = 10 * 1024 * 1024 // 10 MB
@@ -34,15 +35,9 @@ export async function POST(request: Request) {
   const steps: { step: string; output: string }[] = []
 
   try {
-    // Parse target version from request body
-    const body = await request.json().catch(() => ({}))
-    const targetVersion: string | undefined = body.targetVersion
-    if (!targetVersion) {
-      return NextResponse.json(
-        { error: 'Missing targetVersion in request body' },
-        { status: 400 }
-      )
-    }
+    const result = await validateBody(request, releaseUpdateSchema)
+    if ('error' in result) return result.error
+    const { targetVersion } = result.data
 
     // Normalize to tag format (e.g. "1.2.0" -> "v1.2.0")
     const tag = targetVersion.startsWith('v') ? targetVersion : `v${targetVersion}`

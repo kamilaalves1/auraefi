@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
-import { validateBody, createPipelineSchema } from '@/lib/validation'
+import { validateBody, createPipelineSchema, pipelineStepSchema } from '@/lib/validation'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
@@ -9,6 +9,7 @@ export interface PipelineStep {
   template_id: number
   template_name?: string
   on_failure: 'stop' | 'continue'
+  parameters?: Record<string, string>
 }
 
 export interface Pipeline {
@@ -21,6 +22,17 @@ export interface Pipeline {
   updated_at: number
   use_count: number
   last_used_at: number | null
+  client_metadata_json?: string | null
+}
+
+function parseClientMetadata(raw: string | null | undefined): Record<string, unknown> {
+  if (!raw) return {}
+  try {
+    const o = JSON.parse(raw) as unknown
+    return o && typeof o === 'object' && !Array.isArray(o) ? (o as Record<string, unknown>) : {}
+  } catch {
+    return {}
+  }
 }
 
 /**
@@ -51,11 +63,14 @@ export async function GET(request: NextRequest) {
     `).all(workspaceId) as Array<{ pipeline_id: number; total: number; completed: number; failed: number; running: number }>
     const runMap = new Map(runCounts.map(r => [r.pipeline_id, r]))
 
-    const parsed = pipelines.map(p => {
+    const parsed = pipelines.map((p) => {
       const steps: PipelineStep[] = JSON.parse(p.steps || '[]')
+      const client_metadata = parseClientMetadata(p.client_metadata_json)
+      const { client_metadata_json: _j, ...rest } = p
       return {
-        ...p,
-        steps: steps.map(s => ({ ...s, template_name: nameMap.get(s.template_id) || 'Unknown' })),
+        ...rest,
+        client_metadata,
+        steps: steps.map((s) => ({ ...s, template_name: nameMap.get(s.template_id) || 'Unknown' })),
         runs: runMap.get(p.id) || { total: 0, completed: 0, failed: 0, running: 0 },
       }
     })
@@ -80,7 +95,7 @@ export async function POST(request: NextRequest) {
   try {
     const result = await validateBody(request, createPipelineSchema)
     if ('error' in result) return result.error
-    const { name, description, steps } = result.data
+    const { name, description, steps, client_metadata } = result.data
 
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
@@ -94,15 +109,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'One or more template IDs not found' }, { status: 400 })
     }
 
-    const cleanSteps = steps.map((s: PipelineStep) => ({
-      template_id: s.template_id,
-      on_failure: s.on_failure || 'stop',
-    }))
+    const cleanSteps = steps.map((s: PipelineStep) => {
+      const step: PipelineStep = {
+        template_id: s.template_id,
+        on_failure: s.on_failure || 'stop',
+      }
+      if (s.parameters && typeof s.parameters === 'object' && Object.keys(s.parameters).length > 0) {
+        step.parameters = s.parameters
+      }
+      return step
+    })
+
+    const metaJson = JSON.stringify(client_metadata && typeof client_metadata === 'object' ? client_metadata : {})
 
     const insertResult = db.prepare(`
-      INSERT INTO workflow_pipelines (name, description, steps, created_by, workspace_id)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(name, description || null, JSON.stringify(cleanSteps), auth.user?.username || 'system', workspaceId)
+      INSERT INTO workflow_pipelines (name, description, steps, created_by, workspace_id, client_metadata_json)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(name, description || null, JSON.stringify(cleanSteps), auth.user?.username || 'system', workspaceId, metaJson)
 
     db_helpers.logActivity(
       'pipeline_created',
@@ -117,7 +140,9 @@ export async function POST(request: NextRequest) {
     const pipeline = db
       .prepare('SELECT * FROM workflow_pipelines WHERE id = ? AND workspace_id = ?')
       .get(insertResult.lastInsertRowid, workspaceId) as Pipeline
-    return NextResponse.json({ pipeline: { ...pipeline, steps: JSON.parse(pipeline.steps) } }, { status: 201 })
+    const client_metadata_out = parseClientMetadata(pipeline.client_metadata_json)
+    const { client_metadata_json: _cj, ...pout } = pipeline
+    return NextResponse.json({ pipeline: { ...pout, client_metadata: client_metadata_out, steps: JSON.parse(pipeline.steps) } }, { status: 201 })
   } catch (error) {
     logger.error({ err: error }, 'POST /api/pipelines error')
     return NextResponse.json({ error: 'Failed to create pipeline' }, { status: 500 })
@@ -150,8 +175,19 @@ export async function PUT(request: NextRequest) {
     if (updates.name !== undefined) { fields.push('name = ?'); params.push(updates.name) }
     if (updates.description !== undefined) { fields.push('description = ?'); params.push(updates.description) }
     if (updates.steps !== undefined) {
+      const stepsCheck = pipelineStepSchema.array().min(2).max(50).safeParse(updates.steps)
+      if (!stepsCheck.success) {
+        return NextResponse.json(
+          { error: 'Invalid steps', details: stepsCheck.error.issues.map((i) => i.message) },
+          { status: 400 }
+        )
+      }
       fields.push('steps = ?')
-      params.push(JSON.stringify(updates.steps))
+      params.push(JSON.stringify(stepsCheck.data))
+    }
+    if (updates.client_metadata !== undefined) {
+      fields.push('client_metadata_json = ?')
+      params.push(JSON.stringify(updates.client_metadata ?? {}))
     }
 
     if (fields.length === 0) {
@@ -169,7 +205,9 @@ export async function PUT(request: NextRequest) {
     const updated = db
       .prepare('SELECT * FROM workflow_pipelines WHERE id = ? AND workspace_id = ?')
       .get(id, workspaceId) as Pipeline
-    return NextResponse.json({ pipeline: { ...updated, steps: JSON.parse(updated.steps) } })
+    const client_metadata = parseClientMetadata(updated.client_metadata_json)
+    const { client_metadata_json: _u, ...rest } = updated
+    return NextResponse.json({ pipeline: { ...rest, client_metadata, steps: JSON.parse(updated.steps) } })
   } catch (error) {
     logger.error({ err: error }, 'PUT /api/pipelines error')
     return NextResponse.json({ error: 'Failed to update pipeline' }, { status: 500 })
@@ -186,12 +224,21 @@ export async function DELETE(request: NextRequest) {
   try {
     const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
-    let body: any
-    try { body = await request.json() } catch { return NextResponse.json({ error: 'Request body required' }, { status: 400 }) }
-    const id = body.id
-    if (!id) return NextResponse.json({ error: 'Pipeline ID required' }, { status: 400 })
+    const q = new URL(request.url).searchParams.get('id')
+    let id: string | number | undefined = q ? parseInt(q, 10) : undefined
+    if (id === undefined || Number.isNaN(id)) {
+      try {
+        const body = await request.json()
+        id = body.id
+      } catch {
+        /* ignore */
+      }
+    }
+    if (id === undefined || id === null || Number.isNaN(Number(id))) {
+      return NextResponse.json({ error: 'Pipeline ID required' }, { status: 400 })
+    }
 
-    db.prepare('DELETE FROM workflow_pipelines WHERE id = ? AND workspace_id = ?').run(parseInt(id), workspaceId)
+    db.prepare('DELETE FROM workflow_pipelines WHERE id = ? AND workspace_id = ?').run(parseInt(String(id), 10), workspaceId)
     return NextResponse.json({ success: true })
   } catch (error) {
     logger.error({ err: error }, 'DELETE /api/pipelines error')

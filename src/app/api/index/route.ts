@@ -68,6 +68,8 @@ const endpoints: Endpoint[] = [
   { path: '/api/workflows', methods: ['GET', 'POST', 'PUT', 'DELETE'], description: 'Workflow templates CRUD', tag: 'Workflows', auth: 'viewer/operator' },
   { path: '/api/pipelines', methods: ['GET', 'POST', 'DELETE'], description: 'Pipeline CRUD', tag: 'Pipelines', auth: 'viewer/operator' },
   { path: '/api/pipelines/run', methods: ['POST'], description: 'Execute pipeline', tag: 'Pipelines', auth: 'operator' },
+  { path: '/api/workspace/delivery-flow', methods: ['GET', 'PUT'], description: 'Workspace delivery flow (JIRA-style stages)', tag: 'Workspace', auth: 'viewer/operator' },
+  { path: '/api/workspace/squad-state', methods: ['GET', 'PUT'], description: 'Workspace squad activation gate for flow/pipelines', tag: 'Workspace', auth: 'viewer/operator' },
 
   // ── Webhooks ──────────────────────────────────────
   { path: '/api/webhooks', methods: ['GET', 'POST', 'PATCH', 'DELETE'], description: 'Webhook CRUD', tag: 'Webhooks', auth: 'viewer/operator' },
@@ -95,7 +97,7 @@ const endpoints: Endpoint[] = [
   { path: '/api/scheduler', methods: ['POST'], description: 'Scheduler tick (internal)', tag: 'Cron', auth: 'operator' },
 
   // ── Spawn ─────────────────────────────────────────
-  { path: '/api/spawn', methods: ['POST'], description: 'Spawn agent subprocess', tag: 'Spawn', auth: 'operator' },
+  { path: '/api/spawn', methods: ['POST'], description: 'Spawn agent — resolves {{placeholders}} in task/label (delivery flow defaults + workspace parameters + optional body.parameters)', tag: 'Spawn', auth: 'operator' },
 
   // ── Memory ────────────────────────────────────────
   { path: '/api/memory', methods: ['GET', 'POST', 'PUT', 'DELETE'], description: 'Memory browser — list, read, write, delete', tag: 'Memory', auth: 'viewer/operator' },

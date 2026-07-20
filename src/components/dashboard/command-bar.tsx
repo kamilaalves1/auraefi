@@ -76,9 +76,9 @@ function HealthGauge({ score, status }: { score: number; status: string }) {
       </div>
       <div className="min-w-0">
         <div className={`text-xs font-semibold ${color}`}>
-          {status === 'healthy' ? 'Healthy' : status === 'degraded' ? 'Degraded' : 'Critical'}
+          {status === 'healthy' ? 'Saudável' : status === 'degraded' ? 'Degradado' : 'Crítico'}
         </div>
-        <div className="text-[9px] text-muted-foreground/40">Health Score</div>
+        <div className="text-[9px] text-muted-foreground/40">Pontuação de Saúde</div>
       </div>
     </div>
   )
@@ -168,7 +168,7 @@ export function CommandBar() {
 
         <AnimatedCounter
           value={data.events}
-          label="Events"
+          label="Eventos"
           icon="⚡"
           color="text-foreground"
         />
@@ -177,7 +177,7 @@ export function CommandBar() {
 
         <AnimatedCounter
           value={data.tasks.active}
-          label="Active Tasks"
+          label="Tarefas Ativas"
           icon="📋"
           color="text-foreground"
         />
@@ -186,7 +186,7 @@ export function CommandBar() {
 
         <AnimatedCounter
           value={data.approvals}
-          label="Pending"
+          label="Pendentes"
           icon="🔐"
           color={data.approvals > 0 ? 'text-amber-400' : 'text-foreground'}
         />
@@ -195,7 +195,7 @@ export function CommandBar() {
 
         <AnimatedCounter
           value={data.notifications}
-          label="Alerts"
+          label="Alertas"
           icon="🔔"
           color="text-foreground"
         />
@@ -204,7 +204,7 @@ export function CommandBar() {
 
         <AnimatedCounter
           value={data.knowledge}
-          label="Knowledge"
+          label="Conhecimento"
           icon="📚"
           color="text-foreground"
         />

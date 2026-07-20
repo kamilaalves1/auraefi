@@ -1,9 +1,12 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import type { WorkPipelineConfigJson, WorkPipelineProvider } from '@/lib/work-pipeline-types'
+import { useWorkspaceSquadActive } from '@/lib/use-workspace-squad-active'
+import { SquadSetupGate } from '@/components/workspace/squad-setup-gate'
 
 interface PublicDto {
   provider: WorkPipelineProvider
@@ -14,6 +17,7 @@ interface PublicDto {
 
 export function WorkPipelinePanel() {
   const t = useTranslations('workPipeline')
+  const { squadActive, squadActiveLoading } = useWorkspaceSquadActive()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
@@ -127,9 +131,18 @@ export function WorkPipelinePanel() {
     }
   }
 
-  if (loading) {
+  if (loading || squadActiveLoading) {
     return (
       <div className="p-6 text-sm text-muted-foreground">{t('loading')}</div>
+    )
+  }
+
+  if (squadActive === false) {
+    return (
+      <div className="p-6 max-w-3xl mx-auto">
+        <h1 className="text-lg font-semibold text-foreground mb-2">{t('title')}</h1>
+        <SquadSetupGate reasonKey="workPipelineLocked" />
+      </div>
     )
   }
 
@@ -138,6 +151,12 @@ export function WorkPipelinePanel() {
       <div>
         <h1 className="text-lg font-semibold text-foreground">{t('title')}</h1>
         <p className="text-sm text-muted-foreground mt-1">{t('subtitle')}</p>
+        <div className="mt-3 rounded-lg border border-primary/25 bg-primary/5 px-3 py-2.5 text-sm text-muted-foreground leading-relaxed space-y-2">
+          <p>{t('journeyBody')}</p>
+          <Link href="/delivery-flow" className="font-medium text-primary hover:underline inline-block">
+            {t('openDeliveryFlow')}
+          </Link>
+        </div>
       </div>
 
       {feedback && (

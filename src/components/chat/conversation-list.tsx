@@ -9,7 +9,7 @@ import { SessionKindAvatar, SessionKindPill } from './session-kind-brand'
 
 const log = createClientLogger('ConversationList')
 
-type SessionKind = 'claude-code' | 'codex-cli' | 'hermes' | 'gateway'
+type SessionKind = 'claude-code' | 'codex-cli' | 'gateway'
 
 type SessionRecord = {
   id: string
@@ -85,21 +85,21 @@ function readSessions(payload: unknown): SessionRecord[] {
 }
 
 const COLOR_OPTIONS = [
-  { value: '', label: 'None' },
-  { value: 'slate', label: 'Slate' },
-  { value: 'blue', label: 'Blue' },
-  { value: 'green', label: 'Green' },
-  { value: 'amber', label: 'Amber' },
-  { value: 'red', label: 'Red' },
-  { value: 'purple', label: 'Purple' },
-  { value: 'pink', label: 'Pink' },
-  { value: 'teal', label: 'Teal' },
+  { value: '', label: 'Sem cor' },
+  { value: 'slate', label: 'Cinza' },
+  { value: 'blue', label: 'Azul' },
+  { value: 'green', label: 'Verde' },
+  { value: 'amber', label: 'Âmbar' },
+  { value: 'red', label: 'Vermelho' },
+  { value: 'purple', label: 'Roxo' },
+  { value: 'pink', label: 'Rosa' },
+  { value: 'teal', label: 'Petróleo' },
 ] as const
 
 function timeAgo(timestamp: number): string {
   const diff = Math.floor(Date.now() / 1000) - timestamp
-  if (diff <= 0) return 'now'
-  if (diff < 60) return 'now'
+  if (diff <= 0) return 'agora'
+  if (diff < 60) return 'agora'
   if (diff < 3600) return `${Math.floor(diff / 60)}m`
   if (diff < 86400) return `${Math.floor(diff / 3600)}h`
   return `${Math.floor(diff / 86400)}d`
@@ -284,16 +284,14 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
           const updatedAt = lastActivityMs > 1_000_000_000_000
             ? Math.floor(lastActivityMs / 1000)
             : lastActivityMs
-          const sessionKind: SessionKind = s.kind === 'claude-code' || s.kind === 'codex-cli' || s.kind === 'hermes'
+          const sessionKind: SessionKind = s.kind === 'claude-code' || s.kind === 'codex-cli'
             ? s.kind
             : 'gateway'
           const kindLabel = sessionKind === 'codex-cli'
             ? 'Codex'
             : sessionKind === 'claude-code'
               ? 'Claude'
-              : sessionKind === 'hermes'
-                ? 'Hermes'
-                : 'Gateway'
+              : 'Gateway'
           const prefKey = `${sessionKind}:${s.id}`
           const pref = prefs[prefKey] || {}
           const defaultName = s.source === 'local'
@@ -367,7 +365,7 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
   const gatewayRows = filteredConversations.filter((c) => c.source === 'session' && c.session?.sessionKind === 'gateway')
   const activeGatewayRows = gatewayRows.filter((c) => c.session?.active)
   const inactiveGatewayRows = gatewayRows.filter((c) => !c.session?.active)
-  const localRows = filteredConversations.filter((c) => c.source === 'session' && (c.session?.sessionKind === 'claude-code' || c.session?.sessionKind === 'codex-cli' || c.session?.sessionKind === 'hermes'))
+  const localRows = filteredConversations.filter((c) => c.source === 'session' && (c.session?.sessionKind === 'claude-code' || c.session?.sessionKind === 'codex-cli'))
   const activeLocalRows = localRows.filter((c) => c.session?.active)
   const inactiveLocalRows = localRows.filter((c) => !c.session?.active)
 
@@ -448,7 +446,7 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
             {conv.lastMessage && !isEditing && (
               <p className="text-[11px] text-muted-foreground/60 truncate mt-0.5">
                 {conv.lastMessage.from_agent === 'human'
-                  ? `You: ${conv.lastMessage.content}`
+                  ? `Você: ${conv.lastMessage.content}`
                   : conv.lastMessage.content}
               </p>
             )}
@@ -463,7 +461,7 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
       {/* Header */}
       <div className="p-3 border-b border-border flex-shrink-0">
         <div className="mb-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-      Sessions
+      Sessões
         </div>
         <div className="relative">
           <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground/50">
@@ -474,7 +472,7 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search..."
+            placeholder="Pesquisar..."
             className="w-full bg-surface-1 rounded-md pl-7 pr-2 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30"
           />
         </div>
@@ -484,7 +482,7 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
       <div className="flex-1 overflow-y-auto">
         {filteredConversations.length === 0 ? (
           <div className="p-4 text-center text-xs text-muted-foreground/50">
-            No conversations yet
+            Nenhuma conversa ainda
           </div>
         ) : (
           <>
@@ -493,7 +491,7 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
               <div key="amy-section">
                 <div className="px-3 pt-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-purple-400/70">
                   <span className="h-1.5 w-1.5 rounded-full bg-purple-500 animate-pulse" />
-                  AI Assistant
+                  Assistente IA
                 </div>
                 <Button
                   onClick={() => handleSelect(conv.id)}
@@ -530,7 +528,7 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
               <div>
                 <div className="px-3 pt-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-green-400/70">
                   <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-                  Active
+                  Ativas
                 </div>
                 {activeGatewayRows.map(renderConversationItem)}
               </div>
@@ -539,7 +537,7 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
               <div>
                 <div className="px-3 pt-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-green-400/70">
                   <span className="h-1.5 w-1.5 rounded-full bg-green-500 animate-pulse" />
-                  Active Local
+                  Ativas Locais
                 </div>
                 {activeLocalRows.map(renderConversationItem)}
               </div>
@@ -547,7 +545,7 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
             {inactiveGatewayRows.length > 0 && (
               <div>
                 <div className="px-3 pt-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground/40">
-                  Recent
+                  Recentes
                 </div>
                 {inactiveGatewayRows.map(renderConversationItem)}
               </div>
@@ -555,7 +553,7 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
             {inactiveLocalRows.length > 0 && (
               <div>
                 <div className="px-3 pt-2 py-1 text-[10px] uppercase tracking-wider text-muted-foreground/40">
-                  Recent Local
+                  Recentes Locais
                 </div>
                 {inactiveLocalRows.map(renderConversationItem)}
               </div>
@@ -581,11 +579,11 @@ export function ConversationList({ onNewConversation: _onNewConversation }: Conv
               <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M11.5 1.5l3 3L5 14H2v-3L11.5 1.5z" />
               </svg>
-              Rename
+              Renomear
             </button>
             <div className="my-1 border-t border-border/50" />
             <div className="px-2.5 py-1.5">
-              <div className="mb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/60">Color</div>
+              <div className="mb-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/60">Cor</div>
               <div className="flex flex-wrap gap-1.5">
                 {COLOR_OPTIONS.map((opt) => {
                   const isCurrentColor = (conv.session?.colorTag || '') === opt.value

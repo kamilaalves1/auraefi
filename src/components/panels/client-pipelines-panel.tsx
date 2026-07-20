@@ -44,16 +44,41 @@ const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
     { value: 'anthropic:claude-sonnet-5',           label: 'Sonnet 5 — avançado' },
     { value: 'anthropic:claude-opus-4-8',           label: 'Opus 4.8 — máximo' },
   ],
+  gemini: [
+    { value: 'gemini:gemini-2.0-flash',         label: 'Gemini 2.0 Flash — rápido' },
+    { value: 'gemini:gemini-2.0-flash-thinking', label: 'Gemini 2.0 Flash Thinking — raciocínio' },
+    { value: 'gemini:gemini-1.5-pro',            label: 'Gemini 1.5 Pro — avançado' },
+    { value: 'gemini:gemini-1.5-flash',          label: 'Gemini 1.5 Flash — barato' },
+  ],
   openai: [
     { value: 'openai:gpt-4o-mini', label: 'GPT-4o mini — rápido' },
     { value: 'openai:gpt-4o',      label: 'GPT-4o — padrão' },
     { value: 'openai:o1',          label: 'o1 — raciocínio' },
   ],
-  openrouter: [{ value: 'openrouter', label: 'OpenRouter' }],
+  openrouter: [
+    { value: 'openrouter:openai/gpt-4o',                     label: 'GPT-4o (OpenAI) — topo de linha' },
+    { value: 'openrouter:openai/gpt-4o-mini',                label: 'GPT-4o mini (OpenAI) — rápido e barato' },
+    { value: 'openrouter:anthropic/claude-3.5-sonnet',       label: 'Claude 3.5 Sonnet (Anthropic) — avançado' },
+    { value: 'openrouter:anthropic/claude-3-haiku',          label: 'Claude 3 Haiku (Anthropic) — econômico' },
+    { value: 'openrouter:meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B (Meta) — open source' },
+    { value: 'openrouter:mistralai/mistral-large-2402',      label: 'Mistral Large (Mistral) — europeu' },
+    { value: 'openrouter:deepseek/deepseek-chat',            label: 'DeepSeek V3 (DeepSeek) — código' },
+  ],
   ollama:     [{ value: 'ollama',     label: 'Ollama (local)' }],
   venice:     [{ value: 'venice',     label: 'Venice AI' }],
   nvidia:     [{ value: 'nvidia',     label: 'NVIDIA' }],
   moonshot:   [{ value: 'moonshot',   label: 'Moonshot / Kimi' }],
+  deepseek: [
+    { value: 'deepseek:deepseek-chat',     label: 'DeepSeek Chat — padrão' },
+    { value: 'deepseek:deepseek-reasoner', label: 'DeepSeek Reasoner — raciocínio' },
+    { value: 'deepseek:deepseek-coder',    label: 'DeepSeek Coder — código' },
+  ],
+  groq: [
+    { value: 'groq:llama-3.3-70b-versatile', label: 'Llama 3.3 70B — rápido e gratuito' },
+    { value: 'groq:llama-3.1-8b-instant',    label: 'Llama 3.1 8B — ultra rápido' },
+    { value: 'groq:mixtral-8x7b-32768',      label: 'Mixtral 8x7B — balanceado' },
+    { value: 'groq:gemma2-9b-it',            label: 'Gemma 2 9B — compacto' },
+  ],
 }
 
 interface LLMOption { value: string; label: string; provider: string }
@@ -121,11 +146,12 @@ function LLMComplexityCard({
   llmOptions: LLMOption[]
   llmLoading: boolean
 }) {
-  const [simple,  setSimple]  = useState(config.llm_simple  ?? '')
-  const [medium,  setMedium]  = useState(config.llm_medium  ?? '')
-  const [complex, setComplex] = useState(config.llm_complex ?? '')
-  const [saving,  setSaving]  = useState(false)
-  const [msg,     setMsg]     = useState<{ ok: boolean; text: string } | null>(null)
+  const [simple,     setSimple]     = useState(config.llm_simple   ?? '')
+  const [medium,     setMedium]     = useState(config.llm_medium   ?? '')
+  const [complex,    setComplex]    = useState(config.llm_complex  ?? '')
+  const [botMention, setBotMention] = useState(config.botMention   ?? '@pipeline')
+  const [saving,     setSaving]     = useState(false)
+  const [msg,        setMsg]        = useState<{ ok: boolean; text: string } | null>(null)
 
   const handleSave = async () => {
     setSaving(true)
@@ -133,7 +159,7 @@ function LLMComplexityCard({
       const res = await fetch(`/api/workspace/work-pipelines/${pipelineId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: { llm_simple: simple, llm_medium: medium, llm_complex: complex } }),
+        body: JSON.stringify({ config: { llm_simple: simple, llm_medium: medium, llm_complex: complex, botMention: botMention.trim() || '@pipeline' } }),
       })
       const data = await parseJson(res)
       if (!res.ok) throw new Error(data.error ?? 'Erro ao salvar')
@@ -172,7 +198,7 @@ function LLMComplexityCard({
         <div className="space-y-2">
           {([
             { label: 'Simples', hint: 'bugs, textos, ajustes', value: simple,  set: setSimple  },
-            { label: 'Média',   hint: 'features, refactors',   value: medium,  set: setMedium  },
+            { label: 'Média',   hint: 'funcionalidades, refatorações',   value: medium,  set: setMedium  },
             { label: 'Complexa',hint: 'arquitetura, análise',  value: complex, set: setComplex },
           ] as const).map(({ label, hint, value, set }) => (
             <div key={label} className="flex items-center gap-3">
@@ -199,9 +225,23 @@ function LLMComplexityCard({
         </div>
       )}
 
+      <div className="pt-2 border-t border-border/40">
+        <h4 className="text-sm font-semibold text-foreground mb-1">Menção do bot</h4>
+        <p className="text-[11px] text-muted-foreground mb-2">
+          Mencione esse nome em um comentário do JIRA para dar instruções ao pipeline (ex: <code className="bg-muted px-1 rounded">@pipeline reprocesse focando em segurança</code>).
+        </p>
+        <input
+          type="text"
+          value={botMention}
+          onChange={e => setBotMention(e.target.value)}
+          placeholder="@pipeline"
+          className={`${inp} w-full`}
+        />
+      </div>
+
       {msg && <p className={`text-xs font-medium ${msg.ok ? 'text-green-400' : 'text-red-400'}`}>{msg.text}</p>}
 
-      <Button size="sm" onClick={handleSave} disabled={saving || llmOptions.length === 0} className="w-full h-8">
+      <Button size="sm" onClick={handleSave} disabled={saving} className="w-full h-8">
         {saving ? 'Salvando...' : 'Salvar'}
       </Button>
     </div>
@@ -329,6 +369,27 @@ function LinkedReposCard({
   )
 }
 
+// ── Run history section ───────────────────────────────────────────────────────
+
+const STATUS_LABEL: Record<string, { label: string; color: string }> = {
+  running:       { label: 'Executando', color: 'text-blue-400' },
+  waiting_input: { label: 'Aguardando', color: 'text-amber-400' },
+  done:          { label: 'Concluído',  color: 'text-green-400' },
+  failed:        { label: 'Falhou',     color: 'text-red-400' },
+  cancelled:     { label: 'Cancelado',  color: 'text-zinc-400' },
+}
+
+interface CardRun {
+  id: number
+  card_key: string
+  card_title: string
+  card_url: string
+  stage_name: string
+  status: string
+  cost_usd: number | null
+  updated_at: number
+}
+
 // ── Connected backlog card ────────────────────────────────────────────────────
 
 function ConnectedBacklogCard({
@@ -343,6 +404,64 @@ function ConnectedBacklogCard({
   const [editing,    setEditing]    = useState(false)
   const [deleting,   setDeleting]   = useState(false)
   const [confirmDel, setConfirmDel] = useState(false)
+  const [toggling,   setToggling]   = useState(false)
+  const [showRuns,   setShowRuns]   = useState(false)
+  const [runs,       setRuns]       = useState<CardRun[]>([])
+  const [runsLoading, setRunsLoading] = useState(false)
+  const [reprocessingId, setReprocessingId] = useState<number | null>(null)
+  const [checking,   setChecking]   = useState(false)
+  const [checkMsg,   setCheckMsg]   = useState<string | null>(null)
+
+  const loadRuns = useCallback(async () => {
+    setRunsLoading(true)
+    try {
+      const res = await fetch(`/api/workspace/work-pipelines/${pipeline.id}/runs`)
+      const data = await parseJson(res)
+      setRuns(data.runs ?? [])
+    } finally {
+      setRunsLoading(false)
+    }
+  }, [pipeline.id])
+
+  const handleRetryRun = async (runId: number) => {
+    await fetch(`/api/workspace/work-pipelines/${pipeline.id}/runs/${runId}`, { method: 'POST' })
+    await loadRuns()
+  }
+
+  const handleReprocessRun = async (runId: number) => {
+    setReprocessingId(runId)
+    try {
+      await fetch('/api/pipeline/engine/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'reprocess', run_id: runId }),
+      })
+      await loadRuns()
+    } finally {
+      setReprocessingId(null)
+    }
+  }
+
+  const handleShowRuns = () => {
+    if (!showRuns) loadRuns()
+    setShowRuns(s => !s)
+  }
+
+  const handleForceCheck = async () => {
+    setChecking(true)
+    setCheckMsg(null)
+    try {
+      const res = await fetch(`/api/workspace/work-pipelines/${pipeline.id}/runs`, { method: 'POST' })
+      const data = await parseJson(res)
+      setCheckMsg(data.message ?? (data.ok ? 'Verificação concluída' : 'Erro'))
+      if (showRuns) await loadRuns()
+    } catch {
+      setCheckMsg('Erro ao verificar')
+    } finally {
+      setChecking(false)
+      setTimeout(() => setCheckMsg(null), 5000)
+    }
+  }
   const prov = PROVIDERS[pipeline.provider as keyof typeof PROVIDERS]
 
   const [name,      setName]      = useState(pipeline.name)
@@ -357,6 +476,21 @@ function ConnectedBacklogCard({
   const [saving,  setSaving]  = useState(false)
   const [status,  setStatus]  = useState('')
   const [error,   setError]   = useState('')
+
+  const handleToggleEnabled = async () => {
+    setToggling(true)
+    try {
+      const res = await fetch(`/api/workspace/work-pipelines/${pipeline.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !pipeline.enabled }),
+      })
+      const data = await parseJson(res)
+      if (res.ok) onUpdated(data.pipeline)
+    } finally {
+      setToggling(false)
+    }
+  }
 
   const handleSave = async (andReimport = false) => {
     setSaving(true); setError('')
@@ -400,7 +534,11 @@ function ConnectedBacklogCard({
   }
 
   return (
-    <div className={`rounded-xl border bg-card overflow-hidden transition-all ${editing ? 'border-primary/40' : 'border-border/60'}`}>
+    <div className={`rounded-xl border bg-card overflow-hidden transition-all ${
+      !pipeline.enabled
+        ? 'border-border/30 opacity-60'
+        : editing ? 'border-primary/40' : 'border-border/60'
+    }`}>
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3">
         <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0 ${prov?.bg ?? 'bg-secondary'}`}>
@@ -409,6 +547,11 @@ function ConnectedBacklogCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-semibold text-foreground">{pipeline.name}</p>
+            {!pipeline.enabled && (
+              <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-zinc-500/15 text-zinc-400">
+                ⏸ Pausada
+              </span>
+            )}
             <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
               pipeline.has_credentials
                 ? 'bg-green-500/10 text-green-400'
@@ -422,6 +565,19 @@ function ConnectedBacklogCard({
           </p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
+          {/* Enable / Disable toggle */}
+          <button
+            onClick={handleToggleEnabled}
+            disabled={toggling}
+            title={pipeline.enabled ? 'Pausar esteira (desabilitar sem excluir)' : 'Reativar esteira'}
+            className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${
+              pipeline.enabled
+                ? 'border-amber-500/30 text-amber-400 hover:bg-amber-500/10'
+                : 'border-green-500/30 text-green-400 hover:bg-green-500/10'
+            }`}
+          >
+            {toggling ? '...' : pipeline.enabled ? '⏸ Pausar' : '▶ Ativar'}
+          </button>
           <button onClick={() => { setEditing(e => !e); setError('') }}
             className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${
               editing
@@ -561,6 +717,79 @@ function ConnectedBacklogCard({
           </div>
         </div>
       )}
+
+      {/* Runs footer */}
+      <div className="border-t border-border/30">
+        <div className="flex items-center gap-2 px-4 py-2">
+          <button
+            onClick={handleShowRuns}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <span className={`transition-transform ${showRuns ? 'rotate-90' : ''}`}>▶</span>
+            Execuções recentes
+          </button>
+          <div className="flex-1" />
+          {checkMsg && (
+            <span className="text-[11px] text-muted-foreground truncate max-w-[200px]" title={checkMsg}>{checkMsg}</span>
+          )}
+          <button
+            onClick={handleForceCheck}
+            disabled={checking}
+            title="Forçar verificação agora (sem esperar os 30s)"
+            className="text-xs px-2.5 py-1 rounded-lg border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-50"
+          >
+            {checking ? '...' : '⟳ Verificar agora'}
+          </button>
+        </div>
+
+        {showRuns && (
+          <div className="px-4 pb-3 space-y-1">
+            {runsLoading ? (
+              <p className="text-xs text-muted-foreground py-1">Carregando...</p>
+            ) : runs.length === 0 ? (
+              <p className="text-xs text-muted-foreground py-1">Nenhuma execução registrada ainda.</p>
+            ) : (
+              runs.map(run => {
+                const s = STATUS_LABEL[run.status] ?? { label: run.status, color: 'text-muted-foreground' }
+                const ago = Math.floor((Date.now() / 1000) - run.updated_at)
+                const agoStr = ago < 60 ? `${ago}s atrás` : ago < 3600 ? `${Math.floor(ago/60)}m atrás` : `${Math.floor(ago/3600)}h atrás`
+                return (
+                  <div key={run.id} className="flex items-center gap-2 py-1.5 border-b border-border/20 last:border-0">
+                    <a href={run.card_url} target="_blank" rel="noopener noreferrer"
+                      className="text-xs font-mono text-primary/70 hover:text-primary shrink-0">
+                      {run.card_key}
+                    </a>
+                    <span className="text-xs text-foreground/80 truncate flex-1" title={run.card_title}>
+                      {run.card_title}
+                    </span>
+                    <span className={`text-[11px] font-medium shrink-0 ${s.color}`}>{s.label}</span>
+                    <span className="text-[11px] text-muted-foreground/60 shrink-0">{agoStr}</span>
+                    {(run.status === 'waiting_input' || run.status === 'running') && (
+                      <button
+                        onClick={() => handleReprocessRun(run.id)}
+                        disabled={reprocessingId === run.id}
+                        title="Reprocessar esta etapa agora"
+                        className="text-[11px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors shrink-0 disabled:opacity-50"
+                      >
+                        {reprocessingId === run.id ? '...' : '↺ Reprocessar'}
+                      </button>
+                    )}
+                    {run.status === 'failed' && (
+                      <button
+                        onClick={() => handleRetryRun(run.id)}
+                        title="Mover card de volta ao gatilho e tentar novamente"
+                        className="text-[11px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors shrink-0"
+                      >
+                        ↺ Reiniciar
+                      </button>
+                    )}
+                  </div>
+                )
+              })
+            )}
+          </div>
+        )}
+      </div>
     </div>
   )
 }

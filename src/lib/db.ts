@@ -134,22 +134,21 @@ function ensureBuiltInAdmin(dbConn: Database.Database): void {
   if (process.env.NEXT_PHASE === 'phase-production-build') return
   if (isTestMode) return
 
-  const hash = hashPassword(BUILTIN_ADMIN_PASSWORD)
   const existing = dbConn
     .prepare('SELECT id FROM users WHERE username = ?')
     .get(BUILTIN_ADMIN_USERNAME) as { id: number } | undefined
 
-  if (existing) {
-    dbConn
-      .prepare('UPDATE users SET password_hash = ?, role = ?, display_name = ? WHERE username = ?')
-      .run(hash, 'admin', 'Admin', BUILTIN_ADMIN_USERNAME)
-  } else {
+  if (!existing) {
+    // Create the default admin account only on first run — NEVER overwrite an existing account.
+    // Resetting the password on every boot would silently undo any password change made by the operator.
+    const hash = hashPassword(BUILTIN_ADMIN_PASSWORD)
     dbConn
       .prepare('INSERT INTO users (username, display_name, password_hash, role) VALUES (?, ?, ?, ?)')
       .run(BUILTIN_ADMIN_USERNAME, 'Admin', hash, 'admin')
+    logger.warn(`Built-in admin account created with default password — change it immediately at /settings/users`)
+  } else {
+    logger.info(`Built-in admin account exists: ${BUILTIN_ADMIN_USERNAME}`)
   }
-
-  logger.info(`Built-in admin account ready: ${BUILTIN_ADMIN_USERNAME}`)
 }
 
 function seedAdminUserFromEnv(dbConn: Database.Database): void {
