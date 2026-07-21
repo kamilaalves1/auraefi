@@ -85,7 +85,7 @@ export default function Home() {
   const tb = useTranslations('boot')
   const tp = useTranslations('page')
   const tc = useTranslations('common')
-  const { activeTab, setActiveTab, setCurrentUser, setDashboardMode, setGatewayAvailable, setLocalSessionsAvailable, setCapabilitiesChecked, setSubscription, setDefaultOrgName, setUpdateAvailable, setOpenclawUpdate, showOnboarding, setShowOnboarding, liveFeedOpen, toggleLiveFeed, showProjectManagerModal, setShowProjectManagerModal, fetchProjects, setChatPanelOpen, bootComplete, setBootComplete, setAgents, setSessions, setProjects, setInterfaceMode, setMemoryGraphAgents, setSkillsData } = useMissionControl()
+  const { activeTab, setActiveTab, setCurrentUser, setDashboardMode, setGatewayAvailable, setLocalSessionsAvailable, setCapabilitiesChecked, setSubscription, setDefaultOrgName, setUpdateAvailable, showOnboarding, setShowOnboarding, liveFeedOpen, toggleLiveFeed, showProjectManagerModal, setShowProjectManagerModal, fetchProjects, setChatPanelOpen, bootComplete, setBootComplete, setAgents, setSessions, setProjects, setInterfaceMode, setMemoryGraphAgents, setSkillsData } = useMissionControl()
 
   // Sync URL → Zustand activeTab
   const pathname = usePathname()
@@ -260,24 +260,6 @@ export default function Home() {
       })
       .catch(() => {})
 
-    // Check for OpenClaw updates
-    fetch('/api/openclaw/version')
-      .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (data?.updateAvailable) {
-          setOpenclawUpdate({
-            installed: data.installed,
-            latest: data.latest,
-            releaseUrl: data.releaseUrl,
-            releaseNotes: data.releaseNotes,
-            updateCommand: data.updateCommand,
-          })
-        } else {
-          setOpenclawUpdate(null)
-        }
-      })
-      .catch(() => {})
-
     // Check capabilities, then conditionally connect to gateway
     fetch('/api/status?action=capabilities')
       .then(res => res.ok ? res.json() : null)
@@ -363,7 +345,7 @@ export default function Home() {
     ]).catch(() => { /* panels will lazy-load as fallback */ })
 
   // eslint-disable-next-line react-hooks/exhaustive-deps -- boot once on mount, not on every pathname change
-  }, [connect, router, setCurrentUser, setDashboardMode, setGatewayAvailable, setLocalSessionsAvailable, setCapabilitiesChecked, setSubscription, setUpdateAvailable, setShowOnboarding, setAgents, setSessions, setProjects, setInterfaceMode, setMemoryGraphAgents, setSkillsData])
+  }, [connect, router, setCurrentUser, setDashboardMode, setGatewayAvailable, setLocalSessionsAvailable, setCapabilitiesChecked, setSubscription, setUpdateAvailable, setShowOnboarding, setAgents, setSessions, setProjects, setInterfaceMode, setMemoryGraphAgents, setSkillsData, setDefaultOrgName])
 
   if (!isClient || !bootComplete) {
     return <Loader variant="page" steps={isClient ? initSteps : undefined} />

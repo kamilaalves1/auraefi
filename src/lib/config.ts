@@ -27,27 +27,7 @@ const resolvedTokensPath = isBuildPhase
       path.join(resolvedDataDir, 'mission-control-tokens.json'))
   : (process.env.MISSION_CONTROL_TOKENS_PATH ||
       path.join(resolvedDataDir, 'mission-control-tokens.json'))
-const openclawStateDir =
-  process.env.OPENCLAW_STATE_DIR ||
-  process.env.CLAWDBOT_STATE_DIR ||
-  ''
-const openclawConfigPath = openclawStateDir
-  ? path.join(openclawStateDir, 'openclaw.json')
-  : ''
-const openclawWorkspaceDir =
-  process.env.OPENCLAW_WORKSPACE_DIR ||
-  (openclawStateDir ? path.join(openclawStateDir, 'workspace') : '')
-const defaultMemoryDir = (() => {
-  if (process.env.OPENCLAW_MEMORY_DIR) return process.env.OPENCLAW_MEMORY_DIR
-  if (
-    openclawWorkspaceDir &&
-    (fs.existsSync(path.join(openclawWorkspaceDir, 'memory')) ||
-      fs.existsSync(path.join(openclawWorkspaceDir, 'knowledge-base')))
-  ) {
-    return openclawWorkspaceDir
-  }
-  return path.join(defaultDataDir, 'memory')
-})()
+const defaultMemoryDir = path.join(defaultDataDir, 'memory')
 
 const resolvedGnapRepoPath =
   process.env.GNAP_REPO_PATH || path.join(configuredDataDir, '.gnap')
@@ -59,25 +39,11 @@ export const config = {
   dataDir: resolvedDataDir,
   dbPath: resolvedDbPath,
   tokensPath: resolvedTokensPath,
-  openclawHome: openclawStateDir,
-  openclawStateDir,
-  openclawConfigPath,
-  openclawBin: 'openclaw',
-  clawdbotBin: process.env.CLAWDBOT_BIN || 'clawdbot',
-  gatewayHost: process.env.OPENCLAW_GATEWAY_HOST || '127.0.0.1',
-  gatewayPort: clampInt(Number(process.env.OPENCLAW_GATEWAY_PORT || '18789'), 1, 65535, 18789),
-  logsDir:
-    process.env.OPENCLAW_LOG_DIR ||
-    (openclawStateDir ? path.join(openclawStateDir, 'logs') : ''),
-  tempLogsDir: process.env.CLAWDBOT_TMP_LOG_DIR || '',
+  gatewayHost: process.env.GATEWAY_HOST || '127.0.0.1',
+  gatewayPort: clampInt(Number(process.env.GATEWAY_PORT || '18789'), 1, 65535, 18789),
+  logsDir: process.env.MC_LOG_DIR || '',
   memoryDir: defaultMemoryDir,
-  memoryAllowedPrefixes:
-    defaultMemoryDir === openclawWorkspaceDir
-      ? ['memory/', 'knowledge-base/']
-      : [],
-  soulTemplatesDir:
-    process.env.OPENCLAW_SOUL_TEMPLATES_DIR ||
-    (openclawStateDir ? path.join(openclawStateDir, 'templates', 'souls') : ''),
+  memoryAllowedPrefixes: [] as string[],
   homeDir: os.homedir(),
   gnap: {
     enabled: process.env.GNAP_ENABLED === 'true',

@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { runCommand } from './command'
 import { logger } from './logger'
+import { config } from './config'
 
 export type RuntimeId = 'claude' | 'codex'
 export type DeploymentMode = 'local' | 'docker'

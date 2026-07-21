@@ -1,4 +1,4 @@
-import type { GatewaySession } from './sessions'
+              import type { GatewaySession } from './sessions'
 
 export interface CoordinatorAgentRecord {
   name: string

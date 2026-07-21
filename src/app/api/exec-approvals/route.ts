@@ -10,7 +10,7 @@ function gatewayUrl(p: string): string {
 }
 
 function execApprovalsPath(): string {
-  return path.join(config.openclawHome, 'exec-approvals.json')
+  return path.join(config.dataDir, 'exec-approvals.json')
 }
 
 function computeHash(raw: string): string {

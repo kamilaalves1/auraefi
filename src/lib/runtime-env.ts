@@ -35,7 +35,7 @@ export async function getEffectiveEnvValue(
   key: string,
   options?: { envFilePath?: string }
 ): Promise<string> {
-  const envFilePath = options?.envFilePath || join(config.openclawStateDir, '.env')
+  const envFilePath = options?.envFilePath || ''
   const envMap = await readOpenClawEnvFile(envFilePath)
   const fromFile = envMap.get(key)
   if (typeof fromFile === 'string' && fromFile.length > 0) return fromFile

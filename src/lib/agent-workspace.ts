@@ -5,8 +5,7 @@ import { resolveWithin } from '@/lib/paths'
 
 function resolvePath(candidate: string): string {
   if (isAbsolute(candidate)) return resolve(candidate)
-  if (!config.openclawStateDir) throw new Error('OPENCLAW_STATE_DIR not configured')
-  return resolveWithin(config.openclawStateDir, candidate)
+  throw new Error('Relative workspace paths require an absolute base directory')
 }
 
 export function getAgentWorkspaceCandidates(agentConfig: any, agentName: string): string[] {

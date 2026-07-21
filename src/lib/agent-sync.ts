@@ -123,15 +123,12 @@ function parseToolsFromFile(content: string): { allow?: string[]; raw?: string }
 }
 
 function getConfigPath(): string | null {
-  return config.openclawConfigPath || null
+  return null
 }
 
 function resolveAgentWorkspacePath(workspace: string): string {
   if (isAbsolute(workspace)) return resolve(workspace)
-  if (!config.openclawStateDir) {
-    throw new Error('OPENCLAW_STATE_DIR not configured')
-  }
-  return resolveWithin(config.openclawStateDir, workspace)
+  throw new Error('Relative workspace paths require an absolute base directory')
 }
 
 const MAX_WORKSPACE_FILE_BYTES = 1024 * 1024 // 1 MB

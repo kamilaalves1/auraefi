@@ -28,51 +28,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'key is required' }, { status: 400 })
   }
 
-  const stateDir = config.openclawStateDir
-  if (!stateDir) {
-    return NextResponse.json({ messages: [], source: 'gateway', error: 'State directory not configured' })
-  }
-
-  try {
-    // Extract agent name from session key (e.g. "agent:jarv:main" -> "jarv")
-    const agentName = extractAgentName(sessionKey)
-    if (!agentName) {
-      return NextResponse.json({ messages: [], source: 'gateway', error: 'Could not determine agent from session key' })
-    }
-
-    // Look up the sessionId from the agent's sessions.json
-    const sessionsFile = path.join(stateDir, 'agents', agentName, 'sessions', 'sessions.json')
-    if (!existsSync(sessionsFile)) {
-      return NextResponse.json({ messages: [], source: 'gateway', error: 'Agent sessions file not found' })
-    }
-
-    let sessionsData: Record<string, any>
-    try {
-      sessionsData = JSON.parse(readFileSync(sessionsFile, 'utf-8'))
-    } catch {
-      return NextResponse.json({ messages: [], source: 'gateway', error: 'Could not parse sessions.json' })
-    }
-
-    const sessionEntry = sessionsData[sessionKey]
-    if (!sessionEntry?.sessionId) {
-      return NextResponse.json({ messages: [], source: 'gateway', error: 'Session not found in sessions.json' })
-    }
-
-    const sessionId = sessionEntry.sessionId
-    const jsonlPath = path.join(stateDir, 'agents', agentName, 'sessions', `${sessionId}.jsonl`)
-    if (!existsSync(jsonlPath)) {
-      return NextResponse.json({ messages: [], source: 'gateway', error: 'Session JSONL file not found' })
-    }
-
-    // Read and parse the JSONL file
-    const raw = readFileSync(jsonlPath, 'utf-8')
-    const messages = parseJsonlTranscript(raw, limit)
-
-    return NextResponse.json({ messages, source: 'gateway' })
-  } catch (err: any) {
-    logger.warn({ err, sessionKey }, 'Gateway session transcript read failed')
-    return NextResponse.json({ messages: [], source: 'gateway', error: 'Failed to read session transcript' })
-  }
+  return NextResponse.json({ messages: [], source: 'gateway', error: 'State directory not configured' })
 }
 
 function extractAgentName(sessionKey: string): string | null {

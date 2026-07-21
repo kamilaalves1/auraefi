@@ -262,7 +262,7 @@ function scanNetwork(): Category {
 
 function scanOpenClaw(): Category {
   const checks: Check[] = []
-  const configPath = config.openclawConfigPath
+  const configPath = ''
 
   if (!configPath || !existsSync(configPath)) {
     const gatewayOptional = process.env.NEXT_PUBLIC_GATEWAY_OPTIONAL === 'true'

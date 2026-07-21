@@ -67,9 +67,7 @@ interface OpenClawCronFile {
 }
 
 function getCronFilePath(): string {
-  const openclawStateDir = config.openclawStateDir
-  if (!openclawStateDir) return ''
-  return path.join(openclawStateDir, 'cron', 'jobs.json')
+  return ''
 }
 
 async function loadCronFile(): Promise<OpenClawCronFile | null> {
@@ -197,14 +195,10 @@ export async function GET(request: NextRequest) {
       const page = parseInt(searchParams.get('page') || '1', 10)
       const query = searchParams.get('query') || ''
 
-      // Try to load run history from the cron runs log file
-      const openclawStateDir = config.openclawStateDir
-      if (!openclawStateDir) {
-        return NextResponse.json({ entries: [], total: 0, hasMore: false })
-      }
-
+      return NextResponse.json({ entries: [], total: 0, hasMore: false })
+      // eslint-disable-next-line no-unreachable
       try {
-        const runsPath = path.join(openclawStateDir, 'cron', 'runs.json')
+        const runsPath = path.join('', 'cron', 'runs.json')
         const raw = await readFile(runsPath, 'utf-8')
         const runsData = JSON.parse(raw)
         let entries: any[] = Array.isArray(runsData.runs) ? runsData.runs : Array.isArray(runsData) ? runsData : []
@@ -236,20 +230,7 @@ export async function GET(request: NextRequest) {
           page,
         })
       } catch {
-        // No runs file — fall back to state-based info
-        const cronFile = await loadCronFile()
-        const job = cronFile?.jobs.find(j => j.id === jobId || j.name === jobId)
-        const entries: any[] = []
-        if (job?.state?.lastRunAtMs) {
-          entries.push({
-            jobId: job.id,
-            status: job.state.lastStatus || 'unknown',
-            timestamp: job.state.lastRunAtMs,
-            durationMs: job.state.lastDurationMs,
-            error: job.state.lastError,
-          })
-        }
-        return NextResponse.json({ entries, total: entries.length, hasMore: false, page: 1 })
+        return NextResponse.json({ entries: [], total: 0, hasMore: false, page: 1 })
       }
     }
 
@@ -321,7 +302,7 @@ export async function POST(request: NextRequest) {
         if (triggerMode === 'due') {
           args.push('--if-due')
         }
-        const { stdout, stderr } = await runCommand(config.openclawBin, args, { timeoutMs: 30000 })
+        const { stdout, stderr } = await runCommand('openclaw', args, { timeoutMs: 30000 })
 
         return NextResponse.json({
           success: true,

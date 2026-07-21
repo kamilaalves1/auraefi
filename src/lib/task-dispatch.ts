@@ -152,8 +152,6 @@ function getAnthropicApiKey(): string | null {
 }
 
 function isGatewayAvailable(): boolean {
-  // Gateway is available if OpenClaw is installed OR a gateway is registered in the DB
-  if (config.openclawHome) return true
   try {
     const db = getDatabase()
     const row = db.prepare('SELECT COUNT(*) as c FROM gateways').get() as { c: number } | undefined

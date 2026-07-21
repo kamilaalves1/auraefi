@@ -29,42 +29,7 @@ export async function GET(request: NextRequest) {
   const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '100', 10), 1), 500)
   const since = parseInt(searchParams.get('since') || '0', 10) || 0
 
-  const stateDir = config.openclawStateDir
-  if (!stateDir) {
-    return NextResponse.json({ events: [], sessionCount: 0 })
-  }
-
-  const sessions = getAllGatewaySessions()
-  const allEvents: AggregateEvent[] = []
-
-  for (const session of sessions) {
-    if (!session.sessionId) continue
-
-    const raw = readSessionJsonl(stateDir, session.agent, session.sessionId)
-    if (!raw) continue
-
-    const messages = parseJsonlTranscript(raw, 500)
-    let lineIndex = 0
-
-    for (const msg of messages) {
-      const ts = msg.timestamp ? new Date(msg.timestamp).getTime() : session.updatedAt
-      if (since && ts <= since) { lineIndex++; continue }
-
-      for (const part of msg.parts) {
-        allEvents.push(partToEvent(part, msg.role, ts, session.key, session.agent, lineIndex))
-        lineIndex++
-      }
-    }
-  }
-
-  // Sort chronologically (newest last), take the last `limit` entries
-  allEvents.sort((a, b) => a.ts - b.ts)
-  const trimmed = allEvents.slice(-limit)
-
-  return NextResponse.json({
-    events: trimmed,
-    sessionCount: sessions.length,
-  })
+  return NextResponse.json({ events: [], sessionCount: 0 })
 }
 
 function partToEvent(
