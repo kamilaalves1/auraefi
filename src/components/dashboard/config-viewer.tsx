@@ -5,7 +5,7 @@ import { useState, useEffect } from 'react'
 /**
  * ConfigViewer — Amy's configuration files displayed in dashboard
  *
- * Phase 137: Read-only viewer for openclaw.json, schedules.json, etc.
+ * Phase 137: Read-only viewer for agent config, schedules.json, etc.
  * Shows expandable config cards with JSON content.
  */
 

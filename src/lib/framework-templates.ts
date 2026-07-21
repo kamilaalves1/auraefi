@@ -1,13 +1,13 @@
 /**
  * Framework-Agnostic Template System
  *
- * Extends the existing OpenClaw templates with framework-neutral archetypes
+ * Extends the existing agent templates with framework-neutral archetypes
  * that any adapter can use. Each framework template defines:
  *   - What the agent does (role, capabilities)
  *   - How it connects (framework-specific connection config)
  *   - What permissions it needs (tool scopes)
  *
- * The existing AGENT_TEMPLATES in agent-templates.ts remain for OpenClaw-native
+ * The existing AGENT_TEMPLATES in agent-templates.ts remain for native
  * use. This module wraps them with a framework-aware registry.
  */
 
@@ -309,7 +309,7 @@ export interface UniversalTemplate {
   frameworks: string[]
   /** Role-based capabilities (framework-agnostic) */
   capabilities: string[]
-  /** The OpenClaw template to use when framework is openclaw */
+  /** The agent template to use when framework is openclaw */
   openclawTemplateType?: string
 }
 
@@ -406,8 +406,8 @@ export function listFrameworks(): FrameworkInfo[] {
 }
 
 /**
- * Resolve a universal template to its OpenClaw-specific config (if applicable).
- * For non-OpenClaw frameworks, returns the universal template metadata
+ * Resolve a universal template to its framework-specific config (if applicable).
+ * For other frameworks, returns the universal template metadata
  * since config is managed externally by the framework.
  */
 export function resolveTemplateConfig(

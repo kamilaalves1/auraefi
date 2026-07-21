@@ -275,7 +275,7 @@ function resolveApiKey(provider: string): string | null {
       if (v) return v
     }
   } catch { /* ignore */ }
-  // Legacy: ~/.openclaw/.env
+  // Legacy: ~/.config/.env
   try {
     const { readFileSync } = require('fs') as typeof import('fs')
     const { join } = require('path') as typeof import('path')

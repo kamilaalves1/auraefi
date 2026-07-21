@@ -26,7 +26,7 @@ interface DispatchableTask {
 
 /**
  * Classify a task's complexity and return the appropriate model ID to pass
- * to the OpenClaw gateway. Uses keyword signals on title + description.
+ * to the gateway. Uses keyword signals on title + description.
  *
  * Tiers:
  *   ROUTINE  → cheap model (Haiku)   — file ops, status checks, formatting
@@ -76,7 +76,7 @@ function classifyTaskModel(task: DispatchableTask): string | null {
 }
 
 /** Extract the gateway agent identifier from the agent's config JSON.
- *  Falls back to agent_name (display name) if openclawId is not set. */
+ *  Falls back to agent_name (display name) if agent id is not set. */
 function resolveGatewayAgentId(task: DispatchableTask): string {
   if (task.agent_config) {
     try {
@@ -128,7 +128,7 @@ function parseAgentResponse(stdout: string): AgentResponseParsed {
       : typeof parsed?.session_id === 'string' ? parsed.session_id
       : null
 
-    // OpenClaw agent --json returns { payloads: [{ text: "..." }] }
+    // Agent --json returns { payloads: [{ text: "..." }] }
     if (parsed?.payloads?.[0]?.text) {
       return { text: parsed.payloads[0].text, sessionId }
     }

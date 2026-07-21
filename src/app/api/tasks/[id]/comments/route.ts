@@ -112,7 +112,7 @@ export async function POST(
     const { content: rawContent, parent_id } = result.data;
     const author = auth.user.display_name || auth.user.username || 'system';
 
-    // Normalize agent payload JSON — extract text from OpenClaw result format
+    // Normalize agent payload JSON — extract text from agent result format
     let content = rawContent;
     try {
       const stripped = rawContent.replace(/\x1b\[[0-9;]*m/g, '').replace(/\[3[0-9]m/g, '').replace(/\[39m/g, '');

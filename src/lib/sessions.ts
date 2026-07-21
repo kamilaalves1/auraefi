@@ -58,10 +58,10 @@ export function invalidateSessionCache(): void {
 }
 
 /**
- * Read all sessions from OpenClaw agent session stores on disk.
+ * Read all sessions from agent session stores on disk.
  *
- * OpenClaw stores sessions per-agent at:
- *   {OPENCLAW_STATE_DIR}/agents/{agentName}/sessions/sessions.json
+ * Stores sessions per-agent at:
+ *   {STATE_DIR}/agents/{agentName}/sessions/sessions.json
  *
  * Each file is a JSON object keyed by session key (e.g. "agent:<agent>:main")
  * with session metadata as values.

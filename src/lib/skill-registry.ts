@@ -1,5 +1,5 @@
 /**
- * Skill Registry Client — Proxied search & install for ClawdHub, skills.sh, and Awesome OpenClaw
+ * Skill Registry Client — Proxied search & install for ClawdHub, skills.sh, and Awesome Skills
  *
  * All external requests are server-side only (no direct browser→registry calls).
  * Includes content validation and security scanning on download.
@@ -194,7 +194,7 @@ const AWESOME_OPENCLAW_RAW_BASE = 'https://raw.githubusercontent.com/openclaw/sk
 const FETCH_TIMEOUT = 10_000
 
 // ---------------------------------------------------------------------------
-// Awesome OpenClaw — in-memory cached index from GitHub README
+// Awesome Skills — in-memory cached index from GitHub README
 // ---------------------------------------------------------------------------
 
 const AWESOME_CACHE_TTL = 15 * 60 * 1000 // 15 minutes

@@ -257,7 +257,7 @@ function scanNetwork(): Category {
 }
 
 // ---------------------------------------------------------------------------
-// Category: OpenClaw
+// Category: Gateway
 // ---------------------------------------------------------------------------
 
 function scanOpenClaw(): Category {

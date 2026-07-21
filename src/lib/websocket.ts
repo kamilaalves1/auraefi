@@ -22,7 +22,7 @@ import {
 
 const log = createClientLogger('WebSocket')
 
-// Gateway protocol version (v3 required by OpenClaw 2026.x)
+// Gateway protocol version (v3)
 const PROTOCOL_VERSION = 3
 const DEFAULT_GATEWAY_CLIENT_ID = process.env.NEXT_PUBLIC_GATEWAY_CLIENT_ID || 'openclaw-control-ui'
 
@@ -235,7 +235,7 @@ export function useWebSocket() {
       try {
         const identity = await getOrCreateDeviceIdentity()
         const signedAt = Date.now()
-        // Sign OpenClaw v2 device-auth payload (gateway accepts v2 and v3).
+        // Sign v2 device-auth payload (gateway accepts v2 and v3).
         const payload = [
           'v2',
           identity.deviceId,

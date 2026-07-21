@@ -48,7 +48,7 @@ export async function GET(
  *
  * Body: {
  *   role?: string
- *   gateway_config?: object   - OpenClaw agent config fields to update
+ *   gateway_config?: object   - agent config fields to update
  *   write_to_gateway?: boolean - Defaults to true when gateway_config exists
  * }
  */

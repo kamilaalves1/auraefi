@@ -114,7 +114,7 @@ export async function GET(request: Request) {
 const ALLOWED_GATEWAY_PATHS = [
   // Legacy gateway routes
   '/api/status', '/api/health', '/api/models', '/api/heartbeat', '/api/agents', '/api/config',
-  // Current OpenClaw gateway routes
+  // Current gateway routes
   '/healthz', '/health', '/ready',
 ]
 

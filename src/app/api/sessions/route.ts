@@ -144,7 +144,7 @@ export async function DELETE(request: NextRequest) {
 }
 
 function mapGatewaySessions(gatewaySessions: ReturnType<typeof getAllGatewaySessions>) {
-  // Deduplicate by sessionId — OpenClaw tracks cron runs under the same
+  // Deduplicate by sessionId — cron runs may share the same
   // session ID as the parent session, causing duplicate React keys (#80).
   // Keep the most recently updated entry when duplicates exist.
   const sessionMap = new Map<string, (typeof gatewaySessions)[0]>()

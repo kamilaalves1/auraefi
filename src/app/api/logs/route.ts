@@ -19,11 +19,11 @@ interface LogEntry {
 }
 
 /**
- * Parse a log line from various OpenClaw log formats:
+ * Parse a log line from various log formats:
  * - Pipe-delimited: "2026-02-09T17:00:01+01:00|MONITOR|Consistency check completed"
- * - Simple text: "done report=/path/to/.openclaw/workspace-<agent>/reports/..."
+ * - Simple text: "done report=/path/to/workspace-<agent>/reports/..."
  * - JSON structured: { timestamp, level, message, ... }
- * - Gateway journal: "2026-02-09T18:05:49+01:00 host openclaw[1737454]: ..."
+ * - Gateway journal: "2026-02-09T18:05:49+01:00 host gateway[1737454]: ..."
  */
 function parseLogLine(line: string, source: string): LogEntry | null {
   if (!line.trim()) return null
@@ -63,7 +63,7 @@ function parseLogLine(line: string, source: string): LogEntry | null {
       }
     }
 
-    // Gateway journal format: "TIMESTAMP HOSTNAME openclaw[PID]: MESSAGE"
+    // Gateway journal format: "TIMESTAMP HOSTNAME gateway[PID]: MESSAGE"
     const journalMatch = line.match(/^(\d{4}-\d{2}-\d{2}T[\d:]+[^\s]*)\s+\S+\s+\S+:\s+(.+)$/)
     if (journalMatch) {
       const ts = new Date(journalMatch[1]).getTime()
@@ -120,7 +120,7 @@ function parseLogLine(line: string, source: string): LogEntry | null {
 }
 
 /**
- * Discover all log files in the OpenClaw logs directory.
+ * Discover all log files in the logs directory.
  * Scans both top-level and automation/ subdirectory.
  */
 async function discoverLogFiles(): Promise<Array<{ path: string; source: string }>> {

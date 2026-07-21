@@ -9,8 +9,8 @@ import { logger } from '@/lib/logger'
  * Body: { message: string, conversation_id?: string, model?: string }
  * Returns: { reply: string, model: string, conversation_id: string }
  * 
- * This is the Vertex-specific chat endpoint that bypasses the OpenClaw
- * gateway and talks directly to Ollama on the local machine.
+ * This is the Vertex-specific chat endpoint that bypasses the gateway
+ * and talks directly to Ollama on the local machine.
  */
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434'

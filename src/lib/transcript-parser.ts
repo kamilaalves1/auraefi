@@ -75,7 +75,7 @@ function normalizeTranscriptMessage(msg: any, timestamp?: string): TranscriptMes
 }
 
 /**
- * Parse OpenClaw JSONL transcript format.
+ * Parse JSONL transcript format.
  *
  * Each line is a JSON object. We care about entries with type: "message"
  * which contain { message: { role, content } } in Claude API format.

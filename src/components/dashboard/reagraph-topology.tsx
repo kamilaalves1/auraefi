@@ -19,7 +19,7 @@ import '@xyflow/react/dist/style.css'
  * ReagraphTopology — Interactive System Topology
  *
  * Phase 118 v4: Rebuilt with React Flow for rich, glossy nodes
- * inspired by the OpenClaw Command Center design.
+ * inspired by the Command Center design.
  *
  * Features:
  * - Custom HTML nodes with emoji icons inside glowing circles

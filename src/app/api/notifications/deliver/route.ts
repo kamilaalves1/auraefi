@@ -7,7 +7,7 @@ import { logger } from '@/lib/logger';
  * POST /api/notifications/deliver - Notification delivery daemon endpoint
  * 
  * Polls undelivered notifications and sends them to agents
- * via OpenClaw gateway call agent command
+ * via gateway agent command
  */
 export async function POST(request: NextRequest) {
   const auth = requireRole(request, 'operator');

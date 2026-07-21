@@ -264,7 +264,7 @@ export function ChatWorkspace({ mode = 'embedded', onClose }: ChatWorkspaceProps
           updatePendingMessage(streamMsgId, { content: 'Connection error.', pendingStatus: 'failed' as const })
         }
       } else {
-        // Standard OpenClaw gateway route
+        // Standard gateway route
         const res = await fetch('/api/chat/messages', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },

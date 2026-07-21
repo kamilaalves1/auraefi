@@ -5,7 +5,7 @@ import { useState, useEffect, useCallback } from 'react'
 /**
  * ClawBytesRecipes — Automation Recipe Book
  *
- * Phase 122: Visualizes adapted automation recipes from the OpenClaw/kilo.ai
+ * Phase 122: Visualizes adapted automation recipes from the kilo.ai
  * ClawBytes ecosystem plus Amy-native recipes. Read-only catalogue.
  *
  * 🤖 PANEL TUNING GUIDE:

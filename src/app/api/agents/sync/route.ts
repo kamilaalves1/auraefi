@@ -6,7 +6,7 @@ import { logger } from '@/lib/logger'
 
 /**
  * POST /api/agents/sync - Trigger agent config sync
- * ?source=local triggers local disk scan instead of openclaw.json sync.
+ * ?source=local triggers local disk scan instead of agent config sync.
  * Requires admin role.
  */
 export async function POST(request: NextRequest) {
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * GET /api/agents/sync - Preview diff between openclaw.json and MC
+ * GET /api/agents/sync - Preview diff between agent config and MC
  * Shows what would change without writing.
  */
 export async function GET(request: NextRequest) {

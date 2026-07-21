@@ -168,7 +168,7 @@ export async function POST(request: NextRequest) {
   const detectedToken = gateway.is_primary === 1 ? getDetectedGatewayToken() : ''
   const token = detectedToken || dbToken
 
-  // Keep runtime DB aligned with detected OpenClaw gateway token for primary gateway.
+  // Keep runtime DB aligned with detected gateway token for primary gateway.
   if (gateway.is_primary === 1 && detectedToken && detectedToken !== dbToken) {
     try {
       db.prepare('UPDATE gateways SET token = ?, updated_at = (unixepoch()) WHERE id = ?').run(detectedToken, gateway.id)

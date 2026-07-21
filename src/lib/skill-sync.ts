@@ -81,7 +81,7 @@ function getSkillRoots(): Array<{ source: string; path: string }> {
       }
     }
   } catch {
-    // openclawBase may not exist
+    // base dir may not exist
   }
 
   return roots

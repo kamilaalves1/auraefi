@@ -1325,7 +1325,7 @@ function TaskDetailModal({
     // Strip ANSI escape codes
     const stripped = raw.replace(/\x1b\[[0-9;]*m/g, '').replace(/\[3[0-9]m/g, '').replace(/\[39m/g, '')
 
-    // Try to parse as JSON payload (OpenClaw agent result format)
+    // Try to parse as JSON payload (agent result format)
     try {
       const parsed = JSON.parse(stripped)
       if (parsed && typeof parsed === 'object') {

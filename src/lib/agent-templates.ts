@@ -828,7 +828,7 @@ export function getTemplate(type: string): AgentTemplate | undefined {
   return AGENT_TEMPLATES.find(t => t.type === type)
 }
 
-/** Build a full OpenClaw agent config from a template + overrides */
+/** Build a full agent config from a template + overrides */
 export function buildAgentConfig(
   template: AgentTemplate,
   overrides: {

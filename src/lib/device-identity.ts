@@ -5,7 +5,7 @@ import { createClientLogger } from '@/lib/client-logger'
 const log = createClientLogger('DeviceIdentity')
 
 /**
- * Ed25519 device identity for OpenClaw gateway protocol v3 challenge-response.
+ * Ed25519 device identity for gateway protocol v3 challenge-response.
  *
  * v2 storage model (fixes #574):
  *   - Private key generated as a non-extractable WebCrypto CryptoKey and

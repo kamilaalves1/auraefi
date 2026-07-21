@@ -10,7 +10,7 @@ import type { AggregateEvent } from '@/app/api/sessions/transcript/aggregate/rou
 
 const COORDINATOR_AGENT = (process.env.NEXT_PUBLIC_COORDINATOR_AGENT || 'coordinator').toLowerCase()
 
-// ── Feed categories (mirrors OpenClaw TUI FeedCategory) ──
+// ── Feed categories (mirrors TUI FeedCategory) ──
 
 type FeedCategory = 'chat' | 'tools' | 'trace' | 'system' | 'safety'
 type FeedFilter = 'all' | FeedCategory
@@ -25,7 +25,7 @@ interface FeedEvent {
   data?: any
 }
 
-// Agent identity: color + emoji (matches openclaw.json)
+// Agent identity: color + emoji (matches agent config)
 const AGENT_IDENTITY: Record<string, { color: string; emoji: string; label: string }> = {
   [COORDINATOR_AGENT]: { color: '#a78bfa', emoji: '🧭', label: 'Coordinator' },
   builder:        { color: '#60a5fa', emoji: '🛠️', label: 'Builder' },

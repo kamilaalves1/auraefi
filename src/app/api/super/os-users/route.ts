@@ -18,7 +18,7 @@ export interface OsUser {
   has_claude: boolean
   /** Whether codex CLI is installed/accessible for this user */
   has_codex: boolean
-  /** Whether openclaw is installed for this user */
+  /** Whether agent runtime is installed for this user */
   has_openclaw: boolean
   /** Whether this OS user is the one running the MC process (i.e. "Default" org) */
   is_process_owner: boolean
@@ -46,7 +46,7 @@ function checkToolExists(homeDir: string, tool: string): boolean {
   const candidates = [
     path.join(homeDir, '.local', 'bin', tool),
     path.join(homeDir, '.npm-global', 'bin', tool),
-    path.join(homeDir, `.${tool}`),             // e.g. ~/.claude, ~/.openclaw config dir = installed
+    path.join(homeDir, `.${tool}`),             // e.g. ~/.claude config dir = installed
   ]
   for (const p of candidates) {
     try { if (fs.existsSync(p)) return true } catch {}
@@ -59,7 +59,7 @@ function checkToolExists(homeDir: string, tool: string): boolean {
   return false
 }
 
-/** Install a tool (openclaw, claude, codex) for a given OS user. Non-fatal — returns success/error. */
+/** Install a tool (claude, codex) for a given OS user. Non-fatal — returns success/error. */
 function installToolForUser(
   homeDir: string,
   username: string,
@@ -67,7 +67,7 @@ function installToolForUser(
 ): { success: boolean; error?: string } {
   try {
     if (tool === 'openclaw') {
-      // openclaw is managed by MC — create dir structure + install latest from npm
+      // agent runtime is managed by MC — create dir structure + install latest from npm
       const openclawDir = path.join(homeDir, '.openclaw')
       const workspaceDir = path.join(homeDir, 'workspace')
       for (const dir of [openclawDir, workspaceDir]) {
@@ -78,7 +78,7 @@ function installToolForUser(
           fs.mkdirSync(dir, { recursive: true })
         }
       }
-      // Install latest openclaw from GitHub (always latest) with npm fallback
+      // Install latest agent runtime from npm
       try {
         execFileSync('/usr/bin/sudo', ['-n', '-u', username, 'npm', 'install', '-g', 'openclaw/openclaw'], {
           timeout: 120000,
@@ -247,7 +247,7 @@ export async function GET(request: NextRequest) {
  * POST /api/super/os-users - Create a new OS-level user and register as tenant (admin only)
  *
  * Local mode: creates OS user + home dir, registers in tenants table as active
- * Gateway mode: creates OS user + delegates to full bootstrap pipeline (openclaw + workspace + agents)
+ * Gateway mode: creates OS user + delegates to full bootstrap pipeline (workspace + agents)
  *
  * Body: { username, display_name, password?, gateway_mode?: boolean, gateway_port?, owner_gateway? }
  */
@@ -398,7 +398,7 @@ export async function POST(request: NextRequest) {
     const installResults: Record<string, { success: boolean; error?: string }> = {}
     const toolsToInstall: Array<'openclaw' | 'claude' | 'codex'> = []
     if (installOpenclaw) toolsToInstall.push('openclaw')
-    // When openclaw is selected, claude+codex are bundled — skip separate installs
+    // When agent runtime is selected, claude+codex are bundled — skip separate installs
     if (installClaude && !installOpenclaw) toolsToInstall.push('claude')
     if (installCodex && !installOpenclaw) toolsToInstall.push('codex')
 

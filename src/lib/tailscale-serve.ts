@@ -55,7 +55,7 @@ export function findTailscaleServePort(web: Record<string, any> | null | undefin
  * Checks the Web config for:
  * 1. A `/gw` path handler (authoritative)
  * 2. Any handler proxying to port 18789 (port-based proxy)
- * 3. Fallback: `gateway.tailscale.mode === 'serve'` in openclaw.json (legacy)
+ * 3. Fallback: `gateway.tailscale.mode === 'serve'` in agent config (legacy)
  */
 export function detectTailscaleServe(web: Record<string, any> | null | undefined, configPath?: string): boolean {
   if (web) {
@@ -71,7 +71,7 @@ export function detectTailscaleServe(web: Record<string, any> | null | undefined
     }
   }
 
-  // Legacy: check openclaw.json config
+  // Legacy: check agent config
   const effectivePath = configPath || process.env.OPENCLAW_CONFIG_PATH || ''
   if (!effectivePath) return false
   try {

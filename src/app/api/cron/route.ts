@@ -14,7 +14,7 @@ interface CronJob {
   nextRun?: number
   lastStatus?: 'success' | 'error' | 'running'
   lastError?: string
-  // Extended fields from OpenClaw format
+  // Extended fields from legacy cron format
   id?: string
   agentId?: string
   timezone?: string
@@ -23,7 +23,7 @@ interface CronJob {
 }
 
 /**
- * OpenClaw cron jobs live in ~/.openclaw/cron/jobs.json
+ * Cron jobs live in the configured cron directory (jobs.json).
  * Format: { version: 1, jobs: [ { id, agentId, name, enabled, schedule: { kind, expr, tz }, payload, delivery, state } ] }
  */
 interface OpenClawCronJob {
@@ -294,7 +294,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Job not found' }, { status: 404 })
       }
 
-      // For OpenClaw cron jobs, trigger via the openclaw CLI
+      // Trigger cron job via the CLI
       const triggerMode = body.mode || 'force'
       const { runCommand } = await import('@/lib/command')
       try {

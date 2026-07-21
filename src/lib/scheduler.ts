@@ -238,7 +238,7 @@ async function syncAgentLiveStatuses(): Promise<number> {
 
   db.transaction(() => {
     for (const agent of agents) {
-      // Match by agent name or openclawId from config
+      // Match by agent name or agent id from config
       let openclawId: string | null = null
       if (agent.config) {
         try {
@@ -287,7 +287,7 @@ const TICK_MS = 10 * 1000 // Check every 10s so pipeline_engine fires at its 10s
 export function initScheduler() {
   if (tickInterval) return // Already running
 
-  // Auto-sync agents from openclaw.json on startup
+  // Auto-sync agents from config on startup
   syncAgentsFromConfig('startup').catch(err => {
     logger.warn({ err }, 'Agent auto-sync failed')
   })

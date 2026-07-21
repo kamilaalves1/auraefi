@@ -12,7 +12,7 @@ interface DiscoveredGateway {
 
 /**
  * GET /api/gateways/discover
- * Discovers OpenClaw gateways via systemd services and port scanning.
+ * Discovers gateways via systemd services and port scanning.
  * Does not require filesystem access to other users' configs.
  */
 export async function GET(request: NextRequest) {
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
 
   const discovered: DiscoveredGateway[] = []
 
-  // Parse systemd services for openclaw-gateway instances
+  // Parse systemd services for gateway instances
   try {
     const output = execFileSync('systemctl', [
       'list-units', '--type=service', '--plain', '--no-legend', '--no-pager',
@@ -30,11 +30,11 @@ export async function GET(request: NextRequest) {
     const gwLines = output.split('\n').filter(l => l.includes('openclaw') && l.includes('gateway'))
 
     for (const line of gwLines) {
-      // e.g. "openclaw-gateway@quant.service loaded active running OpenClaw Gateway (quant)"
+      // e.g. "gateway@quant.service loaded active running Gateway (quant)"
       const parts = line.trim().split(/\s+/)
       const serviceName = parts[0] || ''
       const state = parts[2] || '' // active/inactive
-      const description = parts.slice(4).join(' ') // "OpenClaw Gateway (quant)"
+      const description = parts.slice(4).join(' ') // "Gateway (quant)"
 
       // Extract user from service name
       let user = ''
@@ -42,13 +42,13 @@ export async function GET(request: NextRequest) {
       if (templateMatch) {
         user = templateMatch[1]
       } else {
-        // Custom service name like "openclaw-leads-gateway.service"
+        // Custom service name like "leads-gateway.service"
         const customMatch = serviceName.match(/openclaw-(\w+)-gateway\.service/)
         if (customMatch) user = customMatch[1]
       }
       if (!user) continue
 
-      // Find the port by checking what openclaw-gateway processes are listening on
+      // Find the port by checking what gateway processes are listening on
       let port = 0
       try {
         const configPath = `/home/${user}/.openclaw/openclaw.json`

@@ -177,7 +177,7 @@ export function enrichAgentConfigFromWorkspace(configData: any): any {
   }
 }
 
-/** Read and parse openclaw.json agents list */
+/** Read and parse agents list from config */
 async function readOpenClawAgents(): Promise<OpenClawAgent[]> {
   const configPath = getConfigPath()
   if (!configPath) throw new Error('OPENCLAW_CONFIG_PATH not configured')
@@ -188,7 +188,7 @@ async function readOpenClawAgents(): Promise<OpenClawAgent[]> {
   return parsed?.agents?.list || []
 }
 
-/** Extract MC-friendly fields from an OpenClaw agent config */
+/** Extract MC-friendly fields from an agent config */
 function mapAgentToMC(agent: OpenClawAgent): {
   name: string
   role: string
@@ -217,7 +217,7 @@ function mapAgentToMC(agent: OpenClawAgent): {
   return { name, role, config: configData, soul_content }
 }
 
-/** Sync agents from openclaw.json into the MC database */
+/** Sync agents from config file into the MC database */
 export async function syncAgentsFromConfig(actor: string = 'system'): Promise<SyncResult> {
   let agents: OpenClawAgent[]
   try {
@@ -293,7 +293,7 @@ export async function syncAgentsFromConfig(actor: string = 'system'): Promise<Sy
   return { synced, created, updated, agents: results }
 }
 
-/** Preview the diff between openclaw.json and MC database without writing */
+/** Preview the diff between config file and MC database without writing */
 export async function previewSyncDiff(): Promise<SyncDiff> {
   let agents: OpenClawAgent[]
   try {
@@ -338,7 +338,7 @@ export async function previewSyncDiff(): Promise<SyncDiff> {
   }
 }
 
-/** Write an agent config back to openclaw.json agents.list */
+/** Write an agent config back to the agents list */
 export async function writeAgentToConfig(agentConfig: any): Promise<void> {
   const configPath = getConfigPath()
   if (!configPath) throw new Error('OPENCLAW_CONFIG_PATH not configured')

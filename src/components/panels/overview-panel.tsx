@@ -125,10 +125,10 @@ export function OverviewPanel() {
 
   const load = useCallback(async () => {
     const [ar, rr, acr, tokr] = await Promise.allSettled([
-      fetch('/api/agents').then(r => r.ok ? r.json() : {}),
-      fetch('/api/pipeline/engine/runs?limit=500').then(r => r.ok ? r.json() : {}),
-      fetch('/api/activities?limit=80').then(r => r.ok ? r.json() : {}),
-      fetch('/api/tokens/by-agent?timeframe=month').then(r => r.ok ? r.json() : {}),
+      fetch('/api/agents').then(r => r.ok ? r.json() : ({} as any)),
+      fetch('/api/pipeline/engine/runs?limit=500').then(r => r.ok ? r.json() : ({} as any)),
+      fetch('/api/activities?limit=80').then(r => r.ok ? r.json() : ({} as any)),
+      fetch('/api/tokens/by-agent?timeframe=month').then(r => r.ok ? r.json() : ({} as any)),
     ])
     if (ar.status === 'fulfilled') setAgents(ar.value.agents ?? [])
     if (rr.status === 'fulfilled') setRuns(rr.value.runs ?? [])
@@ -360,7 +360,7 @@ const STATUS_PT: Record<string, string> = {
                       <Cell key={i} fill={DONUT_COLORS_RUN[entry.name] ?? '#6b7280'} />
                     ))}
                   </Pie>
-                  <Tooltip formatter={(v: number, n: string) => [v, STATUS_PT[n] ?? n]} />
+                  <Tooltip formatter={(v: any, n: any) => [v, STATUS_PT[n] ?? n]} />
                 </PieChart>
               </ResponsiveContainer>
               <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 shrink-0">

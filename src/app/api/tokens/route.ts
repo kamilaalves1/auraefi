@@ -183,7 +183,7 @@ async function loadTokenData(workspaceId: number): Promise<TokenUsageRecord[]> {
 }
 
 /**
- * Derive token usage records from OpenClaw session stores.
+ * Derive token usage records from agent session stores.
  * Each session has totalTokens, inputTokens, outputTokens, model, etc.
  */
 function deriveFromSessions(workspaceId: number, providerSubscriptions: Record<string, boolean>): TokenUsageRecord[] {
