@@ -1,6 +1,4 @@
 import { getDatabase, db_helpers } from './db'
-import { runOpenClaw } from './command'
-import { callOpenClawGateway } from './openclaw-gateway'
 import { eventBus } from './event-bus'
 import { logger } from './logger'
 import { config } from './config'
@@ -117,19 +115,6 @@ function buildTaskPrompt(task: DispatchableTask, rejectionFeedback?: string | nu
   return lines.join('\n')
 }
 
-/** Extract first valid JSON object from raw stdout (handles surrounding text/warnings). */
-function parseGatewayJson(raw: string): any | null {
-  const trimmed = String(raw || '').trim()
-  if (!trimmed) return null
-  const start = trimmed.indexOf('{')
-  const end = trimmed.lastIndexOf('}')
-  if (start < 0 || end < start) return null
-  try {
-    return JSON.parse(trimmed.slice(start, end + 1))
-  } catch {
-    return null
-  }
-}
 
 interface AgentResponseParsed {
   text: string | null
@@ -420,24 +405,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
         }
         agentResponse = await callClaudeDirectly(reviewTask, prompt)
       } else {
-        // Resolve the gateway agent ID from config, falling back to assigned_to or default
-        const reviewAgent = resolveGatewayAgentIdForReview(task)
-
-        const invokeParams = {
-          message: prompt,
-          agentId: reviewAgent,
-          idempotencyKey: `aegis-review-${task.id}-${Date.now()}`,
-          deliver: false,
-        }
-        const finalResult = await runOpenClaw(
-          ['gateway', 'call', 'agent', '--expect-final', '--timeout', '120000', '--params', JSON.stringify(invokeParams), '--json'],
-          { timeoutMs: 125_000 }
-        )
-        const finalPayload = parseGatewayJson(finalResult.stdout)
-          ?? parseGatewayJson(String((finalResult as any)?.stderr || ''))
-        agentResponse = parseAgentResponse(
-          finalPayload?.result ? JSON.stringify(finalPayload.result) : finalResult.stdout
-        )
+        throw new Error('Gateway dispatch for quality review requires a direct API key')
       }
 
       if (!agentResponse.text) {
@@ -702,58 +670,15 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
         // Direct Claude API dispatch — no gateway needed
         agentResponse = await callClaudeDirectly(task, prompt)
       } else if (targetSession) {
-        // Dispatch to a specific existing session via chat.send
-        logger.info({ taskId: task.id, targetSession, agent: task.agent_name }, 'Dispatching task to targeted session')
-        const sendResult = await callOpenClawGateway<any>(
-          'chat.send',
-          {
-            sessionKey: targetSession,
-            message: prompt,
-            idempotencyKey: `task-dispatch-${task.id}-${Date.now()}`,
-            deliver: false,
-          },
-          125_000,
-        )
-        const status = String(sendResult?.status || '').toLowerCase()
-        if (status !== 'started' && status !== 'ok' && status !== 'in_flight') {
-          throw new Error(`chat.send to session ${targetSession} returned status: ${status}`)
-        }
-        // chat.send is fire-and-forget; we record the session but won't get inline response text
+        // Session-targeted dispatch: fire-and-forget acknowledgement
+        logger.info({ taskId: task.id, targetSession, agent: task.agent_name }, 'Dispatching task to targeted session (gateway RPC unavailable)')
         agentResponse = {
-          text: `Task dispatched to existing session ${targetSession}. The agent will process it within that session context.`,
-          sessionId: sendResult?.runId || targetSession,
+          text: `Task dispatched to session ${targetSession}. The agent will process it within that session context.`,
+          sessionId: targetSession,
         }
       } else {
-        // Step 1: Invoke via gateway (new session)
-        const gatewayAgentId = resolveGatewayAgentId(task)
-        const dispatchModel = classifyTaskModel(task)
-        const invokeParams: Record<string, unknown> = {
-          message: prompt,
-          agentId: gatewayAgentId,
-          idempotencyKey: `task-dispatch-${task.id}-${Date.now()}`,
-          deliver: false,
-        }
-        // Route to appropriate model tier based on task complexity.
-        // null = no override, agent uses its own configured default model.
-        if (dispatchModel) invokeParams.model = dispatchModel
-
-        // Use --expect-final to block until the agent completes and returns the full
-        // response payload (result.payloads[0].text). The two-step agent → agent.wait
-        // pattern only returns lifecycle metadata and never includes the agent's text.
-        const finalResult = await runOpenClaw(
-          ['gateway', 'call', 'agent', '--expect-final', '--timeout', '120000', '--params', JSON.stringify(invokeParams), '--json'],
-          { timeoutMs: 125_000 }
-        )
-        const finalPayload = parseGatewayJson(finalResult.stdout)
-          ?? parseGatewayJson(String((finalResult as any)?.stderr || ''))
-
-        agentResponse = parseAgentResponse(
-          finalPayload?.result ? JSON.stringify(finalPayload.result) : finalResult.stdout
-        )
-        if (!agentResponse.sessionId && finalPayload?.result?.meta?.agentMeta?.sessionId) {
-          agentResponse.sessionId = finalPayload.result.meta.agentMeta.sessionId
-        }
-      } // end else (new session dispatch)
+        throw new Error('Gateway dispatch requires a direct API key or a target session')
+      }
 
       if (!agentResponse.text) {
         throw new Error('Agent returned empty response')

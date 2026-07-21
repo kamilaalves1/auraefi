@@ -3,7 +3,7 @@ import net from 'node:net'
 import os from 'node:os'
 import { existsSync, statSync } from 'node:fs'
 import path from 'node:path'
-import { runCommand, runOpenClaw, runClawdbot } from '@/lib/command'
+import { runCommand } from '@/lib/command'
 import { config } from '@/lib/config'
 import { getDatabase } from '@/lib/db'
 import { getAllGatewaySessions, getAgentLiveStatuses } from '@/lib/sessions'
@@ -12,22 +12,17 @@ import { MODEL_CATALOG } from '@/lib/models'
 import { logger } from '@/lib/logger'
 import { detectProviderSubscriptions, getPrimarySubscription } from '@/lib/provider-subscriptions'
 import { APP_VERSION } from '@/lib/version'
-import { registerMcAsDashboard } from '@/lib/gateway-runtime'
 
 export async function GET(request: NextRequest) {
   // Health probes for Docker/Kubernetes: restrict to loopback or authenticated callers only.
   // This prevents external fingerprinting (version, RAM, disk usage).
   const preAction = new URL(request.url).searchParams.get('action') || 'overview'
   if (preAction === 'health') {
-    const clientIp = request.headers.get('x-real-ip')
-      || request.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
-      || '127.0.0.1'
-    const isLoopback = clientIp === '127.0.0.1' || clientIp === '::1' || clientIp.startsWith('172.') || clientIp.startsWith('10.') || clientIp.startsWith('192.168.')
-    if (!isLoopback) {
-      // External caller — require at least viewer auth
-      const healthAuth = requireRole(request, 'viewer')
-      if ('error' in healthAuth) return NextResponse.json({ status: 'ok' }, { status: 200 }) // minimal response without details
-    }
+    // Docker/k8s health probes are allowed through by the middleware without a session.
+    // Only return system internals to authenticated callers — unauthenticated probes get
+    // a minimal { status: 'ok' } to avoid fingerprinting the instance.
+    const healthAuth = requireRole(request, 'viewer')
+    if ('error' in healthAuth) return NextResponse.json({ status: 'ok' }, { status: 200 })
     const health = await performHealthCheck()
     return NextResponse.json(health)
   }
@@ -262,8 +257,7 @@ async function getSystemStatus(workspaceId: number) {
     uptime: 0,
     memory: { total: 0, used: 0, available: 0 },
     disk: { total: 0, used: 0, available: 0 },
-    sessions: { total: 0, active: 0 },
-    processes: []
+    sessions: { total: 0, active: 0 }
   }
 
   try {
@@ -319,28 +313,6 @@ async function getSystemStatus(workspaceId: number) {
     logger.error({ err: error }, 'Error getting disk info')
   }
 
-  try {
-    // ClawdBot processes
-    const { stdout: processOutput } = await runCommand(
-      'ps',
-      ['-A', '-o', 'pid,comm,args'],
-      { timeoutMs: 3000 }
-    )
-    const processes = processOutput.split('\n')
-      .filter(line => line.trim())
-      .filter(line => !line.trim().toLowerCase().startsWith('pid '))
-      .map(line => {
-        const parts = line.trim().split(/\s+/)
-        return {
-          pid: parts[0],
-          command: parts.slice(2).join(' ')
-        }
-      })
-      .filter((proc) => /clawdbot|openclaw/i.test(proc.command))
-    status.processes = processes
-  } catch (error) {
-    logger.error({ err: error }, 'Error getting process info')
-  }
 
   try {
     // Read sessions directly from agent session stores on disk
@@ -393,37 +365,12 @@ async function getGatewayStatus() {
   }
 
   try {
-    const { stdout } = await runCommand('ps', ['-A', '-o', 'pid,comm,args'], {
-      timeoutMs: 3000
-    })
-    const match = stdout
-      .split('\n')
-      .find((line) => /clawdbot-gateway|openclaw-gateway|openclaw.*gateway/i.test(line))
-    if (match) {
-      const parts = match.trim().split(/\s+/)
-      gatewayStatus.running = true
-      gatewayStatus.pid = parts[0]
-    }
-  } catch (error) {
-    // Gateway not running
-  }
-
-  try {
     gatewayStatus.port_listening = await isPortOpen(config.gatewayHost, config.gatewayPort)
+    if (gatewayStatus.port_listening) {
+      gatewayStatus.running = true
+    }
   } catch (error) {
     logger.error({ err: error }, 'Error checking port')
-  }
-
-  try {
-    const { stdout } = await runOpenClaw(['--version'], { timeoutMs: 3000 })
-    gatewayStatus.version = stdout.trim()
-  } catch (error) {
-    try {
-      const { stdout } = await runClawdbot(['--version'], { timeoutMs: 3000 })
-      gatewayStatus.version = stdout.trim()
-    } catch (innerError) {
-      gatewayStatus.version = 'unknown'
-    }
   }
 
   return gatewayStatus
@@ -635,11 +582,6 @@ async function getCapabilities(request?: NextRequest) {
 
   const gateway = gatewayReachable || await isPortOpen(config.gatewayHost, config.gatewayPort)
 
-  const openclawHome = Boolean(
-    (config.openclawStateDir && existsSync(config.openclawStateDir)) ||
-    (config.openclawConfigPath && existsSync(config.openclawConfigPath))
-  )
-
   const claudeProjectsPath = path.join(config.claudeHome, 'projects')
   const claudeHome = existsSync(claudeProjectsPath)
 
@@ -690,27 +632,9 @@ async function getCapabilities(request?: NextRequest) {
     // settings table may not exist yet
   }
 
-  // Auto-register MC as default dashboard when gateway + openclaw home detected
-  let dashboardRegistration: { registered: boolean; alreadySet: boolean } | null = null
-  if (gateway && openclawHome) {
-    try {
-      let mcUrl = process.env.MC_BASE_URL || ''
-      if (!mcUrl && request) {
-        const host = request.headers.get('host')
-        const proto = request.headers.get('x-forwarded-proto') || 'http'
-        if (host) mcUrl = `${proto}://${host}`
-      }
-      if (mcUrl) {
-        dashboardRegistration = registerMcAsDashboard(mcUrl)
-      }
-    } catch (err) {
-      logger.error({ err }, 'Dashboard registration failed')
-    }
-  }
-
   const isDocker = existsSync('/.dockerenv')
 
-  return { gateway, openclawHome, claudeHome, claudeSessions, subscription, subscriptions, processUser, interfaceMode, dashboardRegistration, isDocker }
+  return { gateway, claudeHome, claudeSessions, subscription, subscriptions, processUser, interfaceMode, isDocker }
 }
 
 function isPortOpen(host: string, port: number): Promise<boolean> {

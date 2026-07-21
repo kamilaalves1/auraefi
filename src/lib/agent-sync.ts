@@ -1,9 +1,4 @@
-/**
- * Agent Config Sync
- *
- * Reads agents from openclaw.json and upserts them into the MC database.
- * Used by both the /api/agents/sync endpoint and the startup scheduler.
- */
+
 
 import { config } from './config'
 import { getDatabase, db_helpers, logAuditEvent } from './db'

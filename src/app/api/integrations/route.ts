@@ -103,8 +103,11 @@ const CATEGORIES: Record<string, { label: string; order: number }> = {
 
 const BLOCKED_VARS = new Set([
   'PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'TERM', 'PWD', 'LOGNAME', 'HOSTNAME',
+  // Security-critical application vars that must not be overridden via integrations
+  'AUTH_SECRET', 'API_KEY', 'AUTH_PASS', 'AUTH_PASS_B64', 'NODE_ENV',
+  'MISSION_CONTROL_DB_PATH', 'MISSION_CONTROL_DATA_DIR', 'MC_SESSION_SECRET',
 ])
-const BLOCKED_PREFIXES = ['LD_', 'DYLD_']
+const BLOCKED_PREFIXES = ['LD_', 'DYLD_', 'AUTH_', 'MC_SESSION']
 
 // ---------------------------------------------------------------------------
 // DB-backed integration settings
@@ -543,7 +546,8 @@ async function handleTest(
       case 'gemini': {
         const key = getEffectiveEnvValue(dbMap, 'GEMINI_API_KEY')
         if (!key) return NextResponse.json({ ok: false, detail: 'API key not set' })
-        const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}`, {
+        const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models', {
+          headers: { 'x-goog-api-key': key },
           signal: AbortSignal.timeout(5000),
         })
         result = res.ok ? { ok: true, detail: 'API key valid' } : { ok: false, detail: `HTTP ${res.status}` }

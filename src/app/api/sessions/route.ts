@@ -4,7 +4,6 @@ import { syncClaudeSessions } from '@/lib/claude-sessions'
 import { scanCodexSessions } from '@/lib/codex-sessions'
 import { getDatabase, db_helpers } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
-import { callOpenClawGateway } from '@/lib/openclaw-gateway'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
@@ -58,8 +57,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid session key' }, { status: 400 })
     }
 
-    let rpcMethod: string
-    let rpcParams: Record<string, unknown>
     let logDetail: string
 
     switch (action) {
@@ -68,8 +65,6 @@ export async function POST(request: NextRequest) {
         if (!VALID_THINKING_LEVELS.includes(level)) {
           return NextResponse.json({ error: `Invalid thinking level. Must be: ${VALID_THINKING_LEVELS.join(', ')}` }, { status: 400 })
         }
-        rpcMethod = 'session_setThinking'
-        rpcParams = { sessionKey, level }
         logDetail = `Set thinking=${level} on ${sessionKey}`
         break
       }
@@ -78,8 +73,6 @@ export async function POST(request: NextRequest) {
         if (!VALID_VERBOSE_LEVELS.includes(level)) {
           return NextResponse.json({ error: `Invalid verbose level. Must be: ${VALID_VERBOSE_LEVELS.join(', ')}` }, { status: 400 })
         }
-        rpcMethod = 'session_setVerbose'
-        rpcParams = { sessionKey, level }
         logDetail = `Set verbose=${level} on ${sessionKey}`
         break
       }
@@ -88,8 +81,6 @@ export async function POST(request: NextRequest) {
         if (!VALID_REASONING_LEVELS.includes(level)) {
           return NextResponse.json({ error: `Invalid reasoning level. Must be: ${VALID_REASONING_LEVELS.join(', ')}` }, { status: 400 })
         }
-        rpcMethod = 'session_setReasoning'
-        rpcParams = { sessionKey, level }
         logDetail = `Set reasoning=${level} on ${sessionKey}`
         break
       }
@@ -98,16 +89,12 @@ export async function POST(request: NextRequest) {
         if (typeof label !== 'string' || label.length > 100) {
           return NextResponse.json({ error: 'Label must be a string up to 100 characters' }, { status: 400 })
         }
-        rpcMethod = 'session_setLabel'
-        rpcParams = { sessionKey, label }
         logDetail = `Set label="${label}" on ${sessionKey}`
         break
       }
       default:
         return NextResponse.json({ error: 'Invalid action. Must be: set-thinking, set-verbose, set-reasoning, set-label' }, { status: 400 })
     }
-
-    const result = await callOpenClawGateway(rpcMethod, rpcParams, 10_000)
 
     db_helpers.logActivity(
       'session_control',
@@ -118,7 +105,7 @@ export async function POST(request: NextRequest) {
       { session_key: sessionKey, action }
     )
 
-    return NextResponse.json({ success: true, action, sessionKey, result })
+    return NextResponse.json({ success: true, action, sessionKey, result: null })
   } catch (error: any) {
     logger.error({ err: error }, 'Session POST error')
     return NextResponse.json({ error: error.message || 'Session action failed' }, { status: 500 })
@@ -140,8 +127,6 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid session key' }, { status: 400 })
     }
 
-    const result = await callOpenClawGateway('session_delete', { sessionKey }, 10_000)
-
     db_helpers.logActivity(
       'session_control',
       'session',
@@ -151,7 +136,7 @@ export async function DELETE(request: NextRequest) {
       { session_key: sessionKey, action: 'delete' }
     )
 
-    return NextResponse.json({ success: true, sessionKey, result })
+    return NextResponse.json({ success: true, sessionKey, result: null })
   } catch (error: any) {
     logger.error({ err: error }, 'Session DELETE error')
     return NextResponse.json({ error: error.message || 'Session deletion failed' }, { status: 500 })

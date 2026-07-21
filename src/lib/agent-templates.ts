@@ -1,10 +1,4 @@
-/**
- * Agent Templates Library
- *
- * Defines agent archetypes that can be used as starting points for new deployments.
- * Each template provides a full OpenClaw agent config structure that
- * can be customized before creating an agent.
- */
+
 
 export interface AgentToolsConfig {
   allow: string[]

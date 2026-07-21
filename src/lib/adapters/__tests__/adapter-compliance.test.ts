@@ -57,7 +57,7 @@ const testReport: TaskReport = {
 
 // ─── Shared Compliance Tests ─────────────────────────────────────────────────
 
-const ALL_FRAMEWORKS = ['openclaw', 'generic', 'crewai', 'langgraph', 'autogen', 'claude-sdk']
+const ALL_FRAMEWORKS = ['generic', 'crewai', 'langgraph', 'autogen', 'claude-sdk']
 
 describe('Adapter Registry', () => {
   it('lists all registered adapters', () => {

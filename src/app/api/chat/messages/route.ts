@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers, Message } from '@/lib/db'
-import { runOpenClaw } from '@/lib/command'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { eventBus } from '@/lib/event-bus'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { scanForInjection, sanitizeForPrompt } from '@/lib/injection-guard'
-import { callOpenClawGateway } from '@/lib/openclaw-gateway'
 import { resolveCoordinatorDeliveryTarget } from '@/lib/coordinator-routing'
 
 type ForwardInfo = {
@@ -33,19 +31,6 @@ type ChatAttachmentInput = {
 const COORDINATOR_AGENT =
   String(process.env.MC_COORDINATOR_AGENT || process.env.NEXT_PUBLIC_COORDINATOR_AGENT || 'coordinator').trim() ||
   'coordinator'
-
-function parseGatewayJson(raw: string): any | null {
-  const trimmed = String(raw || '').trim()
-  if (!trimmed) return null
-  const start = trimmed.indexOf('{')
-  const end = trimmed.lastIndexOf('}')
-  if (start < 0 || end < start) return null
-  try {
-    return JSON.parse(trimmed.slice(start, end + 1))
-  } catch {
-    return null
-  }
-}
 
 function toGatewayAttachments(value: unknown): Array<{ type: 'image'; mimeType: string; fileName?: string; content: string }> | undefined {
   if (!Array.isArray(value)) return undefined
@@ -456,16 +441,12 @@ export async function POST(request: NextRequest) {
           const match = sessions.find(
             (s) =>
               s.agent.toLowerCase() === String(to).toLowerCase() ||
-              s.agent.toLowerCase() === coordinatorResolution.deliveryName.toLowerCase() ||
-              s.agent.toLowerCase() === String(coordinatorResolution.openclawAgentId || '').toLowerCase()
+              s.agent.toLowerCase() === coordinatorResolution.deliveryName.toLowerCase()
           )
           sessionKey = match?.key || match?.sessionId || null
         }
 
-        // Prefer configured openclawId when present, fallback to normalized name
-        let openclawAgentId: string | null = coordinatorResolution.openclawAgentId
-
-        if (!sessionKey && !openclawAgentId) {
+        if (!sessionKey) {
           forwardInfo.reason = 'no_active_session'
 
           // For coordinator messages, emit an immediate visible status reply
@@ -486,96 +467,12 @@ export async function POST(request: NextRequest) {
             }
           }
         } else {
-          try {
-            const idempotencyKey = `mc-${messageId}-${Date.now()}`
+          // Gateway RPC delivery is no longer available — forward is a no-op.
+          forwardInfo.delivered = false
+          forwardInfo.reason = 'gateway_rpc_unavailable'
+          forwardInfo.session = sessionKey || undefined
 
-            if (sessionKey) {
-              const acceptedPayload = await callOpenClawGateway<any>(
-                'chat.send',
-                {
-                  sessionKey,
-                  message: content,
-                  idempotencyKey,
-                  deliver: false,
-                  attachments: toGatewayAttachments(body.attachments),
-                },
-                12000,
-              )
-              const status = String(acceptedPayload?.status || '').toLowerCase()
-              forwardInfo.delivered = status === 'started' || status === 'ok' || status === 'in_flight'
-              forwardInfo.session = sessionKey
-              if (typeof acceptedPayload?.runId === 'string' && acceptedPayload.runId) {
-                forwardInfo.runId = acceptedPayload.runId
-              }
-            } else {
-              const invokeParams: any = {
-                message: `Message from ${from}: ${content}`,
-                idempotencyKey,
-                deliver: false,
-              }
-              invokeParams.agentId = openclawAgentId
-
-              const invokeResult = await runOpenClaw(
-                [
-                  'gateway',
-                  'call',
-                  'agent',
-                  '--timeout',
-                  '10000',
-                  '--params',
-                  JSON.stringify(invokeParams),
-                  '--json',
-                ],
-                { timeoutMs: 12000 }
-              )
-              const acceptedPayload = parseGatewayJson(invokeResult.stdout)
-              forwardInfo.delivered = true
-              forwardInfo.session = openclawAgentId || undefined
-              if (typeof acceptedPayload?.runId === 'string' && acceptedPayload.runId) {
-                forwardInfo.runId = acceptedPayload.runId
-              }
-            }
-          } catch (err) {
-            // OpenClaw may return accepted JSON on stdout but still emit a late stderr warning.
-            // Treat accepted runs as successful delivery.
-            const maybeStdout = String((err as any)?.stdout || '')
-            const acceptedPayload = parseGatewayJson(maybeStdout)
-            if (maybeStdout.includes('"status": "accepted"') || maybeStdout.includes('"status":"accepted"')) {
-              forwardInfo.delivered = true
-              forwardInfo.session = sessionKey || openclawAgentId || undefined
-              if (typeof acceptedPayload?.runId === 'string' && acceptedPayload.runId) {
-                forwardInfo.runId = acceptedPayload.runId
-              }
-            } else {
-              forwardInfo.reason = 'gateway_send_failed'
-              logger.error({ err }, 'Failed to forward message via gateway')
-
-              // For coordinator messages, emit visible status when send fails
-              if (typeof conversation_id === 'string' && conversation_id.startsWith('coord:')) {
-                try {
-                  createChatReply(
-                    db,
-                    workspaceId,
-                    conversation_id,
-                    COORDINATOR_AGENT,
-                    from,
-                    'I received your message, but delivery to the live coordinator runtime failed. Please restart the coordinator/gateway session and retry.',
-                    'status',
-                    { status: 'delivery_failed', reason: 'gateway_send_failed' }
-                  )
-                } catch (e) {
-                  logger.error({ err: e }, 'Failed to create gateway failure status reply')
-                }
-              }
-            }
-          }
-
-          // Coordinator mode should always show visible coordinator feedback in thread.
-          if (
-            typeof conversation_id === 'string' &&
-            conversation_id.startsWith('coord:') &&
-            forwardInfo.delivered
-          ) {
+          if (typeof conversation_id === 'string' && conversation_id.startsWith('coord:')) {
             try {
               createChatReply(
                 db,
@@ -583,129 +480,12 @@ export async function POST(request: NextRequest) {
                 conversation_id,
                 COORDINATOR_AGENT,
                 from,
-                'Received. I am coordinating downstream agents now.',
+                'I received your message, but live gateway delivery is currently unavailable. Please ensure the gateway is running and reachable.',
                 'status',
-                { status: 'accepted', runId: forwardInfo.runId || null }
+                { status: 'delivery_failed', reason: 'gateway_rpc_unavailable' }
               )
             } catch (e) {
-              logger.error({ err: e }, 'Failed to create accepted status reply')
-            }
-
-            // Best effort: wait briefly and surface completion/error feedback.
-            if (forwardInfo.runId) {
-              try {
-                const waitResult = await runOpenClaw(
-                  [
-                    'gateway',
-                    'call',
-                    'agent.wait',
-                    '--timeout',
-                    '8000',
-                    '--params',
-                    JSON.stringify({ runId: forwardInfo.runId, timeoutMs: 6000 }),
-                    '--json',
-                  ],
-                  { timeoutMs: 9000 }
-                )
-
-                const waitPayload = parseGatewayJson(waitResult.stdout)
-                const waitStatus = String(waitPayload?.status || '').toLowerCase()
-                const toolEvents = extractToolEvents(waitPayload)
-
-                if (toolEvents.length > 0) {
-                  for (const evt of toolEvents) {
-                    createChatReply(
-                      db,
-                      workspaceId,
-                      conversation_id,
-                      COORDINATOR_AGENT,
-                      from,
-                      evt.name,
-                      'tool_call',
-                      {
-                        event: 'tool_call',
-                        toolName: evt.name,
-                        input: evt.input || null,
-                        output: evt.output || null,
-                        status: evt.status || null,
-                        runId: forwardInfo.runId || null,
-                      }
-                    )
-                  }
-                }
-
-                if (waitStatus === 'error') {
-                  const reason =
-                    typeof waitPayload?.error === 'string'
-                      ? waitPayload.error
-                      : 'Unknown runtime error'
-                  createChatReply(
-                    db,
-                    workspaceId,
-                    conversation_id,
-                    COORDINATOR_AGENT,
-                    from,
-                    `I received your message, but execution failed: ${reason}`,
-                    'status',
-                    { status: 'error', runId: forwardInfo.runId }
-                  )
-                } else if (waitStatus === 'timeout') {
-                  createChatReply(
-                    db,
-                    workspaceId,
-                    conversation_id,
-                    COORDINATOR_AGENT,
-                    from,
-                    'I received your message and I am still processing it. I will post results as soon as execution completes.',
-                    'status',
-                    { status: 'processing', runId: forwardInfo.runId }
-                  )
-                } else {
-                  const replyText = extractReplyText(waitPayload)
-                  if (replyText) {
-                    createChatReply(
-                      db,
-                      workspaceId,
-                      conversation_id,
-                      COORDINATOR_AGENT,
-                      from,
-                      replyText,
-                      'text',
-                      { status: waitStatus || 'completed', runId: forwardInfo.runId }
-                    )
-                  } else {
-                    createChatReply(
-                      db,
-                      workspaceId,
-                      conversation_id,
-                      COORDINATOR_AGENT,
-                      from,
-                      'Execution accepted and completed. No textual response payload was returned by the runtime.',
-                      'status',
-                      { status: waitStatus || 'completed', runId: forwardInfo.runId }
-                    )
-                  }
-                }
-              } catch (waitErr) {
-                const maybeWaitStdout = String((waitErr as any)?.stdout || '')
-                const maybeWaitStderr = String((waitErr as any)?.stderr || '')
-                const waitPayload = parseGatewayJson(maybeWaitStdout)
-                const reason =
-                  typeof waitPayload?.error === 'string'
-                    ? waitPayload.error
-                    : (maybeWaitStderr || maybeWaitStdout || 'Unable to read completion status from coordinator runtime.').trim()
-
-                createChatReply(
-                  db,
-                  workspaceId,
-                  conversation_id,
-                  COORDINATOR_AGENT,
-                  from,
-                  `I received your message, but I could not retrieve completion output yet: ${reason}`,
-                  'status',
-                  { status: 'unknown', runId: forwardInfo.runId }
-                )
-              }
+              logger.error({ err: e }, 'Failed to create gateway unavailable status reply')
             }
           }
         }

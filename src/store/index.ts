@@ -322,7 +322,6 @@ export interface OsUser {
   linked_tenant_id: number | null
   has_claude: boolean
   has_codex: boolean
-  has_openclaw: boolean
   is_process_owner: boolean
 }
 
@@ -392,16 +391,6 @@ interface MissionControlStore {
   updateDismissedVersion: string | null
   setUpdateAvailable: (info: { latestVersion: string; releaseUrl: string; releaseNotes: string } | null) => void
   dismissUpdate: (version: string) => void
-
-  // OpenClaw update availability
-  openclawUpdate: { installed: string; latest: string; releaseUrl: string; releaseNotes: string; updateCommand: string } | null
-  openclawUpdateDismissedVersion: string | null
-  setOpenclawUpdate: (info: { installed: string; latest: string; releaseUrl: string; releaseNotes: string; updateCommand: string } | null) => void
-  dismissOpenclawUpdate: (version: string) => void
-
-  // OpenClaw Doctor banner dismiss (persisted with 24h expiry)
-  doctorDismissedAt: number | null
-  dismissDoctor: () => void
 
   // WebSocket & Connection
   connection: ConnectionStatus
@@ -630,32 +619,6 @@ export const useMissionControl = create<MissionControlStore>()(
     dismissUpdate: (version) => {
       try { localStorage.setItem('mc-update-dismissed-version', version) } catch {}
       set({ updateDismissedVersion: version })
-    },
-
-    // OpenClaw update availability
-    openclawUpdate: null,
-    openclawUpdateDismissedVersion: (() => {
-      if (typeof window === 'undefined') return null
-      try { return localStorage.getItem('mc-openclaw-update-dismissed') } catch { return null }
-    })(),
-    setOpenclawUpdate: (info) => set({ openclawUpdate: info }),
-    dismissOpenclawUpdate: (version) => {
-      try { localStorage.setItem('mc-openclaw-update-dismissed', version) } catch {}
-      set({ openclawUpdateDismissedVersion: version })
-    },
-
-    // OpenClaw Doctor banner dismiss
-    doctorDismissedAt: (() => {
-      if (typeof window === 'undefined') return null
-      try {
-        const raw = localStorage.getItem('mc-doctor-dismissed-at')
-        return raw ? Number(raw) : null
-      } catch { return null }
-    })(),
-    dismissDoctor: () => {
-      const now = Date.now()
-      try { localStorage.setItem('mc-doctor-dismissed-at', String(now)) } catch {}
-      set({ doctorDismissedAt: now })
     },
 
     // Connection state

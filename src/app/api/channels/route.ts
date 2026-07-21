@@ -3,7 +3,6 @@ import { requireRole } from '@/lib/auth'
 import { config } from '@/lib/config'
 import { logger } from '@/lib/logger'
 import { getDetectedGatewayToken } from '@/lib/gateway-runtime'
-import { callOpenClawGateway } from '@/lib/openclaw-gateway'
 
 const gatewayInternalUrl = `http://${config.gatewayHost}:${config.gatewayPort}`
 
@@ -146,42 +145,6 @@ function transformGatewayChannels(data: GatewayData): ChannelsSnapshot {
   }
 }
 
-async function loadChannelsViaRpc(probe = false): Promise<ChannelsSnapshot> {
-  const payload = await callOpenClawGateway<GatewayData>(
-    'channels.status',
-    { probe, timeoutMs: 8000 },
-    probe ? 20000 : 15000,
-  )
-  return {
-    ...transformGatewayChannels(payload),
-    connected: true,
-  }
-}
-
-async function loadChannelsViaCli(probe = false): Promise<ChannelsSnapshot> {
-  const payload = await callOpenClawGateway<GatewayData>(
-    'channels.status',
-    { probe, timeoutMs: 8000 },
-    probe ? 20000 : 15000,
-  ).catch(() => null)
-
-  if (payload) {
-    return {
-      ...transformGatewayChannels(payload),
-      connected: true,
-    }
-  }
-
-  const { runOpenClaw } = await import('@/lib/command')
-  const args = ['channels', 'status', '--json', '--timeout', '5000']
-  if (probe) args.push('--probe')
-  const { stdout } = await runOpenClaw(args, { timeoutMs: probe ? 20000 : 15000 })
-  return {
-    ...transformGatewayChannels(JSON.parse(stdout)),
-    connected: true,
-  }
-}
-
 async function isGatewayReachable(): Promise<boolean> {
   try {
     const controller = new AbortController()
@@ -228,24 +191,17 @@ export async function GET(request: NextRequest) {
       clearTimeout(timeout)
 
       if (!res.ok) {
-        if (res.status === 404) {
-          return NextResponse.json(await loadChannelsViaRpc(true).catch(() => loadChannelsViaCli(true)))
-        }
         throw new Error(`Gateway channel probe failed with status ${res.status}`)
       }
 
       const data = await res.json()
       return NextResponse.json(data)
     } catch (err) {
-      try {
-        return NextResponse.json(await loadChannelsViaRpc(true).catch(() => loadChannelsViaCli(true)))
-      } catch (cliErr) {
-        logger.warn({ err, cliErr, channel }, 'Channel probe failed')
-        return NextResponse.json(
-          { ok: false, error: 'Gateway unreachable' },
-          { status: 502 },
-        )
-      }
+      logger.warn({ err, channel }, 'Channel probe failed')
+      return NextResponse.json(
+        { ok: false, error: 'Gateway unreachable' },
+        { status: 502 },
+      )
     }
   }
 
@@ -261,28 +217,21 @@ export async function GET(request: NextRequest) {
     clearTimeout(timeout)
 
     if (!res.ok) {
-      if (res.status === 404) {
-        return NextResponse.json(await loadChannelsViaRpc(false).catch(() => loadChannelsViaCli(false)))
-      }
       throw new Error(`Gateway channel status failed with status ${res.status}`)
     }
 
     const data = await res.json()
     return NextResponse.json(transformGatewayChannels(data))
   } catch (err) {
-    try {
-      return NextResponse.json(await loadChannelsViaRpc(false).catch(() => loadChannelsViaCli(false)))
-    } catch (cliErr) {
-      logger.warn({ err, cliErr }, 'Gateway unreachable for channel status')
-      const reachable = await isGatewayReachable()
-      return NextResponse.json({
-        channels: {},
-        channelAccounts: {},
-        channelOrder: [],
-        channelLabels: {},
-        connected: reachable,
-      } satisfies ChannelsSnapshot)
-    }
+    logger.warn({ err }, 'Gateway unreachable for channel status')
+    const reachable = await isGatewayReachable()
+    return NextResponse.json({
+      channels: {},
+      channelAccounts: {},
+      channelOrder: [],
+      channelLabels: {},
+      connected: reachable,
+    } satisfies ChannelsSnapshot)
   }
 }
 
@@ -324,11 +273,9 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(data, { status: res.status })
           }
         } catch {
-          // Fallback to RPC below.
+          // Gateway unreachable
         }
-        return NextResponse.json(
-          await callOpenClawGateway('web.login.start', { force, timeoutMs: 30000 }, 32000)
-        )
+        return NextResponse.json({ error: 'Gateway unreachable for WhatsApp link' }, { status: 502 })
       }
 
       case 'whatsapp-wait': {
@@ -350,11 +297,9 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(data, { status: res.status })
           }
         } catch {
-          // Fallback to RPC below.
+          // Gateway unreachable
         }
-        return NextResponse.json(
-          await callOpenClawGateway('web.login.wait', { timeoutMs: 120000 }, 122000)
-        )
+        return NextResponse.json({ error: 'Gateway unreachable for WhatsApp wait' }, { status: 502 })
       }
 
       case 'whatsapp-logout': {
@@ -376,11 +321,9 @@ export async function POST(request: NextRequest) {
             return NextResponse.json(data, { status: res.status })
           }
         } catch {
-          // Fallback to RPC below.
+          // Gateway unreachable
         }
-        return NextResponse.json(
-          await callOpenClawGateway('channels.logout', { channel: 'whatsapp' }, 12000)
-        )
+        return NextResponse.json({ error: 'Gateway unreachable for WhatsApp logout' }, { status: 502 })
       }
 
       case 'nostr-profile-save': {

@@ -177,10 +177,14 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Only expose the gateway token to operators and above.
+  // Viewers can see the ws_url and token_set flag but not the token itself,
+  // since the token grants direct access to the gateway WebSocket.
+  const isOperator = ['operator', 'admin', 'super'].includes(auth.user.role)
   return NextResponse.json({
     id: gateway.id,
     ws_url,
-    token,
+    token: isOperator ? token : '',
     token_set: token.length > 0,
   })
 }

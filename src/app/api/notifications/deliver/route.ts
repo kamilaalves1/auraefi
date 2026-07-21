@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDatabase, Notification, db_helpers } from '@/lib/db';
-import { runOpenClaw } from '@/lib/command';
 import { requireRole } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 
@@ -79,61 +78,14 @@ export async function POST(request: NextRequest) {
         const message = formatNotificationMessage(notification);
         
         if (!dry_run) {
-          // Send notification via OpenClaw gateway call agent
-          try {
-            const invokeParams = {
-              message,
-              agentId: notification.recipient,
-              idempotencyKey: `notification-${notification.id}-${Date.now()}`,
-              deliver: false,
-            };
-            const { stdout, stderr } = await runOpenClaw(
-              [
-                'gateway',
-                'call',
-                'agent',
-                '--params',
-                JSON.stringify(invokeParams),
-                '--json'
-              ],
-              { timeoutMs: 30000 }
-            );
-
-            if (stderr && stderr.includes('error')) {
-              throw new Error(`OpenClaw error: ${stderr}`);
-            }
-            
-            // Mark as delivered
-            const now = Math.floor(Date.now() / 1000);
-            markDeliveredStmt.run(now, notification.id, workspaceId);
-            
-            deliveredCount++;
-            deliveryResults.push({
-              notification_id: notification.id,
-              recipient: notification.recipient,
-              session_key: notification.session_key,
-              delivered_at: now,
-              status: 'delivered',
-              stdout: stdout.substring(0, 200) // Truncate for storage
-            });
-            
-            // Log successful delivery
-            db_helpers.logActivity(
-              'notification_delivered',
-              'notification',
-              notification.id,
-              'system',
-              `Notification delivered to ${notification.recipient}`,
-              {
-                notification_type: notification.type,
-                session_key: notification.session_key,
-                title: notification.title
-              },
-              workspaceId
-            );
-          } catch (cmdError: any) {
-            throw new Error(`Command failed: ${cmdError.message}`);
-          }
+          // Gateway CLI delivery is not available; mark notification as skipped
+          deliveryResults.push({
+            notification_id: notification.id,
+            recipient: notification.recipient,
+            session_key: notification.session_key,
+            status: 'skipped',
+            note: 'gateway_rpc_unavailable',
+          });
         } else {
           // Dry run - just log what would be sent
           deliveryResults.push({

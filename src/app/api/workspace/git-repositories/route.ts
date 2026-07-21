@@ -54,6 +54,11 @@ function rowToRepo(row: any): GitRepository {
   }
 }
 
+function rowToRepoForRole(row: any, role: string): GitRepository {
+  const isOperator = ['operator', 'admin', 'super'].includes(role)
+  return { ...rowToRepo(row), access_token: isOperator ? (row.access_token ?? null) : null }
+}
+
 /** GET /api/workspace/git-repositories — list all repos for workspace */
 export async function GET(request: NextRequest) {
   const auth = requireRole(request, 'viewer')
@@ -65,7 +70,7 @@ export async function GET(request: NextRequest) {
     const rows = db.prepare(
       'SELECT * FROM git_repositories WHERE workspace_id = ? ORDER BY created_at ASC'
     ).all(workspaceId)
-    return NextResponse.json({ repositories: (rows as any[]).map(rowToRepo) })
+    return NextResponse.json({ repositories: (rows as any[]).map(row => rowToRepoForRole(row, auth.user.role)) })
   } catch (err) {
     logger.error({ err }, 'GET /api/workspace/git-repositories error')
     return NextResponse.json({ error: 'Failed to load repositories' }, { status: 500 })

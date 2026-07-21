@@ -4,15 +4,14 @@ import path from 'node:path'
 import { requireRole } from '@/lib/auth'
 import { config } from '@/lib/config'
 import { logger } from '@/lib/logger'
-import { parseGatewayHistoryTranscript, parseJsonlTranscript } from '@/lib/transcript-parser'
-import { callOpenClawGateway } from '@/lib/openclaw-gateway'
+import { parseJsonlTranscript } from '@/lib/transcript-parser'
 
 /**
  * GET /api/sessions/transcript/gateway?key=<session-key>&limit=50
  *
  * Reads the JSONL transcript file for a gateway session directly from disk.
- * OpenClaw stores session transcripts at:
- *   {OPENCLAW_STATE_DIR}/agents/{agent}/sessions/{sessionId}.jsonl
+ * Session transcripts are stored at:
+ *   {GATEWAY_STATE_DIR}/agents/{agent}/sessions/{sessionId}.jsonl
  *
  * The session key (e.g. "agent:jarv:cron:task-name") is used to look up
  * the sessionId from the agent's sessions.json, then the JSONL file is read.
@@ -31,24 +30,10 @@ export async function GET(request: NextRequest) {
 
   const stateDir = config.openclawStateDir
   if (!stateDir) {
-    return NextResponse.json({ messages: [], source: 'gateway', error: 'OPENCLAW_STATE_DIR not configured' })
+    return NextResponse.json({ messages: [], source: 'gateway', error: 'State directory not configured' })
   }
 
   try {
-    try {
-      const history = await callOpenClawGateway<{ messages?: unknown[] }>(
-        'chat.history',
-        { sessionKey, limit },
-        15000,
-      )
-      const liveMessages = parseGatewayHistoryTranscript(Array.isArray(history?.messages) ? history.messages : [], limit)
-      if (liveMessages.length > 0) {
-        return NextResponse.json({ messages: liveMessages, source: 'gateway-rpc' })
-      }
-    } catch (rpcErr) {
-      logger.warn({ err: rpcErr, sessionKey }, 'Gateway chat.history failed, falling back to disk transcript')
-    }
-
     // Extract agent name from session key (e.g. "agent:jarv:main" -> "jarv")
     const agentName = extractAgentName(sessionKey)
     if (!agentName) {

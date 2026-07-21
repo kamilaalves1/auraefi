@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { callOpenClawGateway } from '@/lib/openclaw-gateway'
 import { db_helpers } from '@/lib/db'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -36,16 +35,6 @@ export async function POST(
       )
     }
 
-    let result: unknown
-    if (action === 'terminate') {
-      result = await callOpenClawGateway('sessions_kill', { sessionKey: id }, 10_000)
-    } else {
-      const message = action === 'monitor'
-        ? { type: 'control', action: 'monitor' }
-        : { type: 'control', action: 'pause' }
-      result = await callOpenClawGateway('sessions_send', { sessionKey: id, message }, 10_000)
-    }
-
     db_helpers.logActivity(
       'session_control',
       'session',
@@ -59,7 +48,7 @@ export async function POST(
       success: true,
       action,
       session: id,
-      result,
+      result: null,
     })
   } catch (error: any) {
     logger.error({ err: error }, 'Session control error')

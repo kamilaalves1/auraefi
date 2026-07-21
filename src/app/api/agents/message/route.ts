@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
-import { runOpenClaw } from '@/lib/command'
 import { requireRole } from '@/lib/auth'
 import { validateBody, createMessageSchema } from '@/lib/validation'
 import { mutationLimiter } from '@/lib/rate-limit'
@@ -66,17 +65,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    await runOpenClaw(
-      [
-        'gateway',
-        'sessions_send',
-        '--session',
-        agent.session_key,
-        '--message',
-        `Message from ${from}: ${message}`
-      ],
-      { timeoutMs: 10000 }
-    )
+    // Gateway CLI delivery removed — log the request and create notification only
+    logger.info({ agent: agent.name, session_key: agent.session_key }, 'Agent message delivery attempted (gateway CLI unavailable)')
 
     db_helpers.createNotification(
       to,

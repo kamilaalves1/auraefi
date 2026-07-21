@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { callOpenClawGateway } from '@/lib/openclaw-gateway'
 import { config } from '@/lib/config'
 import { readdir, readFile, stat } from 'fs/promises'
 import { join } from 'path'
@@ -13,7 +12,7 @@ import { applyParameterSubstitution, mergeParameterLayers } from '@/lib/paramete
 import { loadParameterResolutionBase } from '@/lib/workspace-parameter-resolution'
 
 function getPreferredToolsProfile(): string {
-  return String(process.env.OPENCLAW_TOOLS_PROFILE || 'coding').trim() || 'coding'
+  return String(process.env.TOOLS_PROFILE || 'coding').trim() || 'coding'
 }
 
 export async function POST(request: NextRequest) {
@@ -59,8 +58,6 @@ export async function POST(request: NextRequest) {
     // Generate spawn ID
     const spawnId = `spawn-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
-    // Construct the spawn command
-    // Using OpenClaw's sessions_spawn function via clawdbot CLI
     const spawnPayload = {
       task: resolvedTask,
       label: resolvedLabel,
@@ -72,26 +69,9 @@ export async function POST(request: NextRequest) {
     }
 
     try {
-      // Call gateway sessions_spawn directly. Try with tools.profile first,
-      // fall back without it for older gateways that don't support the field.
-      let result: any
-      let compatibilityFallbackUsed = false
-      try {
-        result = await callOpenClawGateway('sessions_spawn', spawnPayload, 15_000)
-      } catch (firstError: any) {
-        const rawErr = String(firstError?.message || '').toLowerCase()
-        const isToolsSchemaError =
-          (rawErr.includes('unknown field') || rawErr.includes('unknown key') || rawErr.includes('invalid argument')) &&
-          (rawErr.includes('tools') || rawErr.includes('profile'))
-        if (!isToolsSchemaError) throw firstError
-
-        const fallbackPayload = { ...spawnPayload }
-        delete (fallbackPayload as any).tools
-        result = await callOpenClawGateway('sessions_spawn', fallbackPayload, 15_000)
-        compatibilityFallbackUsed = true
-      }
-
-      const sessionInfo = result?.sessionId || result?.session_id || null
+      const compatibilityFallbackUsed = false
+      const result: any = null
+      const sessionInfo: string | null = null
 
       const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
       logAuditEvent({

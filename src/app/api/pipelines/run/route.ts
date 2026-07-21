@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-/** Spawn a single pipeline step using `openclaw agent` */
+/** Spawn a single pipeline step (gateway CLI removed — returns stub result) */
 async function spawnStep(
   db: ReturnType<typeof getDatabase>,
   pipelineName: string,
@@ -145,28 +145,10 @@ async function spawnStep(
   runId: number,
   workspaceId: number
 ): Promise<{ success: boolean; stdout?: string; error?: string }> {
-  try {
-    const { runOpenClaw } = await import('@/lib/command')
-    const args = [
-      'agent',
-      '--message', `[Pipeline: ${pipelineName} | Step ${stepIdx + 1}] ${taskPromptResolved}`,
-      '--timeout', String(timeoutSeconds),
-      '--json',
-    ]
-    const { stdout } = await runOpenClaw(args, { timeoutMs: 15000 })
-
-    const spawnId = `pipeline-${runId}-step-${stepIdx}-${Date.now()}`
-    steps[stepIdx].spawn_id = spawnId
-    db.prepare('UPDATE pipeline_runs SET steps_snapshot = ? WHERE id = ? AND workspace_id = ?').run(JSON.stringify(steps), runId, workspaceId)
-
-    return { success: true, stdout: stdout.trim() }
-  } catch (err: any) {
-    // Spawn failed - record error but keep pipeline running for manual advance
-    steps[stepIdx].error = err.message
-    db.prepare('UPDATE pipeline_runs SET steps_snapshot = ? WHERE id = ? AND workspace_id = ?').run(JSON.stringify(steps), runId, workspaceId)
-
-    return { success: false, error: err.message }
-  }
+  // Gateway CLI spawn is not available in this build
+  steps[stepIdx].error = 'Gateway CLI spawn is not available'
+  db.prepare('UPDATE pipeline_runs SET steps_snapshot = ? WHERE id = ? AND workspace_id = ?').run(JSON.stringify(steps), runId, workspaceId)
+  return { success: false, error: 'Gateway CLI spawn is not available' }
 }
 
 async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: number, triggeredBy: string, workspaceId: number) {

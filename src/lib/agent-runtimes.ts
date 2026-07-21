@@ -1,10 +1,9 @@
 import crypto from 'node:crypto'
 import { existsSync } from 'node:fs'
-import { config } from './config'
-import { runCommand, runOpenClaw } from './command'
+import { runCommand } from './command'
 import { logger } from './logger'
 
-export type RuntimeId = 'openclaw' | 'claude' | 'codex'
+export type RuntimeId = 'claude' | 'codex'
 export type DeploymentMode = 'local' | 'docker'
 
 export interface RuntimeStatus {
@@ -38,12 +37,6 @@ export interface RuntimeMeta {
 }
 
 const RUNTIME_META: Record<RuntimeId, RuntimeMeta> = {
-  openclaw: {
-    name: 'OpenClaw',
-    description: 'Multi-agent orchestration with gateway, sessions, and memory.',
-    authRequired: false,
-    authHint: '',
-  },
   claude: {
     name: 'Claude Code',
     description: 'Anthropic CLI agent for software engineering tasks.',
@@ -79,52 +72,6 @@ function pruneJobs() {
 // ---------------------------------------------------------------------------
 // Detection
 // ---------------------------------------------------------------------------
-
-function detectOpenClaw(): RuntimeStatus {
-  const meta = RUNTIME_META.openclaw
-  let installed = false
-  let version: string | null = null
-  let running = false
-
-  // Check config file existence
-  if (config.openclawConfigPath && existsSync(config.openclawConfigPath)) {
-    installed = true
-  }
-
-  // Try to get version
-  try {
-    const result = require('node:child_process').spawnSync(
-      config.openclawBin || 'openclaw',
-      ['--version'],
-      { stdio: 'pipe', timeout: 3000 }
-    )
-    if (result.status === 0) {
-      installed = true
-      version = (result.stdout?.toString() || '').trim() || null
-    }
-  } catch {
-    // binary not found
-  }
-
-  // Check if gateway port is listening (simple sync check)
-  try {
-    const net = require('node:net')
-    const socket = new net.Socket()
-    socket.setTimeout(500)
-    const connected = new Promise<boolean>((resolve) => {
-      socket.once('connect', () => { socket.destroy(); resolve(true) })
-      socket.once('error', () => { socket.destroy(); resolve(false) })
-      socket.once('timeout', () => { socket.destroy(); resolve(false) })
-      socket.connect(config.gatewayPort, config.gatewayHost)
-    })
-    // We can't await here synchronously, so just check config existence for "running"
-    running = installed
-  } catch {
-    // ignore
-  }
-
-  return { id: 'openclaw', ...meta, installed, version, running, authenticated: true }
-}
 
 function detectBinary(bins: string[], versionFlag = '--version'): { installed: boolean; version: string | null } {
   const { spawnSync } = require('node:child_process')
@@ -181,7 +128,6 @@ function detectCodex(): RuntimeStatus {
 }
 
 const DETECTORS: Record<RuntimeId, () => RuntimeStatus> = {
-  openclaw: detectOpenClaw,
   claude: detectClaude,
   codex: detectCodex,
 }
@@ -225,11 +171,10 @@ export function startInstall(runtime: RuntimeId, mode: DeploymentMode): InstallJ
 
   // Local install — run in background
   const INSTALL_FNS: Record<RuntimeId, (job: InstallJob) => Promise<void>> = {
-    openclaw: installOpenClawLocal,
     claude: installClaudeLocal,
     codex: installCodexLocal,
   }
-  const installFn = INSTALL_FNS[runtime] || installOpenClawLocal
+  const installFn = INSTALL_FNS[runtime] || installClaudeLocal
   installFn(job).catch((err) => {
     job.status = 'failed'
     job.error = String(err?.message || err)
@@ -279,42 +224,6 @@ async function runInstallCmd(cmd: string, args: string[], job: InstallJob): Prom
   }
 }
 
-async function installOpenClawLocal(job: InstallJob): Promise<void> {
-  job.output += '> Installing OpenClaw...\n'
-  job.output += '> ⚠️  AVISO DE SEGURANÇA: este instalador baixa e executa um script remoto de https://get.openclaw.dev\n'
-  job.output += '>    Verifique o conteúdo do script antes de prosseguir em ambientes de produção.\n'
-  job.output += '>    Para inspecionar: curl -fsSL https://get.openclaw.dev\n\n'
-  const env = getInstallEnv()
-  try {
-    const result = await runCommand('bash', ['-c', 'curl -fsSL https://get.openclaw.dev | bash'], {
-      timeoutMs: 300_000, env,
-    })
-    if (result.stdout) job.output += result.stdout + '\n'
-    if (result.stderr) job.output += result.stderr + '\n'
-    if (result.code === 0) {
-      job.output += '\n> OpenClaw installed. Running initial setup...\n'
-      try {
-        const onboard = await runCommand('openclaw', ['onboard', '--non-interactive'], { timeoutMs: 60_000, env })
-        if (onboard.stdout) job.output += onboard.stdout + '\n'
-        if (onboard.stderr) job.output += onboard.stderr + '\n'
-      } catch {
-        job.output += '> Note: "openclaw onboard" skipped (run manually if needed).\n'
-      }
-      job.status = 'success'
-      job.output += '\n> OpenClaw installed successfully.\n'
-    } else {
-      job.status = 'failed'
-      job.error = `Install exited with code ${result.code}`
-      job.output += `\n> Install failed (exit code ${result.code}).\n`
-    }
-  } catch (err: any) {
-    job.status = 'failed'
-    job.error = err?.message || 'Unknown error'
-    job.output += `\n> Error: ${job.error}\n`
-  }
-  job.finishedAt = Date.now()
-}
-
 async function installClaudeLocal(job: InstallJob): Promise<void> {
   job.output += '> Installing Claude Code...\n'
   if (await runInstallCmd('npm', ['install', '-g', '@anthropic-ai/claude-code'], job)) {
@@ -354,23 +263,6 @@ export function getActiveJobs(): InstallJob[] {
 // Docker sidecar templates
 // ---------------------------------------------------------------------------
 
-export function generateDockerSidecar(runtime: RuntimeId): string {
-  if (runtime === 'openclaw') {
-    return `  # OpenClaw Gateway sidecar
-  openclaw-gateway:
-    image: ghcr.io/openclaw/openclaw:latest
-    container_name: openclaw-gateway
-    ports:
-      - "\${OPENCLAW_GATEWAY_PORT:-18789}:18789"
-    volumes:
-      - openclaw-data:/root/.openclaw
-    networks:
-      - mc-net
-    restart: unless-stopped
-
-# Add to volumes section:
-#   openclaw-data:`
-  }
-
+export function generateDockerSidecar(_runtime: RuntimeId): string {
   return ''
 }

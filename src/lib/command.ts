@@ -1,5 +1,4 @@
 import { spawn } from 'node:child_process'
-import { config } from './config'
 
 interface CommandOptions {
   cwd?: string
@@ -71,16 +70,3 @@ export function runCommand(
   })
 }
 
-export function runOpenClaw(args: string[], options: CommandOptions = {}) {
-  return runCommand(config.openclawBin, args, {
-    ...options,
-    cwd: options.cwd || config.openclawStateDir || process.cwd()
-  })
-}
-
-export function runClawdbot(args: string[], options: CommandOptions = {}) {
-  return runCommand(config.clawdbotBin, args, {
-    ...options,
-    cwd: options.cwd || config.openclawStateDir || process.cwd()
-  })
-}

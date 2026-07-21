@@ -190,6 +190,20 @@ export function proxy(request: NextRequest) {
       if (originHost && !requestHosts.some((h) => hostsMatchForCsrf(h, originHost))) {
         return addSecurityHeaders(NextResponse.json({ error: 'CSRF origin mismatch' }, { status: 403 }), request)
       }
+    } else {
+      // No Origin header on a mutating request. Modern browser fetch/XHR always
+      // includes Origin for cross-origin requests. If authenticated via session
+      // cookie (not an API key), require the header to block CSRF via form
+      // submissions or unusual browser behavior that omits it.
+      const apiKey = extractApiKeyFromRequest(request)
+      const sessionCookie = request.cookies.get(MC_SESSION_COOKIE_NAME)?.value
+        || request.cookies.get(LEGACY_MC_SESSION_COOKIE_NAME)?.value
+      if (sessionCookie && !apiKey) {
+        return addSecurityHeaders(
+          NextResponse.json({ error: 'Origin header required' }, { status: 403 }),
+          request
+        )
+      }
     }
   }
 

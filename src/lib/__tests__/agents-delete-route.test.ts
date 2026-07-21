@@ -82,7 +82,7 @@ describe('DELETE /api/agents/[id]', () => {
     expect(body.success).toBe(true)
   })
 
-  it('removes workspace via OpenClaw and then removes the config entry', async () => {
+  it('logs a warning when remove_workspace is requested but does not call gateway CLI', async () => {
     const agent = { id: 8, name: 'adam', role: 'tester', config: JSON.stringify({ openclawId: 'adam' }) }
     const selectStmt = { get: vi.fn(() => agent) }
     const deleteStmt = { run: vi.fn() }
@@ -102,7 +102,7 @@ describe('DELETE /api/agents/[id]', () => {
     const response = await DELETE(request, { params: Promise.resolve({ id: '8' }) })
 
     expect(response.status).toBe(200)
-    expect(runOpenClaw).toHaveBeenCalledWith(['agents', 'delete', 'adam', '--force'], { timeoutMs: 30000 })
+    expect(runOpenClaw).not.toHaveBeenCalled()
     expect(removeAgentFromConfig).toHaveBeenCalledWith({ id: 'adam', name: 'adam' })
     expect(deleteStmt.run).toHaveBeenCalledWith(8, 1)
   })
