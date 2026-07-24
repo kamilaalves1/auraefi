@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "save": "Guardar",
     "cancel": "Cancelar",
@@ -43,7 +43,7 @@
     "loginFailed": "Error de inicio de sesión",
     "enterUsername": "Ingresa el nombre de usuario",
     "enterPassword": "Ingresa la contraseña",
-    "orchestrationTagline": "Orquestación de agentes OpenClaw",
+    "orchestrationTagline": "Orquestación de agentes Vertex",
     "accessRequestSubmitted": "Solicitud de acceso enviada",
     "accessRequestDescription": "Tu solicitud ha sido enviada a un administrador para su revisión. Podrás iniciar sesión una vez aprobada.",
     "tryAgain": "Intentar de nuevo",
@@ -225,7 +225,7 @@
     "createAndQueue": "Crear + Encolar"
   },
   "localModeBanner": {
-    "noGatewayDetected": "No se detectó un gateway OpenClaw",
+    "noGatewayDetected": "No se detectó un gateway Vertex",
     "runningInLocalMode": " — ejecutando en modo local. Monitoreando sesiones de Claude Code, tareas y datos locales.",
     "configureGateway": "Configurar Gateway"
   },
@@ -237,10 +237,10 @@
     "updateFailed": "Error en la actualización",
     "networkError": "Error de red — no se pudo contactar con el servidor."
   },
-  "openclawUpdateBanner": {
-    "updatingOpenClaw": "Actualizando OpenClaw...",
-    "openclawUpdated": "OpenClaw actualizado a v{version}",
-    "openclawUpdateAvailable": "Actualización de OpenClaw: v{version} disponible",
+  "VertexUpdateBanner": {
+    "updatingVertex": "Actualizando Vertex...",
+    "VertexUpdated": "Vertex actualizado a v{version}",
+    "VertexUpdateAvailable": "Actualización de Vertex: v{version} disponible",
     "installed": "instalado: v{version}",
     "changelog": "Registro de cambios",
     "copied": "¡Copiado!",
@@ -249,16 +249,16 @@
     "networkError": "Error de red — no se pudo contactar con el servidor."
   },
   "doctorBanner": {
-    "fixCompleted": "Corrección del doctor de OpenClaw completada",
-    "configDrift": "Desviación de configuración de OpenClaw detectada",
-    "stateIntegrity": "Advertencia de integridad de estado de OpenClaw",
-    "securityWarning": "Advertencia de seguridad de OpenClaw",
-    "doctorWarnings": "Advertencias del doctor de OpenClaw",
-    "runningFixes": "Ejecutando correcciones del doctor de OpenClaw...",
+    "fixCompleted": "Corrección del doctor de Vertex completada",
+    "configDrift": "Desviación de configuración de Vertex detectada",
+    "stateIntegrity": "Advertencia de integridad de estado de Vertex",
+    "securityWarning": "Advertencia de seguridad de Vertex",
+    "doctorWarnings": "Advertencias del doctor de Vertex",
+    "runningFixes": "Ejecutando correcciones del doctor de Vertex...",
     "cleaningSessionStores": "Limpiando almacenes de sesión...",
     "archivingOrphanTranscripts": "Archivando transcripciones huérfanas...",
     "recheckingHealth": "Verificando estado de la instancia actual...",
-    "fixFailed": "Error en la corrección del doctor de OpenClaw",
+    "fixFailed": "Error en la corrección del doctor de Vertex",
     "networkError": "Error de red — no se pudo contactar con el servidor.",
     "runningFix": "Ejecutando corrección...",
     "runDoctorFix": "Ejecutar corrección del doctor"
@@ -285,7 +285,7 @@
     "availableInFullMode": "{panel} está disponible en modo Completo.",
     "switchToFull": "Cambiar a Completo",
     "goToOverview": "Ir a Resumen",
-    "requiresGateway": "{panel} requiere una conexión al gateway OpenClaw.",
+    "requiresGateway": "{panel} requiere una conexión al gateway Vertex.",
     "configureGateway": "Configura un gateway para habilitar este panel."
   },
   "onboarding": {
@@ -332,7 +332,7 @@
     },
     "gatewayLink": {
       "title": "Enlace del Gateway",
-      "description": "Vertex Control Center registra su origen con el gateway OpenClaw para conectarse vía WebSocket y gestionar agentes remotamente.",
+      "description": "Vertex Control Center registra su origen con el gateway Vertex para conectarse vía WebSocket y gestionar agentes remotamente.",
       "originRegistered": "Origen del gateway registrado",
       "originAdded": "Origen de Vertex Control Center añadido a allowedOrigins del gateway",
       "registrationPending": "Registro pendiente — se configurará en la próxima verificación de capacidades",
@@ -356,7 +356,7 @@
       "apiKeyNotSet": "No configurada — los agentes no podrán acoplarse sin una clave configurada. Ejecuta: bash scripts/generate-env.sh --force",
       "openSettings": "Abrir ajustes",
       "securityScan": "Escaneo de seguridad",
-      "securityScanDescription": "Verifica la red, el entorno de ejecución y el endurecimiento de OpenClaw antes de lanzar la estación.",
+      "securityScanDescription": "Verifica la red, el entorno de ejecución y el endurecimiento de Vertex antes de lanzar la estación.",
       "launchStation": "Lanzar estación",
       "launchAnyway": "Lanzar de todos modos"
     }
@@ -367,8 +367,8 @@
     "gatewayConnected": "Puerta de enlace conectada",
     "gatewayDisconnected": "Puerta de enlace desconectada",
     "refresh": "Actualizar",
-    "noChannelsConfigured": "No hay canales configurados. Configure plataformas de mensajería (WhatsApp, Telegram, Discord, Slack, etc.) en los ajustes de la puerta de enlace OpenClaw.",
-    "gatewayUnreachable": "No se puede acceder a la puerta de enlace OpenClaw. Verifique que esté en funcionamiento.",
+    "noChannelsConfigured": "No hay canales configurados. Configure plataformas de mensajería (WhatsApp, Telegram, Discord, Slack, etc.) en los ajustes de la puerta de enlace Vertex.",
+    "gatewayUnreachable": "No se puede acceder a la puerta de enlace Vertex. Verifique que esté en funcionamiento.",
     "statusConnected": "Conectado",
     "statusRunning": "En ejecución",
     "statusConfigured": "Configurado",
@@ -472,7 +472,7 @@
     "loading": "Cargando grafo...",
     "retry": "Reintentar",
     "noMemoryDatabases": "No se encontraron bases de datos de memoria",
-    "noMemoryDatabasesHint": "No se detectaron archivos SQLite de memoria de OpenClaw",
+    "noMemoryDatabasesHint": "No se detectaron archivos SQLite de memoria de Vertex",
     "allAgents": "todos los agentes",
     "filterFiles": "filtrar archivos...",
     "statAgents": "agentes",
@@ -977,10 +977,10 @@
     "removeLinuxUser": "Eliminar usuario Linux",
     "removeLinuxUserDesc": "Ejecuta `userdel -r` y elimina el directorio personal.",
     "removeStateDirs": "Eliminar dirs. de estado/espacio de trabajo",
-    "removeStateDirsDesc": "Elimina las rutas `.openclaw` y `workspace` cuando se conserva el usuario.",
+    "removeStateDirsDesc": "Elimina las rutas `.Vertex` y `workspace` cuando se conserva el usuario.",
     "impactSummary": "Resumen de impacto",
-    "impactStopsService": "Detiene y deshabilita `openclaw-gateway@{user}.service`.",
-    "impactRemovesEnv": "Elimina `/etc/openclaw-tenants/{user}.env`.",
+    "impactStopsService": "Detiene y deshabilita `Vertex-gateway@{user}.service`.",
+    "impactRemovesEnv": "Elimina `/etc/Vertex-tenants/{user}.env`.",
     "impactLinuxUserRemoved": "Se eliminará el usuario Linux.",
     "impactStateDirsRemoved": "Se eliminarán los directorios de estado/espacio de trabajo.",
     "impactRetained": "El usuario Linux y los directorios se conservan.",
@@ -1079,7 +1079,7 @@
     "infrastructureScan": "Escaneo de Infraestructura",
     "scanCredentials": "Credenciales",
     "scanNetwork": "Red",
-    "scanOpenclaw": "OpenClaw",
+    "scanVertex": "Vertex",
     "scanRuntime": "Tiempo de Ejecución",
     "scanOs": "Seguridad del SO",
     "authEvents": "Eventos de Autenticación",
@@ -1536,7 +1536,7 @@
     "addAgent": "+ Agregar agente",
     "refresh": "Actualizar",
     "noAgents": "No se encontraron agentes",
-    "noAgentsHint": "Los agentes locales se descubren automáticamente desde los directorios de Claude, Codex y Hermes. En modo gateway, los agentes registrados en tu gateway OpenClaw también aparecerán aquí.",
+    "noAgentsHint": "Los agentes locales se descubren automáticamente desde los directorios de Claude, Codex y Hermes. En modo gateway, los agentes registrados en tu gateway Vertex también aparecerán aquí.",
     "addFirstAgent": "Agrega tu primer agente para comenzar",
     "session": "Sesión",
     "totalTasks": "Tareas totales",
@@ -1578,7 +1578,7 @@
   },
   "multiGateway": {
     "title": "Gestor de puertas de enlace",
-    "description": "Gestionar múltiples conexiones de puertas de enlace OpenClaw",
+    "description": "Gestionar múltiples conexiones de puertas de enlace Vertex",
     "probeAll": "Sondear todo",
     "addGateway": "+ Agregar puerta de enlace",
     "connected": "Conectado",
@@ -1588,7 +1588,7 @@
     "noGateways": "No hay puertas de enlace configuradas",
     "addGatewayHint": "Agrega una puerta de enlace para comenzar a gestionar conexiones",
     "discoveredGateways": "Puertas de enlace descubiertas",
-    "discoveredGatewaysDesc": "Puertas de enlace OpenClaw encontradas en esta máquina",
+    "discoveredGatewaysDesc": "Puertas de enlace Vertex encontradas en esta máquina",
     "refresh": "Actualizar",
     "running": "EN EJECUCIÓN",
     "stopped": "DETENIDO",
@@ -1817,7 +1817,7 @@
     "installing": "Instalando...",
     "install": "Instalar",
     "noRegistryResults": "No se encontraron resultados para \"{query}\" en {registry}. Intenta una consulta diferente o cambia de registro.",
-    "registryPrompt": "Busca en ClawdHub, skills.sh o Awesome OpenClaw para descubrir e instalar habilidades de agentes.",
+    "registryPrompt": "Busca en ClawdHub, skills.sh o Awesome Vertex para descubrir e instalar habilidades de agentes.",
     "skillInstalled": "Habilidad instalada",
     "installFailed": "Instalación fallida",
     "installingSkill": "Instalando habilidad",
@@ -1853,7 +1853,7 @@
     "swePresetInstall": "Install default squad",
     "swePresetInstalling": "Creating agents…",
     "swePresetResult": "Created {createdCount}, skipped {skippedCount}, failed {errorCount}.",
-    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and OpenClaw provisioning stay off unless you enable them in the API body.",
+    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and Vertex provisioning stay off unless you enable them in the API body.",
     "swePhaseOrchestration": "Orchestration",
     "swePhaseDiscovery": "Discovery",
     "swePhaseTechnicalDesign": "Technical design",

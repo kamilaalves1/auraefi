@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "save": "保存",
     "cancel": "キャンセル",
@@ -43,7 +43,7 @@
     "loginFailed": "ログインに失敗しました",
     "enterUsername": "ユーザー名を入力",
     "enterPassword": "パスワードを入力",
-    "orchestrationTagline": "OpenClaw エージェントオーケストレーション",
+    "orchestrationTagline": "Vertex エージェントオーケストレーション",
     "accessRequestSubmitted": "アクセスリクエストが送信されました",
     "accessRequestDescription": "リクエストは管理者に送信されました。承認後にサインインできるようになります。",
     "tryAgain": "再試行",
@@ -225,7 +225,7 @@
     "createAndQueue": "作成してキューに追加"
   },
   "localModeBanner": {
-    "noGatewayDetected": "OpenClaw ゲートウェイが検出されません",
+    "noGatewayDetected": "Vertex ゲートウェイが検出されません",
     "runningInLocalMode": " — ローカルモードで動作中。Claude Code セッション、タスク、ローカルデータを監視しています。",
     "configureGateway": "ゲートウェイを設定"
   },
@@ -237,10 +237,10 @@
     "updateFailed": "更新に失敗しました",
     "networkError": "ネットワークエラー — サーバーに接続できません。"
   },
-  "openclawUpdateBanner": {
-    "updatingOpenClaw": "OpenClaw を更新中...",
-    "openclawUpdated": "OpenClaw が v{version} に更新されました",
-    "openclawUpdateAvailable": "OpenClaw アップデート：v{version} が利用可能",
+  "VertexUpdateBanner": {
+    "updatingVertex": "Vertex を更新中...",
+    "VertexUpdated": "Vertex が v{version} に更新されました",
+    "VertexUpdateAvailable": "Vertex アップデート：v{version} が利用可能",
     "installed": "インストール済み：v{version}",
     "changelog": "変更履歴",
     "copied": "コピーしました！",
@@ -249,16 +249,16 @@
     "networkError": "ネットワークエラー — サーバーに接続できません。"
   },
   "doctorBanner": {
-    "fixCompleted": "OpenClaw ドクター修復完了",
-    "configDrift": "OpenClaw 設定のドリフトを検出",
-    "stateIntegrity": "OpenClaw 状態整合性の警告",
-    "securityWarning": "OpenClaw セキュリティ警告",
-    "doctorWarnings": "OpenClaw ドクター警告",
-    "runningFixes": "OpenClaw ドクター修復を実行中...",
+    "fixCompleted": "Vertex ドクター修復完了",
+    "configDrift": "Vertex 設定のドリフトを検出",
+    "stateIntegrity": "Vertex 状態整合性の警告",
+    "securityWarning": "Vertex セキュリティ警告",
+    "doctorWarnings": "Vertex ドクター警告",
+    "runningFixes": "Vertex ドクター修復を実行中...",
     "cleaningSessionStores": "セッションストアをクリーニング中...",
     "archivingOrphanTranscripts": "孤立したトランスクリプトをアーカイブ中...",
     "recheckingHealth": "現在のインスタンスの健全性を再確認中...",
-    "fixFailed": "OpenClaw ドクター修復に失敗しました",
+    "fixFailed": "Vertex ドクター修復に失敗しました",
     "networkError": "ネットワークエラー — サーバーに接続できません。",
     "runningFix": "修復を実行中...",
     "runDoctorFix": "ドクター修復を実行"
@@ -285,7 +285,7 @@
     "availableInFullMode": "{panel}はフルモードで利用可能です。",
     "switchToFull": "フルに切り替え",
     "goToOverview": "概要へ移動",
-    "requiresGateway": "{panel}には OpenClaw ゲートウェイ接続が必要です。",
+    "requiresGateway": "{panel}には Vertex ゲートウェイ接続が必要です。",
     "configureGateway": "このパネルを有効にするにはゲートウェイを設定してください。"
   },
   "onboarding": {
@@ -332,7 +332,7 @@
     },
     "gatewayLink": {
       "title": "ゲートウェイリンク",
-      "description": "Mission Control はそのオリジンを OpenClaw ゲートウェイに登録し、WebSocket 経由で接続してエージェントをリモート管理できるようにします。",
+      "description": "Mission Control はそのオリジンを Vertex ゲートウェイに登録し、WebSocket 経由で接続してエージェントをリモート管理できるようにします。",
       "originRegistered": "ゲートウェイオリジン登録済み",
       "originAdded": "Mission Control オリジンがゲートウェイの allowedOrigins に追加されました",
       "registrationPending": "登録保留中 — 次の能力チェック時に設定されます",
@@ -356,7 +356,7 @@
       "apiKeyNotSet": "未設定 — キーが設定されていないとエージェントはドッキングできません。実行：bash scripts/generate-env.sh --force",
       "openSettings": "設定を開く",
       "securityScan": "セキュリティスキャン",
-      "securityScanDescription": "ステーション起動前にネットワーク、ランタイム、OpenClaw の堅牢化を検証します。",
+      "securityScanDescription": "ステーション起動前にネットワーク、ランタイム、Vertex の堅牢化を検証します。",
       "launchStation": "ステーションを起動",
       "launchAnyway": "このまま起動"
     }
@@ -367,8 +367,8 @@
     "gatewayConnected": "ゲートウェイ接続済み",
     "gatewayDisconnected": "ゲートウェイ切断",
     "refresh": "更新",
-    "noChannelsConfigured": "チャンネルが未設定です。OpenClawゲートウェイ設定でメッセージングプラットフォーム（WhatsApp、Telegram、Discord、Slackなど）を設定してください。",
-    "gatewayUnreachable": "OpenClawゲートウェイに到達できません。稼動しているか確認してください。",
+    "noChannelsConfigured": "チャンネルが未設定です。Vertexゲートウェイ設定でメッセージングプラットフォーム（WhatsApp、Telegram、Discord、Slackなど）を設定してください。",
+    "gatewayUnreachable": "Vertexゲートウェイに到達できません。稼動しているか確認してください。",
     "statusConnected": "接続済み",
     "statusRunning": "実行中",
     "statusConfigured": "設定済み",
@@ -472,7 +472,7 @@
     "loading": "グラフを読み込み中...",
     "retry": "再試行",
     "noMemoryDatabases": "メモリデータベースが見つかりません",
-    "noMemoryDatabasesHint": "OpenClaw メモリ SQLite ファイルが検出されませんでした",
+    "noMemoryDatabasesHint": "Vertex メモリ SQLite ファイルが検出されませんでした",
     "allAgents": "すべてのエージェント",
     "filterFiles": "ファイルを絞り込む...",
     "statAgents": "エージェント",
@@ -977,10 +977,10 @@
     "removeLinuxUser": "Linuxユーザーを削除",
     "removeLinuxUserDesc": "`userdel -r` を実行してホームディレクトリを削除します。",
     "removeStateDirs": "状態/ワークスペースディレクトリを削除",
-    "removeStateDirsDesc": "ユーザーを保持する場合に `.openclaw` と `workspace` パスを削除します。",
+    "removeStateDirsDesc": "ユーザーを保持する場合に `.Vertex` と `workspace` パスを削除します。",
     "impactSummary": "影響のまとめ",
-    "impactStopsService": "`openclaw-gateway@{user}.service` を停止・無効化します。",
-    "impactRemovesEnv": "`/etc/openclaw-tenants/{user}.env` を削除します。",
+    "impactStopsService": "`Vertex-gateway@{user}.service` を停止・無効化します。",
+    "impactRemovesEnv": "`/etc/Vertex-tenants/{user}.env` を削除します。",
     "impactLinuxUserRemoved": "Linuxユーザーが削除されます。",
     "impactStateDirsRemoved": "状態/ワークスペースディレクトリが削除されます。",
     "impactRetained": "Linuxユーザーとディレクトリは保持されます。",
@@ -1079,7 +1079,7 @@
     "infrastructureScan": "インフラスキャン",
     "scanCredentials": "認証情報",
     "scanNetwork": "ネットワーク",
-    "scanOpenclaw": "OpenClaw",
+    "scanVertex": "Vertex",
     "scanRuntime": "ランタイム",
     "scanOs": "OSセキュリティ",
     "authEvents": "認証イベント",
@@ -1536,7 +1536,7 @@
     "addAgent": "+ エージェントを追加",
     "refresh": "更新",
     "noAgents": "エージェントが見つかりません",
-    "noAgentsHint": "ローカルエージェントは Claude、Codex、Hermes のディレクトリから自動検出されます。ゲートウェイモードでは、OpenClaw ゲートウェイに登録されたエージェントもここに表示されます。",
+    "noAgentsHint": "ローカルエージェントは Claude、Codex、Hermes のディレクトリから自動検出されます。ゲートウェイモードでは、Vertex ゲートウェイに登録されたエージェントもここに表示されます。",
     "addFirstAgent": "最初のエージェントを追加して開始",
     "session": "セッション",
     "totalTasks": "タスク総数",
@@ -1578,7 +1578,7 @@
   },
   "multiGateway": {
     "title": "ゲートウェイマネージャー",
-    "description": "複数の OpenClaw ゲートウェイ接続を管理",
+    "description": "複数の Vertex ゲートウェイ接続を管理",
     "probeAll": "すべてを探索",
     "addGateway": "+ ゲートウェイを追加",
     "connected": "接続済み",
@@ -1588,7 +1588,7 @@
     "noGateways": "ゲートウェイが設定されていません",
     "addGatewayHint": "ゲートウェイを追加して接続の管理を開始",
     "discoveredGateways": "検出されたゲートウェイ",
-    "discoveredGatewaysDesc": "このマシンで見つかった OpenClaw ゲートウェイ",
+    "discoveredGatewaysDesc": "このマシンで見つかった Vertex ゲートウェイ",
     "refresh": "更新",
     "running": "実行中",
     "stopped": "停止済み",
@@ -1817,7 +1817,7 @@
     "installing": "インストール中...",
     "install": "インストール",
     "noRegistryResults": "{registry} で「{query}」の結果が見つかりませんでした。別のクエリを試すかレジストリを切り替えてください。",
-    "registryPrompt": "ClawdHub、skills.sh、または Awesome OpenClaw を検索してエージェントスキルを見つけてインストールします。",
+    "registryPrompt": "ClawdHub、skills.sh、または Awesome Vertex を検索してエージェントスキルを見つけてインストールします。",
     "skillInstalled": "スキルをインストールしました",
     "installFailed": "インストール失敗",
     "installingSkill": "スキルをインストール中",
@@ -1853,7 +1853,7 @@
     "swePresetInstall": "Install default squad",
     "swePresetInstalling": "Creating agents…",
     "swePresetResult": "Created {createdCount}, skipped {skippedCount}, failed {errorCount}.",
-    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and OpenClaw provisioning stay off unless you enable them in the API body.",
+    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and Vertex provisioning stay off unless you enable them in the API body.",
     "swePhaseOrchestration": "Orchestration",
     "swePhaseDiscovery": "Discovery",
     "swePhaseTechnicalDesign": "Technical design",

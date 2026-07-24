@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "save": "Speichern",
     "cancel": "Abbrechen",
@@ -43,7 +43,7 @@
     "loginFailed": "Anmeldung fehlgeschlagen",
     "enterUsername": "Benutzername eingeben",
     "enterPassword": "Passwort eingeben",
-    "orchestrationTagline": "OpenClaw Agenten-Orchestrierung",
+    "orchestrationTagline": "AI agenten-Orchestrierung",
     "accessRequestSubmitted": "Zugriffsanfrage gesendet",
     "accessRequestDescription": "Ihre Anfrage wurde zur Überprüfung an einen Administrator gesendet. Nach der Genehmigung können Sie sich anmelden.",
     "tryAgain": "Erneut versuchen",
@@ -225,7 +225,7 @@
     "createAndQueue": "Erstellen + Einreihen"
   },
   "localModeBanner": {
-    "noGatewayDetected": "Kein OpenClaw-Gateway erkannt",
+    "noGatewayDetected": "Kein Vertex-Gateway erkannt",
     "runningInLocalMode": " — läuft im lokalen Modus. Überwachung von Claude Code Sitzungen, Aufgaben und lokalen Daten.",
     "configureGateway": "Gateway konfigurieren"
   },
@@ -237,10 +237,10 @@
     "updateFailed": "Aktualisierung fehlgeschlagen",
     "networkError": "Netzwerkfehler — Server konnte nicht erreicht werden."
   },
-  "openclawUpdateBanner": {
-    "updatingOpenClaw": "OpenClaw wird aktualisiert...",
-    "openclawUpdated": "OpenClaw auf v{version} aktualisiert",
-    "openclawUpdateAvailable": "OpenClaw-Update: v{version} verfügbar",
+  "VertexUpdateBanner": {
+    "updatingVertex": "Vertex wird aktualisiert...",
+    "VertexUpdated": "Vertex auf v{version} aktualisiert",
+    "VertexUpdateAvailable": "Vertex-Update: v{version} verfügbar",
     "installed": "installiert: v{version}",
     "changelog": "Änderungsprotokoll",
     "copied": "Kopiert!",
@@ -249,16 +249,16 @@
     "networkError": "Netzwerkfehler — Server konnte nicht erreicht werden."
   },
   "doctorBanner": {
-    "fixCompleted": "OpenClaw-Doktor-Reparatur abgeschlossen",
-    "configDrift": "OpenClaw-Konfigurationsabweichung erkannt",
-    "stateIntegrity": "OpenClaw-Zustandsintegritätswarnung",
-    "securityWarning": "OpenClaw-Sicherheitswarnung",
-    "doctorWarnings": "OpenClaw-Doktor-Warnungen",
-    "runningFixes": "OpenClaw-Doktor-Reparaturen werden ausgeführt...",
+    "fixCompleted": "Vertex-Doktor-Reparatur abgeschlossen",
+    "configDrift": "Vertex-Konfigurationsabweichung erkannt",
+    "stateIntegrity": "Vertex-Zustandsintegritätswarnung",
+    "securityWarning": "Vertex-Sicherheitswarnung",
+    "doctorWarnings": "Vertex-Doktor-Warnungen",
+    "runningFixes": "Vertex-Doktor-Reparaturen werden ausgeführt...",
     "cleaningSessionStores": "Sitzungsspeicher werden bereinigt...",
     "archivingOrphanTranscripts": "Verwaiste Transkripte werden archiviert...",
     "recheckingHealth": "Aktuelle Instanzgesundheit wird erneut überprüft...",
-    "fixFailed": "OpenClaw-Doktor-Reparatur fehlgeschlagen",
+    "fixFailed": "Vertex-Doktor-Reparatur fehlgeschlagen",
     "networkError": "Netzwerkfehler — Server konnte nicht erreicht werden.",
     "runningFix": "Reparatur wird ausgeführt...",
     "runDoctorFix": "Doktor-Reparatur ausführen"
@@ -285,7 +285,7 @@
     "availableInFullMode": "{panel} ist im vollständigen Modus verfügbar.",
     "switchToFull": "Zum vollständigen Modus wechseln",
     "goToOverview": "Zur Übersicht",
-    "requiresGateway": "{panel} erfordert eine OpenClaw-Gateway-Verbindung.",
+    "requiresGateway": "{panel} erfordert eine Vertex-Gateway-Verbindung.",
     "configureGateway": "Konfigurieren Sie ein Gateway, um dieses Panel zu aktivieren."
   },
   "onboarding": {
@@ -332,7 +332,7 @@
     },
     "gatewayLink": {
       "title": "Gateway-Verbindung",
-      "description": "Mission Control registriert seinen Ursprung beim OpenClaw-Gateway, um sich über WebSocket zu verbinden und Agenten remote zu verwalten.",
+      "description": "Mission Control registriert seinen Ursprung beim Vertex-Gateway, um sich über WebSocket zu verbinden und Agenten remote zu verwalten.",
       "originRegistered": "Gateway-Ursprung registriert",
       "originAdded": "Mission Control Ursprung zu Gateway allowedOrigins hinzugefügt",
       "registrationPending": "Registrierung ausstehend — wird bei der nächsten Fähigkeitsprüfung konfiguriert",
@@ -356,7 +356,7 @@
       "apiKeyNotSet": "Nicht gesetzt — ohne konfigurierten Schlüssel können Agenten nicht andocken. Ausführen: bash scripts/generate-env.sh --force",
       "openSettings": "Einstellungen öffnen",
       "securityScan": "Sicherheitsscan",
-      "securityScanDescription": "Überprüfen Sie Netzwerk, Laufzeit und OpenClaw-Härtung, bevor Sie die Station starten.",
+      "securityScanDescription": "Überprüfen Sie Netzwerk, Laufzeit und Vertex-Härtung, bevor Sie die Station starten.",
       "launchStation": "Station starten",
       "launchAnyway": "Trotzdem starten"
     }
@@ -367,8 +367,8 @@
     "gatewayConnected": "Gateway verbunden",
     "gatewayDisconnected": "Gateway getrennt",
     "refresh": "Aktualisieren",
-    "noChannelsConfigured": "Noch keine Kanäle konfiguriert. Konfigurieren Sie Messaging-Plattformen (WhatsApp, Telegram, Discord, Slack usw.) in den OpenClaw-Gateway-Einstellungen.",
-    "gatewayUnreachable": "Das OpenClaw-Gateway ist nicht erreichbar. Überprüfen Sie, ob es läuft und zugänglich ist.",
+    "noChannelsConfigured": "Noch keine Kanäle konfiguriert. Konfigurieren Sie Messaging-Plattformen (WhatsApp, Telegram, Discord, Slack usw.) in den Vertex-Gateway-Einstellungen.",
+    "gatewayUnreachable": "Das Vertex-Gateway ist nicht erreichbar. Überprüfen Sie, ob es läuft und zugänglich ist.",
     "statusConnected": "Verbunden",
     "statusRunning": "Läuft",
     "statusConfigured": "Konfiguriert",
@@ -472,7 +472,7 @@
     "loading": "Graph wird geladen...",
     "retry": "Wiederholen",
     "noMemoryDatabases": "Keine Speicherdatenbanken gefunden",
-    "noMemoryDatabasesHint": "OpenClaw-Speicher-SQLite-Dateien nicht erkannt",
+    "noMemoryDatabasesHint": "Vertex-Speicher-SQLite-Dateien nicht erkannt",
     "allAgents": "alle Agenten",
     "filterFiles": "Dateien filtern...",
     "statAgents": "Agenten",
@@ -977,10 +977,10 @@
     "removeLinuxUser": "Linux-Benutzer entfernen",
     "removeLinuxUserDesc": "Führt `userdel -r` aus und entfernt das Home-Verzeichnis.",
     "removeStateDirs": "Status-/Arbeitsbereichsverzeichnisse entfernen",
-    "removeStateDirsDesc": "Löscht `.openclaw` und `workspace`-Pfade, wenn der Benutzer beibehalten wird.",
+    "removeStateDirsDesc": "Löscht `.Vertex` und `workspace`-Pfade, wenn der Benutzer beibehalten wird.",
     "impactSummary": "Auswirkungszusammenfassung",
-    "impactStopsService": "Stoppt und deaktiviert `openclaw-gateway@{user}.service`.",
-    "impactRemovesEnv": "Entfernt `/etc/openclaw-tenants/{user}.env`.",
+    "impactStopsService": "Stoppt und deaktiviert `Vertex-gateway@{user}.service`.",
+    "impactRemovesEnv": "Entfernt `/etc/Vertex-tenants/{user}.env`.",
     "impactLinuxUserRemoved": "Linux-Benutzer wird entfernt.",
     "impactStateDirsRemoved": "Status-/Arbeitsbereichsverzeichnisse werden entfernt.",
     "impactRetained": "Linux-Benutzer und Verzeichnisse werden beibehalten.",
@@ -1079,7 +1079,7 @@
     "infrastructureScan": "Infrastruktur-Scan",
     "scanCredentials": "Anmeldedaten",
     "scanNetwork": "Netzwerk",
-    "scanOpenclaw": "OpenClaw",
+    "scanVertex": "Vertex",
     "scanRuntime": "Laufzeit",
     "scanOs": "Betriebssystemsicherheit",
     "authEvents": "Auth-Ereignisse",
@@ -1536,7 +1536,7 @@
     "addAgent": "+ Agent hinzufügen",
     "refresh": "Aktualisieren",
     "noAgents": "Keine Agenten gefunden",
-    "noAgentsHint": "Lokale Agenten werden automatisch aus den Claude-, Codex- und Hermes-Verzeichnissen erkannt. Im Gateway-Modus werden auch beim OpenClaw-Gateway registrierte Agenten hier angezeigt.",
+    "noAgentsHint": "Lokale Agenten werden automatisch aus den Claude-, Codex- und Hermes-Verzeichnissen erkannt. Im Gateway-Modus werden auch beim Vertex-Gateway registrierte Agenten hier angezeigt.",
     "addFirstAgent": "Fügen Sie Ihren ersten Agenten hinzu, um zu beginnen",
     "session": "Sitzung",
     "totalTasks": "Aufgaben gesamt",
@@ -1578,7 +1578,7 @@
   },
   "multiGateway": {
     "title": "Gateway-Manager",
-    "description": "Mehrere OpenClaw-Gateway-Verbindungen verwalten",
+    "description": "Mehrere Vertex-Gateway-Verbindungen verwalten",
     "probeAll": "Alle testen",
     "addGateway": "+ Gateway hinzufügen",
     "connected": "Verbunden",
@@ -1588,7 +1588,7 @@
     "noGateways": "Keine Gateways konfiguriert",
     "addGatewayHint": "Gateway hinzufügen, um Verbindungen zu verwalten",
     "discoveredGateways": "Entdeckte Gateways",
-    "discoveredGatewaysDesc": "Auf diesem Computer gefundene OpenClaw-Gateways",
+    "discoveredGatewaysDesc": "Auf diesem Computer gefundene Vertex-Gateways",
     "refresh": "Aktualisieren",
     "running": "LÄUFT",
     "stopped": "GESTOPPT",
@@ -1817,7 +1817,7 @@
     "installing": "Wird installiert...",
     "install": "Installieren",
     "noRegistryResults": "Keine Ergebnisse für \"{query}\" auf {registry}. Versuchen Sie eine andere Anfrage oder wechseln Sie die Registry.",
-    "registryPrompt": "Suchen Sie auf ClawdHub, skills.sh oder Awesome OpenClaw, um Agenten-Skills zu entdecken und zu installieren.",
+    "registryPrompt": "Suchen Sie auf ClawdHub, skills.sh oder Awesome Vertex, um Agenten-Skills zu entdecken und zu installieren.",
     "skillInstalled": "Skill installiert",
     "installFailed": "Installation fehlgeschlagen",
     "installingSkill": "Skill wird installiert",
@@ -1853,7 +1853,7 @@
     "swePresetInstall": "Install default squad",
     "swePresetInstalling": "Creating agents…",
     "swePresetResult": "Created {createdCount}, skipped {skippedCount}, failed {errorCount}.",
-    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and OpenClaw provisioning stay off unless you enable them in the API body.",
+    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and Vertex provisioning stay off unless you enable them in the API body.",
     "swePhaseOrchestration": "Orchestration",
     "swePhaseDiscovery": "Discovery",
     "swePhaseTechnicalDesign": "Technical design",

@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "save": "保存",
     "cancel": "取消",
@@ -43,7 +43,7 @@
     "loginFailed": "登录失败",
     "enterUsername": "输入用户名",
     "enterPassword": "输入密码",
-    "orchestrationTagline": "OpenClaw 智能体编排",
+    "orchestrationTagline": "Vertex 智能体编排",
     "accessRequestSubmitted": "访问请求已提交",
     "accessRequestDescription": "您的请求已发送给管理员审核。审核通过后即可登录。",
     "tryAgain": "重试",
@@ -225,7 +225,7 @@
     "createAndQueue": "创建并排队"
   },
   "localModeBanner": {
-    "noGatewayDetected": "未检测到 OpenClaw 网关",
+    "noGatewayDetected": "未检测到 Vertex 网关",
     "runningInLocalMode": " — 正在以本地模式运行。监控 Claude Code 会话、任务和本地数据。",
     "configureGateway": "配置网关"
   },
@@ -237,10 +237,10 @@
     "updateFailed": "更新失败",
     "networkError": "网络错误 — 无法连接到服务器。"
   },
-  "openclawUpdateBanner": {
-    "updatingOpenClaw": "正在更新 OpenClaw...",
-    "openclawUpdated": "OpenClaw 已更新至 v{version}",
-    "openclawUpdateAvailable": "OpenClaw 更新：v{version} 可用",
+  "VertexUpdateBanner": {
+    "updatingVertex": "正在更新 Vertex...",
+    "VertexUpdated": "Vertex 已更新至 v{version}",
+    "VertexUpdateAvailable": "Vertex 更新：v{version} 可用",
     "installed": "已安装：v{version}",
     "changelog": "更新日志",
     "copied": "已复制！",
@@ -249,16 +249,16 @@
     "networkError": "网络错误 — 无法连接到服务器。"
   },
   "doctorBanner": {
-    "fixCompleted": "OpenClaw 诊断修复完成",
-    "configDrift": "检测到 OpenClaw 配置偏移",
-    "stateIntegrity": "OpenClaw 状态完整性警告",
-    "securityWarning": "OpenClaw 安全警告",
-    "doctorWarnings": "OpenClaw 诊断警告",
-    "runningFixes": "正在运行 OpenClaw 诊断修复...",
+    "fixCompleted": "Vertex 诊断修复完成",
+    "configDrift": "检测到 Vertex 配置偏移",
+    "stateIntegrity": "Vertex 状态完整性警告",
+    "securityWarning": "Vertex 安全警告",
+    "doctorWarnings": "Vertex 诊断警告",
+    "runningFixes": "正在运行 Vertex 诊断修复...",
     "cleaningSessionStores": "正在清理会话存储...",
     "archivingOrphanTranscripts": "正在归档孤立的转录记录...",
     "recheckingHealth": "正在重新检查当前实例健康状态...",
-    "fixFailed": "OpenClaw 诊断修复失败",
+    "fixFailed": "Vertex 诊断修复失败",
     "networkError": "网络错误 — 无法连接到服务器。",
     "runningFix": "正在修复...",
     "runDoctorFix": "运行诊断修复"
@@ -285,7 +285,7 @@
     "availableInFullMode": "{panel}在完整模式下可用。",
     "switchToFull": "切换到完整模式",
     "goToOverview": "前往概览",
-    "requiresGateway": "{panel}需要 OpenClaw 网关连接。",
+    "requiresGateway": "{panel}需要 Vertex 网关连接。",
     "configureGateway": "配置网关以启用此面板。"
   },
   "onboarding": {
@@ -332,7 +332,7 @@
     },
     "gatewayLink": {
       "title": "网关链接",
-      "description": "Mission Control 将其来源注册到 OpenClaw 网关，以便通过 WebSocket 连接并远程管理智能体。",
+      "description": "Mission Control 将其来源注册到 Vertex 网关，以便通过 WebSocket 连接并远程管理智能体。",
       "originRegistered": "网关来源已注册",
       "originAdded": "Mission Control 来源已添加到网关 allowedOrigins",
       "registrationPending": "注册待处理 — 将在下次能力检查时配置",
@@ -356,7 +356,7 @@
       "apiKeyNotSet": "未设置 — 没有配置密钥，智能体将无法停靠。运行：bash scripts/generate-env.sh --force",
       "openSettings": "打开设置",
       "securityScan": "安全扫描",
-      "securityScanDescription": "在启动站点前验证网络、运行时和 OpenClaw 加固状态。",
+      "securityScanDescription": "在启动站点前验证网络、运行时和 Vertex 加固状态。",
       "launchStation": "启动站点",
       "launchAnyway": "仍然启动"
     }
@@ -367,8 +367,8 @@
     "gatewayConnected": "网关已连接",
     "gatewayDisconnected": "网关已断开",
     "refresh": "刷新",
-    "noChannelsConfigured": "尚未配置频道。请在 OpenClaw 网关设置中配置消息平台（WhatsApp、Telegram、Discord、Slack 等）。",
-    "gatewayUnreachable": "无法连接 OpenClaw 网关，请确认其正在运行并可访问。",
+    "noChannelsConfigured": "尚未配置频道。请在 Vertex 网关设置中配置消息平台（WhatsApp、Telegram、Discord、Slack 等）。",
+    "gatewayUnreachable": "无法连接 Vertex 网关，请确认其正在运行并可访问。",
     "statusConnected": "已连接",
     "statusRunning": "运行中",
     "statusConfigured": "已配置",
@@ -472,7 +472,7 @@
     "loading": "加载图谱中...",
     "retry": "重试",
     "noMemoryDatabases": "未找到内存数据库",
-    "noMemoryDatabasesHint": "未检测到 OpenClaw 内存 SQLite 文件",
+    "noMemoryDatabasesHint": "未检测到 Vertex 内存 SQLite 文件",
     "allAgents": "所有代理",
     "filterFiles": "过滤文件...",
     "statAgents": "代理",
@@ -685,7 +685,7 @@
     "installing": "安装中...",
     "install": "安装",
     "noRegistryResults": "在 {registry} 上未找到 \"{query}\" 的结果。请尝试不同的查询或切换注册表。",
-    "registryPrompt": "搜索 ClawdHub、skills.sh 或 Awesome OpenClaw 以发现并安装代理技能。",
+    "registryPrompt": "搜索 ClawdHub、skills.sh 或 Awesome Vertex 以发现并安装代理技能。",
     "skillInstalled": "技能已安装",
     "installFailed": "安装失败",
     "installingSkill": "正在安装技能",
@@ -721,7 +721,7 @@
     "swePresetInstall": "Install default squad",
     "swePresetInstalling": "Creating agents…",
     "swePresetResult": "Created {createdCount}, skipped {skippedCount}, failed {errorCount}.",
-    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and OpenClaw provisioning stay off unless you enable them in the API body.",
+    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and Vertex provisioning stay off unless you enable them in the API body.",
     "swePhaseOrchestration": "Orchestration",
     "swePhaseDiscovery": "Discovery",
     "swePhaseTechnicalDesign": "Technical design",
@@ -1230,10 +1230,10 @@
     "removeLinuxUser": "删除 Linux 用户",
     "removeLinuxUserDesc": "执行 `userdel -r` 并删除主目录。",
     "removeStateDirs": "删除状态/工作区目录",
-    "removeStateDirsDesc": "保留用户时删除 `.openclaw` 和 `workspace` 路径。",
+    "removeStateDirsDesc": "保留用户时删除 `.Vertex` 和 `workspace` 路径。",
     "impactSummary": "影响摘要",
-    "impactStopsService": "停止并禁用 `openclaw-gateway@{user}.service`。",
-    "impactRemovesEnv": "删除 `/etc/openclaw-tenants/{user}.env`。",
+    "impactStopsService": "停止并禁用 `Vertex-gateway@{user}.service`。",
+    "impactRemovesEnv": "删除 `/etc/Vertex-tenants/{user}.env`。",
     "impactLinuxUserRemoved": "Linux 用户将被删除。",
     "impactStateDirsRemoved": "状态/工作区目录将被删除。",
     "impactRetained": "Linux 用户和目录将保留。",
@@ -1332,7 +1332,7 @@
     "infrastructureScan": "基础设施扫描",
     "scanCredentials": "凭证",
     "scanNetwork": "网络",
-    "scanOpenclaw": "OpenClaw",
+    "scanVertex": "Vertex",
     "scanRuntime": "运行时",
     "scanOs": "操作系统安全",
     "authEvents": "认证事件",
@@ -1789,7 +1789,7 @@
     "addAgent": "+ 添加代理",
     "refresh": "刷新",
     "noAgents": "未找到代理",
-    "noAgentsHint": "本地代理会从 Claude、Codex 和 Hermes 目录自动发现。在网关模式下，注册到 OpenClaw 网关的代理也会显示在此处。",
+    "noAgentsHint": "本地代理会从 Claude、Codex 和 Hermes 目录自动发现。在网关模式下，注册到 Vertex 网关的代理也会显示在此处。",
     "addFirstAgent": "添加您的第一个代理以开始使用",
     "session": "会话",
     "totalTasks": "任务总数",
@@ -1831,7 +1831,7 @@
   },
   "multiGateway": {
     "title": "网关管理器",
-    "description": "管理多个 OpenClaw 网关连接",
+    "description": "管理多个 Vertex 网关连接",
     "probeAll": "探测全部",
     "addGateway": "+ 添加网关",
     "connected": "已连接",
@@ -1841,7 +1841,7 @@
     "noGateways": "未配置网关",
     "addGatewayHint": "添加网关以开始管理连接",
     "discoveredGateways": "发现的网关",
-    "discoveredGatewaysDesc": "在此计算机上发现的 OpenClaw 网关",
+    "discoveredGatewaysDesc": "在此计算机上发现的 Vertex 网关",
     "refresh": "刷新",
     "running": "运行中",
     "stopped": "已停止",

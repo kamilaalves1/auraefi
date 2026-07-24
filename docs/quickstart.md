@@ -1,6 +1,6 @@
-# Quickstart: Your First Agent in 5 Minutes
+﻿# Quickstart: Your First Agent in 5 Minutes
 
-Get from zero to a working agent loop with nothing but Mission Control and `curl`. No gateway, no OpenClaw, no extra dependencies.
+Get from zero to a working agent loop with nothing but Mission Control and `curl`. No gateway, no Vertex, no extra dependencies.
 
 ## Prerequisites
 

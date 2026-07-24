@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "save": "저장",
     "cancel": "취소",
@@ -43,7 +43,7 @@
     "loginFailed": "로그인 실패",
     "enterUsername": "사용자 이름 입력",
     "enterPassword": "비밀번호 입력",
-    "orchestrationTagline": "OpenClaw 에이전트 오케스트레이션",
+    "orchestrationTagline": "Vertex 에이전트 오케스트레이션",
     "accessRequestSubmitted": "접근 요청이 제출되었습니다",
     "accessRequestDescription": "요청이 관리자에게 전송되었습니다. 승인 후 로그인할 수 있습니다.",
     "tryAgain": "다시 시도",
@@ -225,7 +225,7 @@
     "createAndQueue": "만들기 + 대기열 추가"
   },
   "localModeBanner": {
-    "noGatewayDetected": "OpenClaw 게이트웨이가 감지되지 않음",
+    "noGatewayDetected": "Vertex 게이트웨이가 감지되지 않음",
     "runningInLocalMode": " — 로컬 모드로 실행 중. Claude Code 세션, 작업 및 로컬 데이터를 모니터링합니다.",
     "configureGateway": "게이트웨이 설정"
   },
@@ -237,10 +237,10 @@
     "updateFailed": "업데이트 실패",
     "networkError": "네트워크 오류 — 서버에 연결할 수 없습니다."
   },
-  "openclawUpdateBanner": {
-    "updatingOpenClaw": "OpenClaw 업데이트 중...",
-    "openclawUpdated": "OpenClaw가 v{version}으로 업데이트되었습니다",
-    "openclawUpdateAvailable": "OpenClaw 업데이트: v{version} 사용 가능",
+  "VertexUpdateBanner": {
+    "updatingVertex": "Vertex 업데이트 중...",
+    "VertexUpdated": "Vertex가 v{version}으로 업데이트되었습니다",
+    "VertexUpdateAvailable": "Vertex 업데이트: v{version} 사용 가능",
     "installed": "설치됨: v{version}",
     "changelog": "변경 로그",
     "copied": "복사됨!",
@@ -249,16 +249,16 @@
     "networkError": "네트워크 오류 — 서버에 연결할 수 없습니다."
   },
   "doctorBanner": {
-    "fixCompleted": "OpenClaw 닥터 수정 완료",
-    "configDrift": "OpenClaw 설정 드리프트 감지됨",
-    "stateIntegrity": "OpenClaw 상태 무결성 경고",
-    "securityWarning": "OpenClaw 보안 경고",
-    "doctorWarnings": "OpenClaw 닥터 경고",
-    "runningFixes": "OpenClaw 닥터 수정 실행 중...",
+    "fixCompleted": "Vertex 닥터 수정 완료",
+    "configDrift": "Vertex 설정 드리프트 감지됨",
+    "stateIntegrity": "Vertex 상태 무결성 경고",
+    "securityWarning": "Vertex 보안 경고",
+    "doctorWarnings": "Vertex 닥터 경고",
+    "runningFixes": "Vertex 닥터 수정 실행 중...",
     "cleaningSessionStores": "세션 저장소 정리 중...",
     "archivingOrphanTranscripts": "고아 트랜스크립트 보관 중...",
     "recheckingHealth": "현재 인스턴스 상태 재확인 중...",
-    "fixFailed": "OpenClaw 닥터 수정 실패",
+    "fixFailed": "Vertex 닥터 수정 실패",
     "networkError": "네트워크 오류 — 서버에 연결할 수 없습니다.",
     "runningFix": "수정 실행 중...",
     "runDoctorFix": "닥터 수정 실행"
@@ -285,7 +285,7 @@
     "availableInFullMode": "{panel}은(는) 전체 모드에서 사용할 수 있습니다.",
     "switchToFull": "전체 모드로 전환",
     "goToOverview": "개요로 이동",
-    "requiresGateway": "{panel}은(는) OpenClaw 게이트웨이 연결이 필요합니다.",
+    "requiresGateway": "{panel}은(는) Vertex 게이트웨이 연결이 필요합니다.",
     "configureGateway": "이 패널을 활성화하려면 게이트웨이를 설정하세요."
   },
   "onboarding": {
@@ -332,7 +332,7 @@
     },
     "gatewayLink": {
       "title": "게이트웨이 링크",
-      "description": "Mission Control은 오리진을 OpenClaw 게이트웨이에 등록하여 WebSocket을 통해 연결하고 에이전트를 원격으로 관리할 수 있습니다.",
+      "description": "Mission Control은 오리진을 Vertex 게이트웨이에 등록하여 WebSocket을 통해 연결하고 에이전트를 원격으로 관리할 수 있습니다.",
       "originRegistered": "게이트웨이 오리진 등록됨",
       "originAdded": "Mission Control 오리진이 게이트웨이 allowedOrigins에 추가됨",
       "registrationPending": "등록 대기 중 — 다음 기능 확인 시 설정됩니다",
@@ -356,7 +356,7 @@
       "apiKeyNotSet": "미설정 — 키가 설정되지 않으면 에이전트가 도킹할 수 없습니다. 실행: bash scripts/generate-env.sh --force",
       "openSettings": "설정 열기",
       "securityScan": "보안 스캔",
-      "securityScanDescription": "스테이션 시작 전에 네트워크, 런타임, OpenClaw 강화를 검증합니다.",
+      "securityScanDescription": "스테이션 시작 전에 네트워크, 런타임, Vertex 강화를 검증합니다.",
       "launchStation": "스테이션 시작",
       "launchAnyway": "그래도 시작"
     }
@@ -367,8 +367,8 @@
     "gatewayConnected": "게이트웨이 연결됨",
     "gatewayDisconnected": "게이트웨이 연결 끊김",
     "refresh": "새로고침",
-    "noChannelsConfigured": "아직 채널이 설정되지 않았습니다. OpenClaw 게이트웨이 설정에서 메시징 플랫폼(WhatsApp, Telegram, Discord, Slack 등)을 구성하세요.",
-    "gatewayUnreachable": "OpenClaw 게이트웨이에 접근할 수 없습니다. 실행 중인지 확인하세요.",
+    "noChannelsConfigured": "아직 채널이 설정되지 않았습니다. Vertex 게이트웨이 설정에서 메시징 플랫폼(WhatsApp, Telegram, Discord, Slack 등)을 구성하세요.",
+    "gatewayUnreachable": "Vertex 게이트웨이에 접근할 수 없습니다. 실행 중인지 확인하세요.",
     "statusConnected": "연결됨",
     "statusRunning": "실행 중",
     "statusConfigured": "설정됨",
@@ -472,7 +472,7 @@
     "loading": "그래프 불러오는 중...",
     "retry": "다시 시도",
     "noMemoryDatabases": "메모리 데이터베이스를 찾을 수 없습니다",
-    "noMemoryDatabasesHint": "OpenClaw 메모리 SQLite 파일이 감지되지 않았습니다",
+    "noMemoryDatabasesHint": "Vertex 메모리 SQLite 파일이 감지되지 않았습니다",
     "allAgents": "모든 에이전트",
     "filterFiles": "파일 필터...",
     "statAgents": "에이전트",
@@ -977,10 +977,10 @@
     "removeLinuxUser": "Linux 사용자 제거",
     "removeLinuxUserDesc": "`userdel -r`을 실행하고 홈 디렉토리를 제거합니다.",
     "removeStateDirs": "상태/워크스페이스 디렉토리 제거",
-    "removeStateDirsDesc": "사용자를 유지할 때 `.openclaw` 및 `workspace` 경로를 삭제합니다.",
+    "removeStateDirsDesc": "사용자를 유지할 때 `.Vertex` 및 `workspace` 경로를 삭제합니다.",
     "impactSummary": "영향 요약",
-    "impactStopsService": "`openclaw-gateway@{user}.service`를 중지하고 비활성화합니다.",
-    "impactRemovesEnv": "`/etc/openclaw-tenants/{user}.env`를 제거합니다.",
+    "impactStopsService": "`Vertex-gateway@{user}.service`를 중지하고 비활성화합니다.",
+    "impactRemovesEnv": "`/etc/Vertex-tenants/{user}.env`를 제거합니다.",
     "impactLinuxUserRemoved": "Linux 사용자가 제거됩니다.",
     "impactStateDirsRemoved": "상태/워크스페이스 디렉토리가 제거됩니다.",
     "impactRetained": "Linux 사용자와 디렉토리는 유지됩니다.",
@@ -1079,7 +1079,7 @@
     "infrastructureScan": "인프라 스캔",
     "scanCredentials": "자격 증명",
     "scanNetwork": "네트워크",
-    "scanOpenclaw": "OpenClaw",
+    "scanVertex": "Vertex",
     "scanRuntime": "런타임",
     "scanOs": "OS 보안",
     "authEvents": "인증 이벤트",
@@ -1536,7 +1536,7 @@
     "addAgent": "+ 에이전트 추가",
     "refresh": "새로 고침",
     "noAgents": "에이전트를 찾을 수 없습니다",
-    "noAgentsHint": "로컬 에이전트는 Claude, Codex, Hermes 디렉토리에서 자동으로 검색됩니다. 게이트웨이 모드에서는 OpenClaw 게이트웨이에 등록된 에이전트도 여기에 표시됩니다.",
+    "noAgentsHint": "로컬 에이전트는 Claude, Codex, Hermes 디렉토리에서 자동으로 검색됩니다. 게이트웨이 모드에서는 Vertex 게이트웨이에 등록된 에이전트도 여기에 표시됩니다.",
     "addFirstAgent": "첫 번째 에이전트를 추가하여 시작하세요",
     "session": "세션",
     "totalTasks": "총 작업",
@@ -1578,7 +1578,7 @@
   },
   "multiGateway": {
     "title": "게이트웨이 관리자",
-    "description": "여러 OpenClaw 게이트웨이 연결 관리",
+    "description": "여러 Vertex 게이트웨이 연결 관리",
     "probeAll": "모두 탐색",
     "addGateway": "+ 게이트웨이 추가",
     "connected": "연결됨",
@@ -1588,7 +1588,7 @@
     "noGateways": "게이트웨이가 구성되지 않았습니다",
     "addGatewayHint": "게이트웨이를 추가하여 연결 관리 시작",
     "discoveredGateways": "발견된 게이트웨이",
-    "discoveredGatewaysDesc": "이 머신에서 발견된 OpenClaw 게이트웨이",
+    "discoveredGatewaysDesc": "이 머신에서 발견된 Vertex 게이트웨이",
     "refresh": "새로 고침",
     "running": "실행 중",
     "stopped": "중지됨",
@@ -1817,7 +1817,7 @@
     "installing": "설치 중...",
     "install": "설치",
     "noRegistryResults": "{registry}에서 \"{query}\"에 대한 결과를 찾을 수 없습니다. 다른 검색어를 시도하거나 레지스트리를 변경하세요.",
-    "registryPrompt": "ClawdHub, skills.sh 또는 Awesome OpenClaw를 검색하여 에이전트 스킬을 발견하고 설치하세요.",
+    "registryPrompt": "ClawdHub, skills.sh 또는 Awesome Vertex를 검색하여 에이전트 스킬을 발견하고 설치하세요.",
     "skillInstalled": "스킬 설치됨",
     "installFailed": "설치 실패",
     "installingSkill": "스킬 설치 중",
@@ -1853,7 +1853,7 @@
     "swePresetInstall": "Install default squad",
     "swePresetInstalling": "Creating agents…",
     "swePresetResult": "Created {createdCount}, skipped {skippedCount}, failed {errorCount}.",
-    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and OpenClaw provisioning stay off unless you enable them in the API body.",
+    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and Vertex provisioning stay off unless you enable them in the API body.",
     "swePhaseOrchestration": "Orchestration",
     "swePhaseDiscovery": "Discovery",
     "swePhaseTechnicalDesign": "Technical design",

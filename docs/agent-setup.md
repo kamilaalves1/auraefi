@@ -1,4 +1,4 @@
-# Agent Setup Guide
+﻿# Agent Setup Guide
 
 This guide covers everything you need to configure agents in Mission Control: registration methods, SOUL personalities, working files, configuration, and liveness monitoring.
 
@@ -43,18 +43,18 @@ curl -X POST http://localhost:3000/api/agents \
     "soul_content": "You are Aegis, the quality reviewer...",
     "config": {
       "dispatchModel": "9router/cc/claude-opus-4-6",
-      "openclawId": "aegis"
+      "VertexId": "aegis"
     }
   }'
 ```
 
 This requires `operator` role and supports additional fields like `soul_content`, `config`, and `template`.
 
-### Method 3: Config Sync (OpenClaw or Local Discovery)
+### Method 3: Config Sync (Local Discovery)
 
 Mission Control can auto-discover agents from:
 
-**OpenClaw config sync** — Reads agents from your `openclaw.json` file:
+**agent config sync** — Reads agents from your `agent-config.json` file:
 
 ```bash
 curl -X POST http://localhost:3000/api/agents/sync \
@@ -63,7 +63,7 @@ curl -X POST http://localhost:3000/api/agents/sync \
   -d '{"source": "config"}'
 ```
 
-Set `OPENCLAW_CONFIG_PATH` to point to your `openclaw.json`.
+Set `AGENT_CONFIG_PATH` to point to your `agent-config.json`.
 
 **Local agent discovery** — Scans standard directories for agent definitions:
 
@@ -239,7 +239,7 @@ Each agent has a JSON `config` object stored in the database. Key fields:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `openclawId` | string | Gateway agent identifier (falls back to agent name) |
+| `VertexId` | string | Gateway agent identifier (falls back to agent name) |
 | `dispatchModel` | string | Model override for auto-dispatch (e.g., `9router/cc/claude-opus-4-6`) |
 | `capabilities` | string[] | List of agent capabilities |
 | `framework` | string | Framework that created the agent (e.g., `claude-sdk`, `crewai`) |
@@ -248,7 +248,7 @@ Example config:
 
 ```json
 {
-  "openclawId": "scout",
+  "VertexId": "scout",
   "dispatchModel": "9router/cc/claude-sonnet-4-6",
   "capabilities": ["code-review", "testing", "documentation"],
   "framework": "claude-sdk"
@@ -316,7 +316,7 @@ The `source` field on each agent indicates how it was registered:
 | `manual` | Created through UI or direct API call |
 | `self` | Agent self-registered via `/api/agents/register` |
 | `local` | Discovered from `~/.agents/`, `~/.claude/agents/`, etc. |
-| `config` | Synced from `openclaw.json` |
+| `config` | Synced from `agent-config.json` |
 | `gateway` | Registered by a gateway connection |
 
 ## Agent Templates

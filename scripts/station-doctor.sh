@@ -159,12 +159,12 @@ else
   warn "No backup directory at $BACKUP_DIR"
 fi
 
-# ── 7. OpenClaw gateway ─────────────────────────────────────────────────────
+# ── 7. gateway ─────────────────────────────────────────────────────
 echo ""
-echo "--- OpenClaw Gateway ---"
+echo "--- Gateway ---"
 
-GW_HOST="${OPENCLAW_GATEWAY_HOST:-127.0.0.1}"
-GW_PORT="${OPENCLAW_GATEWAY_PORT:-18789}"
+GW_HOST="${GATEWAY_HOST:-127.0.0.1}"
+GW_PORT="${GATEWAY_PORT:-18789}"
 
 if nc -z "$GW_HOST" "$GW_PORT" 2>/dev/null || (echo > "/dev/tcp/$GW_HOST/$GW_PORT") 2>/dev/null; then
   pass "Gateway reachable at $GW_HOST:$GW_PORT"

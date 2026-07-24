@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "save": "Сохранить",
     "cancel": "Отмена",
@@ -43,7 +43,7 @@
     "loginFailed": "Ошибка входа",
     "enterUsername": "Введите имя пользователя",
     "enterPassword": "Введите пароль",
-    "orchestrationTagline": "Оркестрация агентов OpenClaw",
+    "orchestrationTagline": "Оркестрация агентов Vertex",
     "accessRequestSubmitted": "Запрос на доступ отправлен",
     "accessRequestDescription": "Ваш запрос отправлен администратору на рассмотрение. Вы сможете войти после одобрения.",
     "tryAgain": "Попробовать снова",
@@ -225,7 +225,7 @@
     "createAndQueue": "Создать + В очередь"
   },
   "localModeBanner": {
-    "noGatewayDetected": "Шлюз OpenClaw не обнаружен",
+    "noGatewayDetected": "Шлюз Vertex не обнаружен",
     "runningInLocalMode": " — работа в локальном режиме. Мониторинг сессий Claude Code, задач и локальных данных.",
     "configureGateway": "Настроить шлюз"
   },
@@ -237,10 +237,10 @@
     "updateFailed": "Ошибка обновления",
     "networkError": "Ошибка сети — не удалось связаться с сервером."
   },
-  "openclawUpdateBanner": {
-    "updatingOpenClaw": "Обновление OpenClaw...",
-    "openclawUpdated": "OpenClaw обновлён до v{version}",
-    "openclawUpdateAvailable": "Обновление OpenClaw: доступна v{version}",
+  "VertexUpdateBanner": {
+    "updatingVertex": "Обновление Vertex...",
+    "VertexUpdated": "Vertex обновлён до v{version}",
+    "VertexUpdateAvailable": "Обновление Vertex: доступна v{version}",
     "installed": "установлено: v{version}",
     "changelog": "Журнал изменений",
     "copied": "Скопировано!",
@@ -249,16 +249,16 @@
     "networkError": "Ошибка сети — не удалось связаться с сервером."
   },
   "doctorBanner": {
-    "fixCompleted": "Исправление доктора OpenClaw завершено",
-    "configDrift": "Обнаружен дрейф конфигурации OpenClaw",
-    "stateIntegrity": "Предупреждение о целостности состояния OpenClaw",
-    "securityWarning": "Предупреждение безопасности OpenClaw",
-    "doctorWarnings": "Предупреждения доктора OpenClaw",
-    "runningFixes": "Выполнение исправлений доктора OpenClaw...",
+    "fixCompleted": "Исправление доктора Vertex завершено",
+    "configDrift": "Обнаружен дрейф конфигурации Vertex",
+    "stateIntegrity": "Предупреждение о целостности состояния Vertex",
+    "securityWarning": "Предупреждение безопасности Vertex",
+    "doctorWarnings": "Предупреждения доктора Vertex",
+    "runningFixes": "Выполнение исправлений доктора Vertex...",
     "cleaningSessionStores": "Очистка хранилищ сессий...",
     "archivingOrphanTranscripts": "Архивация осиротевших транскриптов...",
     "recheckingHealth": "Повторная проверка здоровья текущего экземпляра...",
-    "fixFailed": "Ошибка исправления доктора OpenClaw",
+    "fixFailed": "Ошибка исправления доктора Vertex",
     "networkError": "Ошибка сети — не удалось связаться с сервером.",
     "runningFix": "Выполнение исправления...",
     "runDoctorFix": "Запустить исправление доктора"
@@ -285,7 +285,7 @@
     "availableInFullMode": "{panel} доступен в полном режиме.",
     "switchToFull": "Переключить на полный",
     "goToOverview": "Перейти к обзору",
-    "requiresGateway": "{panel} требует подключения к шлюзу OpenClaw.",
+    "requiresGateway": "{panel} требует подключения к шлюзу Vertex.",
     "configureGateway": "Настройте шлюз для активации этой панели."
   },
   "onboarding": {
@@ -332,7 +332,7 @@
     },
     "gatewayLink": {
       "title": "Связь со шлюзом",
-      "description": "Mission Control регистрирует свой источник в шлюзе OpenClaw для подключения через WebSocket и удалённого управления агентами.",
+      "description": "Mission Control регистрирует свой источник в шлюзе Vertex для подключения через WebSocket и удалённого управления агентами.",
       "originRegistered": "Источник шлюза зарегистрирован",
       "originAdded": "Источник Mission Control добавлен в allowedOrigins шлюза",
       "registrationPending": "Регистрация ожидается — будет настроена при следующей проверке возможностей",
@@ -356,7 +356,7 @@
       "apiKeyNotSet": "Не задан — без настроенного ключа агенты не смогут стыковаться. Выполните: bash scripts/generate-env.sh --force",
       "openSettings": "Открыть настройки",
       "securityScan": "Сканирование безопасности",
-      "securityScanDescription": "Проверьте сеть, среду выполнения и укрепление OpenClaw перед запуском станции.",
+      "securityScanDescription": "Проверьте сеть, среду выполнения и укрепление Vertex перед запуском станции.",
       "launchStation": "Запустить станцию",
       "launchAnyway": "Запустить всё равно"
     }
@@ -367,8 +367,8 @@
     "gatewayConnected": "Шлюз подключён",
     "gatewayDisconnected": "Шлюз отключён",
     "refresh": "Обновить",
-    "noChannelsConfigured": "Каналы ещё не настроены. Настройте платформы обмена сообщениями (WhatsApp, Telegram, Discord, Slack и др.) в настройках шлюза OpenClaw.",
-    "gatewayUnreachable": "Не удаётся подключиться к шлюзу OpenClaw. Проверьте, что он запущен и доступен.",
+    "noChannelsConfigured": "Каналы ещё не настроены. Настройте платформы обмена сообщениями (WhatsApp, Telegram, Discord, Slack и др.) в настройках шлюза Vertex.",
+    "gatewayUnreachable": "Не удаётся подключиться к шлюзу Vertex. Проверьте, что он запущен и доступен.",
     "statusConnected": "Подключено",
     "statusRunning": "Работает",
     "statusConfigured": "Настроено",
@@ -472,7 +472,7 @@
     "loading": "Загрузка графа...",
     "retry": "Повторить",
     "noMemoryDatabases": "Базы данных памяти не найдены",
-    "noMemoryDatabasesHint": "Файлы SQLite памяти OpenClaw не обнаружены",
+    "noMemoryDatabasesHint": "Файлы SQLite памяти Vertex не обнаружены",
     "allAgents": "все агенты",
     "filterFiles": "фильтр файлов...",
     "statAgents": "агенты",
@@ -977,10 +977,10 @@
     "removeLinuxUser": "Удалить пользователя Linux",
     "removeLinuxUserDesc": "Выполняет `userdel -r` и удаляет домашний каталог.",
     "removeStateDirs": "Удалить директории состояния/рабочего пространства",
-    "removeStateDirsDesc": "Удаляет пути `.openclaw` и `workspace` при сохранении пользователя.",
+    "removeStateDirsDesc": "Удаляет пути `.Vertex` и `workspace` при сохранении пользователя.",
     "impactSummary": "Сводка последствий",
-    "impactStopsService": "Останавливает и отключает `openclaw-gateway@{user}.service`.",
-    "impactRemovesEnv": "Удаляет `/etc/openclaw-tenants/{user}.env`.",
+    "impactStopsService": "Останавливает и отключает `Vertex-gateway@{user}.service`.",
+    "impactRemovesEnv": "Удаляет `/etc/Vertex-tenants/{user}.env`.",
     "impactLinuxUserRemoved": "Пользователь Linux будет удалён.",
     "impactStateDirsRemoved": "Директории состояния/рабочего пространства будут удалены.",
     "impactRetained": "Пользователь Linux и директории сохраняются.",
@@ -1079,7 +1079,7 @@
     "infrastructureScan": "Сканирование Инфраструктуры",
     "scanCredentials": "Учётные данные",
     "scanNetwork": "Сеть",
-    "scanOpenclaw": "OpenClaw",
+    "scanVertex": "Vertex",
     "scanRuntime": "Среда выполнения",
     "scanOs": "Безопасность ОС",
     "authEvents": "События Аутентификации",
@@ -1536,7 +1536,7 @@
     "addAgent": "+ Добавить агента",
     "refresh": "Обновить",
     "noAgents": "Агенты не найдены",
-    "noAgentsHint": "Локальные агенты автоматически обнаруживаются из каталогов Claude, Codex и Hermes. В режиме шлюза здесь также будут отображаться агенты, зарегистрированные на вашем шлюзе OpenClaw.",
+    "noAgentsHint": "Локальные агенты автоматически обнаруживаются из каталогов Claude, Codex и Hermes. В режиме шлюза здесь также будут отображаться агенты, зарегистрированные на вашем шлюзе Vertex.",
     "addFirstAgent": "Добавьте первого агента для начала работы",
     "session": "Сессия",
     "totalTasks": "Всего задач",
@@ -1578,7 +1578,7 @@
   },
   "multiGateway": {
     "title": "Менеджер шлюзов",
-    "description": "Управление несколькими подключениями шлюза OpenClaw",
+    "description": "Управление несколькими подключениями шлюза Vertex",
     "probeAll": "Проверить все",
     "addGateway": "+ Добавить шлюз",
     "connected": "Подключено",
@@ -1588,7 +1588,7 @@
     "noGateways": "Шлюзы не настроены",
     "addGatewayHint": "Добавьте шлюз для управления подключениями",
     "discoveredGateways": "Обнаруженные шлюзы",
-    "discoveredGatewaysDesc": "Шлюзы OpenClaw, найденные на этом компьютере",
+    "discoveredGatewaysDesc": "Шлюзы Vertex, найденные на этом компьютере",
     "refresh": "Обновить",
     "running": "РАБОТАЕТ",
     "stopped": "ОСТАНОВЛЕН",
@@ -1817,7 +1817,7 @@
     "installing": "Установка...",
     "install": "Установить",
     "noRegistryResults": "Результаты для \"{query}\" в {registry} не найдены. Попробуйте другой запрос или смените реестр.",
-    "registryPrompt": "Ищите в ClawdHub, skills.sh или Awesome OpenClaw для обнаружения и установки навыков агентов.",
+    "registryPrompt": "Ищите в ClawdHub, skills.sh или Awesome Vertex для обнаружения и установки навыков агентов.",
     "skillInstalled": "Навык установлен",
     "installFailed": "Установка не удалась",
     "installingSkill": "Установка навыка",
@@ -1853,7 +1853,7 @@
     "swePresetInstall": "Install default squad",
     "swePresetInstalling": "Creating agents…",
     "swePresetResult": "Created {createdCount}, skipped {skippedCount}, failed {errorCount}.",
-    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and OpenClaw provisioning stay off unless you enable them in the API body.",
+    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and Vertex provisioning stay off unless you enable them in the API body.",
     "swePhaseOrchestration": "Orchestration",
     "swePhaseDiscovery": "Discovery",
     "swePhaseTechnicalDesign": "Technical design",

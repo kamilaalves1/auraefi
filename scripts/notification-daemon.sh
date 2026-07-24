@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Mission Control Phase 3: Notification Delivery Daemon
-# Polls undelivered notifications and sends them to agent sessions via OpenClaw
+# Polls undelivered notifications and sends them to agent sessions via gateway
 #
 # Usage:
 #   scripts/notification-daemon.sh [options]

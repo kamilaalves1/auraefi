@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "save": "Enregistrer",
     "cancel": "Annuler",
@@ -43,7 +43,7 @@
     "loginFailed": "Échec de la connexion",
     "enterUsername": "Entrez le nom d'utilisateur",
     "enterPassword": "Entrez le mot de passe",
-    "orchestrationTagline": "Orchestration d'agents OpenClaw",
+    "orchestrationTagline": "Orchestration d'agents Vertex",
     "accessRequestSubmitted": "Demande d'accès soumise",
     "accessRequestDescription": "Votre demande a été envoyée à un administrateur pour examen. Vous pourrez vous connecter une fois approuvée.",
     "tryAgain": "Réessayer",
@@ -225,7 +225,7 @@
     "createAndQueue": "Créer + Mettre en file"
   },
   "localModeBanner": {
-    "noGatewayDetected": "Aucune passerelle OpenClaw détectée",
+    "noGatewayDetected": "Aucune passerelle Vertex détectée",
     "runningInLocalMode": " — en mode local. Surveillance des sessions Claude Code, tâches et données locales.",
     "configureGateway": "Configurer la passerelle"
   },
@@ -237,10 +237,10 @@
     "updateFailed": "Échec de la mise à jour",
     "networkError": "Erreur réseau — impossible de joindre le serveur."
   },
-  "openclawUpdateBanner": {
-    "updatingOpenClaw": "Mise à jour d'OpenClaw...",
-    "openclawUpdated": "OpenClaw mis à jour en v{version}",
-    "openclawUpdateAvailable": "Mise à jour OpenClaw : v{version} disponible",
+  "VertexUpdateBanner": {
+    "updatingVertex": "Mise à jour d'Vertex...",
+    "VertexUpdated": "Vertex mis à jour en v{version}",
+    "VertexUpdateAvailable": "Mise à jour Vertex : v{version} disponible",
     "installed": "installé : v{version}",
     "changelog": "Journal des modifications",
     "copied": "Copié !",
@@ -249,16 +249,16 @@
     "networkError": "Erreur réseau — impossible de joindre le serveur."
   },
   "doctorBanner": {
-    "fixCompleted": "Correction du docteur OpenClaw terminée",
-    "configDrift": "Dérive de configuration OpenClaw détectée",
-    "stateIntegrity": "Avertissement d'intégrité d'état OpenClaw",
-    "securityWarning": "Avertissement de sécurité OpenClaw",
-    "doctorWarnings": "Avertissements du docteur OpenClaw",
-    "runningFixes": "Exécution des corrections du docteur OpenClaw...",
+    "fixCompleted": "Correction du docteur Vertex terminée",
+    "configDrift": "Dérive de configuration Vertex détectée",
+    "stateIntegrity": "Avertissement d'intégrité d'état Vertex",
+    "securityWarning": "Avertissement de sécurité Vertex",
+    "doctorWarnings": "Avertissements du docteur Vertex",
+    "runningFixes": "Exécution des corrections du docteur Vertex...",
     "cleaningSessionStores": "Nettoyage des magasins de sessions...",
     "archivingOrphanTranscripts": "Archivage des transcriptions orphelines...",
     "recheckingHealth": "Revérification de l'état de l'instance actuelle...",
-    "fixFailed": "Échec de la correction du docteur OpenClaw",
+    "fixFailed": "Échec de la correction du docteur Vertex",
     "networkError": "Erreur réseau — impossible de joindre le serveur.",
     "runningFix": "Correction en cours...",
     "runDoctorFix": "Lancer la correction du docteur"
@@ -285,7 +285,7 @@
     "availableInFullMode": "{panel} est disponible en mode Complet.",
     "switchToFull": "Passer en mode Complet",
     "goToOverview": "Aller à l'aperçu",
-    "requiresGateway": "{panel} nécessite une connexion à la passerelle OpenClaw.",
+    "requiresGateway": "{panel} nécessite une connexion à la passerelle Vertex.",
     "configureGateway": "Configurez une passerelle pour activer ce panneau."
   },
   "onboarding": {
@@ -332,7 +332,7 @@
     },
     "gatewayLink": {
       "title": "Lien de la passerelle",
-      "description": "Mission Control enregistre son origine auprès de la passerelle OpenClaw pour se connecter via WebSocket et gérer les agents à distance.",
+      "description": "Mission Control enregistre son origine auprès de la passerelle Vertex pour se connecter via WebSocket et gérer les agents à distance.",
       "originRegistered": "Origine de la passerelle enregistrée",
       "originAdded": "Origine de Mission Control ajoutée aux allowedOrigins de la passerelle",
       "registrationPending": "Enregistrement en attente — sera configuré lors de la prochaine vérification des capacités",
@@ -356,7 +356,7 @@
       "apiKeyNotSet": "Non définie — les agents ne pourront pas s'amarrer sans clé configurée. Exécutez : bash scripts/generate-env.sh --force",
       "openSettings": "Ouvrir les paramètres",
       "securityScan": "Scan de sécurité",
-      "securityScanDescription": "Vérifiez le réseau, l'environnement d'exécution et le renforcement d'OpenClaw avant de lancer la station.",
+      "securityScanDescription": "Vérifiez le réseau, l'environnement d'exécution et le renforcement d'Vertex avant de lancer la station.",
       "launchStation": "Lancer la station",
       "launchAnyway": "Lancer quand même"
     }
@@ -367,8 +367,8 @@
     "gatewayConnected": "Passerelle connectée",
     "gatewayDisconnected": "Passerelle déconnectée",
     "refresh": "Actualiser",
-    "noChannelsConfigured": "Aucun canal configuré. Configurez des plateformes de messagerie (WhatsApp, Telegram, Discord, Slack, etc.) dans les paramètres de la passerelle OpenClaw.",
-    "gatewayUnreachable": "Impossible d'atteindre la passerelle OpenClaw. Vérifiez qu'elle est en cours d'exécution et accessible.",
+    "noChannelsConfigured": "Aucun canal configuré. Configurez des plateformes de messagerie (WhatsApp, Telegram, Discord, Slack, etc.) dans les paramètres de la passerelle Vertex.",
+    "gatewayUnreachable": "Impossible d'atteindre la passerelle Vertex. Vérifiez qu'elle est en cours d'exécution et accessible.",
     "statusConnected": "Connecté",
     "statusRunning": "En cours d'exécution",
     "statusConfigured": "Configuré",
@@ -472,7 +472,7 @@
     "loading": "Chargement du graphe...",
     "retry": "Réessayer",
     "noMemoryDatabases": "Aucune base de données de mémoire trouvée",
-    "noMemoryDatabasesHint": "Fichiers SQLite de mémoire OpenClaw non détectés",
+    "noMemoryDatabasesHint": "Fichiers SQLite de mémoire Vertex non détectés",
     "allAgents": "tous les agents",
     "filterFiles": "filtrer les fichiers...",
     "statAgents": "agents",
@@ -977,10 +977,10 @@
     "removeLinuxUser": "Supprimer l'utilisateur Linux",
     "removeLinuxUserDesc": "Exécute `userdel -r` et supprime le répertoire personnel.",
     "removeStateDirs": "Supprimer les répert. d'état/espace de travail",
-    "removeStateDirsDesc": "Supprime les chemins `.openclaw` et `workspace` lorsque l'utilisateur est conservé.",
+    "removeStateDirsDesc": "Supprime les chemins `.Vertex` et `workspace` lorsque l'utilisateur est conservé.",
     "impactSummary": "Résumé de l'impact",
-    "impactStopsService": "Arrête et désactive `openclaw-gateway@{user}.service`.",
-    "impactRemovesEnv": "Supprime `/etc/openclaw-tenants/{user}.env`.",
+    "impactStopsService": "Arrête et désactive `Vertex-gateway@{user}.service`.",
+    "impactRemovesEnv": "Supprime `/etc/Vertex-tenants/{user}.env`.",
     "impactLinuxUserRemoved": "L'utilisateur Linux sera supprimé.",
     "impactStateDirsRemoved": "Les répertoires d'état/espace de travail seront supprimés.",
     "impactRetained": "L'utilisateur Linux et les répertoires sont conservés.",
@@ -1079,7 +1079,7 @@
     "infrastructureScan": "Analyse de l'Infrastructure",
     "scanCredentials": "Identifiants",
     "scanNetwork": "Réseau",
-    "scanOpenclaw": "OpenClaw",
+    "scanVertex": "Vertex",
     "scanRuntime": "Exécution",
     "scanOs": "Sécurité OS",
     "authEvents": "Événements d'Authentification",
@@ -1536,7 +1536,7 @@
     "addAgent": "+ Ajouter un agent",
     "refresh": "Actualiser",
     "noAgents": "Aucun agent trouvé",
-    "noAgentsHint": "Les agents locaux sont découverts automatiquement depuis les répertoires Claude, Codex et Hermes. En mode passerelle, les agents enregistrés sur votre passerelle OpenClaw apparaîtront également ici.",
+    "noAgentsHint": "Les agents locaux sont découverts automatiquement depuis les répertoires Claude, Codex et Hermes. En mode passerelle, les agents enregistrés sur votre passerelle Vertex apparaîtront également ici.",
     "addFirstAgent": "Ajoutez votre premier agent pour commencer",
     "session": "Session",
     "totalTasks": "Tâches totales",
@@ -1578,7 +1578,7 @@
   },
   "multiGateway": {
     "title": "Gestionnaire de passerelles",
-    "description": "Gérer plusieurs connexions de passerelles OpenClaw",
+    "description": "Gérer plusieurs connexions de passerelles Vertex",
     "probeAll": "Sonder tout",
     "addGateway": "+ Ajouter une passerelle",
     "connected": "Connecté",
@@ -1588,7 +1588,7 @@
     "noGateways": "Aucune passerelle configurée",
     "addGatewayHint": "Ajouter une passerelle pour commencer à gérer les connexions",
     "discoveredGateways": "Passerelles découvertes",
-    "discoveredGatewaysDesc": "Passerelles OpenClaw trouvées sur cette machine",
+    "discoveredGatewaysDesc": "Passerelles Vertex trouvées sur cette machine",
     "refresh": "Actualiser",
     "running": "EN COURS",
     "stopped": "ARRÊTÉ",
@@ -1817,7 +1817,7 @@
     "installing": "Installation...",
     "install": "Installer",
     "noRegistryResults": "Aucun résultat pour \"{query}\" sur {registry}. Essayez une autre requête ou changez de registre.",
-    "registryPrompt": "Recherchez sur ClawdHub, skills.sh ou Awesome OpenClaw pour découvrir et installer des compétences d'agents.",
+    "registryPrompt": "Recherchez sur ClawdHub, skills.sh ou Awesome Vertex pour découvrir et installer des compétences d'agents.",
     "skillInstalled": "Compétence installée",
     "installFailed": "Échec de l'installation",
     "installingSkill": "Installation de la compétence",
@@ -1853,7 +1853,7 @@
     "swePresetInstall": "Install default squad",
     "swePresetInstalling": "Creating agents…",
     "swePresetResult": "Created {createdCount}, skipped {skippedCount}, failed {errorCount}.",
-    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and OpenClaw provisioning stay off unless you enable them in the API body.",
+    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and Vertex provisioning stay off unless you enable them in the API body.",
     "swePhaseOrchestration": "Orchestration",
     "swePhaseDiscovery": "Discovery",
     "swePhaseTechnicalDesign": "Technical design",

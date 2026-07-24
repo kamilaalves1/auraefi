@@ -1,4 +1,4 @@
-# Deployment Guide
+﻿# Deployment Guide
 
 ## Prerequisites
 
@@ -90,7 +90,7 @@ docker run -p 3000:3000 \
   -e AUTH_USER=admin \
   -e AUTH_PASS=your-secure-password \
   -e API_KEY=your-api-key \
-  -e OPENCLAW_GATEWAY_HOST=host.docker.internal \
+  -e Vertex_GATEWAY_HOST=host.docker.internal \
   --add-host=host.docker.internal:host-gateway \
   mission-control
 ```
@@ -106,7 +106,7 @@ The Docker image:
 
 MC inside Docker needs to reach the gateway running on the host. There are **two** connections:
 
-1. **Server-side** (MC backend → gateway): Set `OPENCLAW_GATEWAY_HOST=host.docker.internal`.
+1. **Server-side** (MC backend → gateway): Set `Vertex_GATEWAY_HOST=host.docker.internal`.
    Docker Desktop (macOS/Windows) resolves this automatically. On Linux, `docker-compose.yml`
    maps it via `extra_hosts`.
 
@@ -116,7 +116,7 @@ MC inside Docker needs to reach the gateway running on the host. There are **two
    For remote access, set `NEXT_PUBLIC_GATEWAY_HOST` to the public hostname.
 
 If your gateway runs in **another container**, put both on the same Docker network and set
-`OPENCLAW_GATEWAY_HOST` to the gateway container name.
+`Vertex_GATEWAY_HOST` to the gateway container name.
 
 ### Persistent Data
 
@@ -145,7 +145,7 @@ See `.env.example` for the full list. Key variables:
 | `AUTH_PASS_B64` | No | - | Base64-encoded admin password (overrides `AUTH_PASS` if set) |
 | `API_KEY` | Yes | - | API key for headless access |
 | `PORT` | No | `3005` (direct) / `3000` (Docker) | Server port |
-| `OPENCLAW_HOME` | No | - | Path to OpenClaw installation |
+| `Vertex_HOME` | No | - | Path to Vertex installation |
 | `MC_ALLOWED_HOSTS` | No | `localhost,127.0.0.1` | Allowed hosts in production |
 
 ## Kubernetes Sidecar Deployment
@@ -174,7 +174,7 @@ When running Mission Control alongside a gateway as containers in the same pod (
 AUTH_USER=admin
 AUTH_PASS=<secure-password>
 API_KEY=<your-api-key>
-OPENCLAW_GATEWAY_HOST=127.0.0.1
+Vertex_GATEWAY_HOST=127.0.0.1
 NEXT_PUBLIC_GATEWAY_PORT=18789
 ```
 
@@ -207,7 +207,7 @@ curl -X POST http://localhost:3000/api/connect \
   -H "Authorization: Bearer <API_KEY>" \
   -H "Content-Type: application/json" \
   -d '{
-    "tool_name": "openclaw-gateway",
+    "tool_name": "Vertex-gateway",
     "agent_name": "developer-1",
     "agent_role": "developer"
   }'
@@ -259,12 +259,12 @@ pnpm install
    ```bash
    docker exec mission-control env | grep -i gateway
    ```
-   You should see `OPENCLAW_GATEWAY_HOST=host.docker.internal`.
+   You should see `Vertex_GATEWAY_HOST=host.docker.internal`.
 
-3. If using a **mounted `~/.openclaw`** directory, the `openclaw.json` inside may have
+3. If using a **mounted `~/.agent-config`** directory, the `agent-config.json` inside may have
    `gateway.host = "127.0.0.1"` — this is the host's loopback, not reachable from the
-   container. Environment variables take precedence over `openclaw.json`, so set
-   `OPENCLAW_GATEWAY_HOST=host.docker.internal` in your `.env` or docker-compose.
+   container. Environment variables take precedence over `agent-config.json`, so set
+   `Vertex_GATEWAY_HOST=host.docker.internal` in your `.env` or docker-compose.
 
 4. **Browser WebSocket**: MC automatically rewrites Docker-internal hostnames
    (`host.docker.internal`, `host-gateway`) to the browser's hostname. If the browser

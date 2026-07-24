@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Mission Control Phase 3: Agent Heartbeat Script
-# Called by OpenClaw cron every 15 minutes to wake agents and check for work
+# Called by cron scheduler every 15 minutes to wake agents and check for work
 #
 # Usage:
 #   scripts/agent-heartbeat.sh [agent_name]
@@ -15,7 +15,7 @@ MISSION_CONTROL_URL="${MISSION_CONTROL_URL:-http://localhost:3000}"
 LOG_DIR="${LOG_DIR:-$HOME/.mission-control/logs}"
 LOG_FILE="$LOG_DIR/agent-heartbeat-$(date +%Y-%m-%d).log"
 MAX_CONCURRENT=3  # Max agents to check concurrently
-OPENCLAW_CMD="${OPENCLAW_CMD:-openclaw}"
+AGENT_CMD="${AGENT_CMD:-vertex}"
 
 # Ensure log directory exists
 mkdir -p "$LOG_DIR"
@@ -114,8 +114,8 @@ send_wake_notification() {
     wake_message+="Use Mission Control to view details: $MISSION_CONTROL_URL\n\n"
     wake_message+="⏰ $(date '+%Y-%m-%d %H:%M:%S')"
     
-    # Send via OpenClaw sessions_send
-    if "$OPENCLAW_CMD" gateway sessions_send --session "$session_key" --message "$wake_message" >> "$LOG_FILE" 2>&1; then
+    # Send via gateway sessions_send
+    if "$AGENT_CMD" gateway sessions_send --session "$session_key" --message "$wake_message" >> "$LOG_FILE" 2>&1; then
         log "INFO" "Wake notification sent successfully to $agent_name"
     else
         log "ERROR" "Failed to send wake notification to $agent_name"

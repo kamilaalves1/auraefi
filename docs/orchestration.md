@@ -1,4 +1,4 @@
-# Orchestration Patterns
+﻿# Orchestration Patterns
 
 This guide covers the task orchestration patterns available in Mission Control, from simple manual assignment to fully automated multi-agent workflows.
 
@@ -104,7 +104,7 @@ If the agent already has `max_capacity` tasks in `in_progress`, the response ret
 
 ## Pattern 3: Auto-Dispatch (Gateway Required)
 
-The scheduler automatically dispatches `assigned` tasks to agents through the OpenClaw gateway. This is the fully hands-off mode.
+The scheduler automatically dispatches `assigned` tasks to agents through the gateway. This is the fully hands-off mode.
 
 ### How It Works
 
@@ -144,7 +144,7 @@ curl -X PUT "$MC_URL/api/agents" \
 - After 5 failed attempts, task moves to `failed`
 - Each failure is logged as a comment on the task
 
-**When to use**: Fully autonomous operation with an OpenClaw gateway. Best for production agent fleets.
+**When to use**: Fully autonomous operation with an gateway. Best for production agent fleets.
 
 ## Pattern 4: Quality Review (Aegis)
 

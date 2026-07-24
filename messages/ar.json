@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "save": "حفظ",
     "cancel": "إلغاء",
@@ -43,7 +43,7 @@
     "loginFailed": "فشل تسجيل الدخول",
     "enterUsername": "أدخل اسم المستخدم",
     "enterPassword": "أدخل كلمة المرور",
-    "orchestrationTagline": "تنسيق وكلاء OpenClaw",
+    "orchestrationTagline": "تنسيق وكلاء Vertex",
     "accessRequestSubmitted": "تم إرسال طلب الوصول",
     "accessRequestDescription": "تم إرسال طلبك إلى المسؤول للمراجعة. ستتمكن من تسجيل الدخول بعد الموافقة.",
     "tryAgain": "حاول مرة أخرى",
@@ -225,7 +225,7 @@
     "createAndQueue": "إنشاء + إضافة للقائمة"
   },
   "localModeBanner": {
-    "noGatewayDetected": "لم يتم الكشف عن بوابة OpenClaw",
+    "noGatewayDetected": "لم يتم الكشف عن بوابة Vertex",
     "runningInLocalMode": " — يعمل في الوضع المحلي. مراقبة جلسات Claude Code والمهام والبيانات المحلية.",
     "configureGateway": "تكوين البوابة"
   },
@@ -237,10 +237,10 @@
     "updateFailed": "فشل التحديث",
     "networkError": "خطأ في الشبكة — تعذر الوصول إلى الخادم."
   },
-  "openclawUpdateBanner": {
-    "updatingOpenClaw": "جارٍ تحديث OpenClaw...",
-    "openclawUpdated": "تم تحديث OpenClaw إلى v{version}",
-    "openclawUpdateAvailable": "تحديث OpenClaw: v{version} متاح",
+  "VertexUpdateBanner": {
+    "updatingVertex": "جارٍ تحديث Vertex...",
+    "VertexUpdated": "تم تحديث Vertex إلى v{version}",
+    "VertexUpdateAvailable": "تحديث Vertex: v{version} متاح",
     "installed": "مثبّت: v{version}",
     "changelog": "سجل التغييرات",
     "copied": "تم النسخ!",
@@ -249,16 +249,16 @@
     "networkError": "خطأ في الشبكة — تعذر الوصول إلى الخادم."
   },
   "doctorBanner": {
-    "fixCompleted": "اكتمل إصلاح طبيب OpenClaw",
-    "configDrift": "تم اكتشاف انحراف في إعدادات OpenClaw",
-    "stateIntegrity": "تحذير سلامة حالة OpenClaw",
-    "securityWarning": "تحذير أمني من OpenClaw",
-    "doctorWarnings": "تحذيرات طبيب OpenClaw",
-    "runningFixes": "جارٍ تنفيذ إصلاحات طبيب OpenClaw...",
+    "fixCompleted": "اكتمل إصلاح طبيب Vertex",
+    "configDrift": "تم اكتشاف انحراف في إعدادات Vertex",
+    "stateIntegrity": "تحذير سلامة حالة Vertex",
+    "securityWarning": "تحذير أمني من Vertex",
+    "doctorWarnings": "تحذيرات طبيب Vertex",
+    "runningFixes": "جارٍ تنفيذ إصلاحات طبيب Vertex...",
     "cleaningSessionStores": "جارٍ تنظيف مخازن الجلسات...",
     "archivingOrphanTranscripts": "جارٍ أرشفة النصوص اليتيمة...",
     "recheckingHealth": "جارٍ إعادة فحص صحة النسخة الحالية...",
-    "fixFailed": "فشل إصلاح طبيب OpenClaw",
+    "fixFailed": "فشل إصلاح طبيب Vertex",
     "networkError": "خطأ في الشبكة — تعذر الوصول إلى الخادم.",
     "runningFix": "جارٍ تنفيذ الإصلاح...",
     "runDoctorFix": "تشغيل إصلاح الطبيب"
@@ -285,7 +285,7 @@
     "availableInFullMode": "{panel} متاح في الوضع الكامل.",
     "switchToFull": "التبديل إلى الوضع الكامل",
     "goToOverview": "الانتقال إلى النظرة العامة",
-    "requiresGateway": "{panel} يتطلب اتصالاً ببوابة OpenClaw.",
+    "requiresGateway": "{panel} يتطلب اتصالاً ببوابة Vertex.",
     "configureGateway": "قم بتكوين بوابة لتفعيل هذه اللوحة."
   },
   "onboarding": {
@@ -332,7 +332,7 @@
     },
     "gatewayLink": {
       "title": "رابط البوابة",
-      "description": "يسجل Mission Control أصله لدى بوابة OpenClaw للاتصال عبر WebSocket وإدارة الوكلاء عن بُعد.",
+      "description": "يسجل Mission Control أصله لدى بوابة Vertex للاتصال عبر WebSocket وإدارة الوكلاء عن بُعد.",
       "originRegistered": "تم تسجيل أصل البوابة",
       "originAdded": "تمت إضافة أصل Mission Control إلى allowedOrigins للبوابة",
       "registrationPending": "التسجيل معلق — سيتم تكوينه عند فحص القدرات التالي",
@@ -356,7 +356,7 @@
       "apiKeyNotSet": "غير مضبوط — لن يتمكن الوكلاء من الرسو بدون مفتاح مكوّن. نفّذ: bash scripts/generate-env.sh --force",
       "openSettings": "فتح الإعدادات",
       "securityScan": "فحص أمني",
-      "securityScanDescription": "تحقق من الشبكة ووقت التشغيل وتقوية OpenClaw قبل تشغيل المحطة.",
+      "securityScanDescription": "تحقق من الشبكة ووقت التشغيل وتقوية Vertex قبل تشغيل المحطة.",
       "launchStation": "تشغيل المحطة",
       "launchAnyway": "التشغيل على أي حال"
     }
@@ -367,8 +367,8 @@
     "gatewayConnected": "البوابة متصلة",
     "gatewayDisconnected": "البوابة غير متصلة",
     "refresh": "تحديث",
-    "noChannelsConfigured": "لا توجد قنوات مُهيَّأة بعد. قم بتهيئة منصات المراسلة (WhatsApp، Telegram، Discord، Slack، إلخ) في إعدادات بوابة OpenClaw.",
-    "gatewayUnreachable": "تعذّر الوصول إلى بوابة OpenClaw. تحقق من أنها تعمل ويمكن الوصول إليها.",
+    "noChannelsConfigured": "لا توجد قنوات مُهيَّأة بعد. قم بتهيئة منصات المراسلة (WhatsApp، Telegram، Discord، Slack، إلخ) في إعدادات بوابة Vertex.",
+    "gatewayUnreachable": "تعذّر الوصول إلى بوابة Vertex. تحقق من أنها تعمل ويمكن الوصول إليها.",
     "statusConnected": "متصل",
     "statusRunning": "يعمل",
     "statusConfigured": "مُهيَّأ",
@@ -472,7 +472,7 @@
     "loading": "جارٍ تحميل الرسم البياني...",
     "retry": "إعادة المحاولة",
     "noMemoryDatabases": "لم يُعثَر على قواعد بيانات الذاكرة",
-    "noMemoryDatabasesHint": "لم يُكتشَف أي ملفات SQLite لذاكرة OpenClaw",
+    "noMemoryDatabasesHint": "لم يُكتشَف أي ملفات SQLite لذاكرة Vertex",
     "allAgents": "جميع الوكلاء",
     "filterFiles": "تصفية الملفات...",
     "statAgents": "الوكلاء",
@@ -977,10 +977,10 @@
     "removeLinuxUser": "إزالة مستخدم Linux",
     "removeLinuxUserDesc": "ينفذ `userdel -r` ويزيل الدليل الرئيسي.",
     "removeStateDirs": "إزالة أدلة الحالة/مساحة العمل",
-    "removeStateDirsDesc": "يحذف مسارات `.openclaw` و`workspace` عند الاحتفاظ بالمستخدم.",
+    "removeStateDirsDesc": "يحذف مسارات `.Vertex` و`workspace` عند الاحتفاظ بالمستخدم.",
     "impactSummary": "ملخص التأثير",
-    "impactStopsService": "يوقف ويعطل `openclaw-gateway@{user}.service`.",
-    "impactRemovesEnv": "يزيل `/etc/openclaw-tenants/{user}.env`.",
+    "impactStopsService": "يوقف ويعطل `Vertex-gateway@{user}.service`.",
+    "impactRemovesEnv": "يزيل `/etc/Vertex-tenants/{user}.env`.",
     "impactLinuxUserRemoved": "سيتم إزالة مستخدم Linux.",
     "impactStateDirsRemoved": "سيتم إزالة أدلة الحالة/مساحة العمل.",
     "impactRetained": "يتم الاحتفاظ بمستخدم Linux والأدلة.",
@@ -1079,7 +1079,7 @@
     "infrastructureScan": "فحص البنية التحتية",
     "scanCredentials": "بيانات الاعتماد",
     "scanNetwork": "الشبكة",
-    "scanOpenclaw": "OpenClaw",
+    "scanVertex": "Vertex",
     "scanRuntime": "بيئة التشغيل",
     "scanOs": "أمان نظام التشغيل",
     "authEvents": "أحداث المصادقة",
@@ -1536,7 +1536,7 @@
     "addAgent": "+ إضافة وكيل",
     "refresh": "تحديث",
     "noAgents": "لم يُعثر على وكلاء",
-    "noAgentsHint": "يتم اكتشاف الوكلاء المحليين تلقائيًا من أدلة Claude و Codex و Hermes. في وضع البوابة، سيظهر هنا أيضًا الوكلاء المسجلون في بوابة OpenClaw الخاصة بك.",
+    "noAgentsHint": "يتم اكتشاف الوكلاء المحليين تلقائيًا من أدلة Claude و Codex و Hermes. في وضع البوابة، سيظهر هنا أيضًا الوكلاء المسجلون في بوابة Vertex الخاصة بك.",
     "addFirstAgent": "أضف وكيلك الأول للبدء",
     "session": "الجلسة",
     "totalTasks": "إجمالي المهام",
@@ -1578,7 +1578,7 @@
   },
   "multiGateway": {
     "title": "مدير البوابات",
-    "description": "إدارة اتصالات بوابات OpenClaw المتعددة",
+    "description": "إدارة اتصالات بوابات Vertex المتعددة",
     "probeAll": "فحص الكل",
     "addGateway": "+ إضافة بوابة",
     "connected": "متصل",
@@ -1588,7 +1588,7 @@
     "noGateways": "لم يتم تكوين بوابات",
     "addGatewayHint": "أضف بوابة لبدء إدارة الاتصالات",
     "discoveredGateways": "البوابات المكتشفة",
-    "discoveredGatewaysDesc": "بوابات OpenClaw الموجودة على هذا الجهاز",
+    "discoveredGatewaysDesc": "بوابات Vertex الموجودة على هذا الجهاز",
     "refresh": "تحديث",
     "running": "تعمل",
     "stopped": "متوقفة",
@@ -1817,7 +1817,7 @@
     "installing": "جارٍ التثبيت...",
     "install": "تثبيت",
     "noRegistryResults": "لم يتم العثور على نتائج لـ \"{query}\" في {registry}. جرب استعلاماً مختلفاً أو بدّل السجل.",
-    "registryPrompt": "ابحث في ClawdHub أو skills.sh أو Awesome OpenClaw لاكتشاف مهارات العملاء وتثبيتها.",
+    "registryPrompt": "ابحث في ClawdHub أو skills.sh أو Awesome Vertex لاكتشاف مهارات العملاء وتثبيتها.",
     "skillInstalled": "تم تثبيت المهارة",
     "installFailed": "فشل التثبيت",
     "installingSkill": "جارٍ تثبيت المهارة",
@@ -1853,7 +1853,7 @@
     "swePresetInstall": "Install default squad",
     "swePresetInstalling": "Creating agents…",
     "swePresetResult": "Created {createdCount}, skipped {skippedCount}, failed {errorCount}.",
-    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and OpenClaw provisioning stay off unless you enable them in the API body.",
+    "swePresetGatewayHint": "This screen only installs the preset. Gateway sync and Vertex provisioning stay off unless you enable them in the API body.",
     "swePhaseOrchestration": "Orchestration",
     "swePhaseDiscovery": "Discovery",
     "swePhaseTechnicalDesign": "Technical design",
