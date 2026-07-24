@@ -218,10 +218,10 @@ export async function POST(request: NextRequest) {
         const mode = (stat.mode & 0o777).toString(8)
         if (mode !== '600') {
           chmodSync(configPath, 0o600)
-          results.push({ id: 'config_permissions', name: 'OpenClaw config permissions', fixed: true, detail: `Changed from ${mode} to 600`, fixSafety: FIX_SAFETY['config_permissions'] })
+          results.push({ id: 'config_permissions', name: 'Gateway config permissions', fixed: true, detail: `Changed from ${mode} to 600`, fixSafety: FIX_SAFETY['config_permissions'] })
         }
       } catch (e: any) {
-        results.push({ id: 'config_permissions', name: 'OpenClaw config permissions', fixed: false, detail: e.message, fixSafety: FIX_SAFETY['config_permissions'] })
+        results.push({ id: 'config_permissions', name: 'Gateway config permissions', fixed: false, detail: e.message, fixSafety: FIX_SAFETY['config_permissions'] })
       }
 
       // Fix gateway auth
@@ -322,7 +322,7 @@ export async function POST(request: NextRequest) {
         try {
           writeFileSync(configPath, JSON.stringify(ocConfig, null, 2) + '\n', 'utf-8')
         } catch (e: any) {
-          results.push({ id: 'config_write', name: 'Write OpenClaw config', fixed: false, detail: e.message })
+          results.push({ id: 'config_write', name: 'Write gateway config', fixed: false, detail: e.message })
         }
       }
     }

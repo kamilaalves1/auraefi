@@ -21,10 +21,10 @@ export interface GatewaySession {
 
 function getGatewaySessionStoreFiles(): string[] {
   return []
-  const openclawStateDir = ''
-  if (!openclawStateDir) return []
+  const stateDir = ''
+  if (!stateDir) return []
 
-  const agentsDir = path.join(openclawStateDir, 'agents')
+  const agentsDir = path.join(stateDir, 'agents')
   if (!fs.existsSync(agentsDir)) return []
 
   let agentDirs: string[]

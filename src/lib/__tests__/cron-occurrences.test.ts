@@ -29,7 +29,7 @@ describe('getCronOccurrences', () => {
     expect(rows).toHaveLength(6)
   })
 
-  it('ignores OpenClaw timezone suffix in display schedule', () => {
+  it('ignores gateway timezone suffix in display schedule', () => {
     const start = new Date(2026, 2, 1, 0, 0, 0, 0).getTime()
     const end = new Date(2026, 2, 2, 0, 0, 0, 0).getTime()
     const rows = getCronOccurrences('0 6 * * * (UTC)', start, end)

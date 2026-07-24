@@ -10,7 +10,7 @@ describe('getEffectiveEnvValue', () => {
     delete process.env.TEST_RUNTIME_ENV
   })
 
-  it('reads values from the OpenClaw env file before process.env', async () => {
+  it('reads values from the env file before process.env', async () => {
     const tmpDir = await mkdtemp(path.join(os.tmpdir(), 'mc-runtime-env-'))
     try {
       const envFilePath = path.join(tmpDir, '.env')

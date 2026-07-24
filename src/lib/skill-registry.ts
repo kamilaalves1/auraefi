@@ -239,13 +239,13 @@ async function fetchAwesomeIndex(): Promise<RegistrySkill[]> {
     awesomeCache = { skills, fetchedAt: now }
     return skills
   } catch (err: any) {
-    logger.warn({ err: err.message }, 'Awesome OpenClaw fetch error')
+    logger.warn({ err: err.message }, 'Awesome skills index fetch error')
     if (awesomeCache) return awesomeCache.skills // stale fallback
     return []
   }
 }
 
-async function searchAwesomeOpenclaw(query: string): Promise<RegistrySearchResult> {
+async function searchAwesomeSkills(query: string): Promise<RegistrySearchResult> {
   const index = await fetchAwesomeIndex()
   const q = query.toLowerCase()
   const matched = index.filter(s =>
@@ -256,10 +256,10 @@ async function searchAwesomeOpenclaw(query: string): Promise<RegistrySearchResul
   return { skills: matched, total: matched.length, source: 'awesome-openclaw' }
 }
 
-async function fetchAwesomeOpenclawSkill(slug: string): Promise<{ content: string }> {
+async function fetchAwesomeSkill(slug: string): Promise<{ content: string }> {
   const url = `${AWESOME_OPENCLAW_RAW_BASE}/${slug}/SKILL.md`
   const res = await fetchWithTimeout(url)
-  if (!res.ok) throw new Error(`Awesome OpenClaw skill fetch failed (${res.status})`)
+  if (!res.ok) throw new Error(`Awesome skills fetch failed (${res.status})`)
   const content = await res.text()
   return { content }
 }
@@ -363,7 +363,7 @@ async function searchSkillsSh(query: string): Promise<RegistrySearchResult> {
 export async function searchRegistry(source: RegistrySource, query: string): Promise<RegistrySearchResult> {
   if (source === 'clawhub') return searchClawdHub(query)
   if (source === 'skills-sh') return searchSkillsSh(query)
-  if (source === 'awesome-openclaw') return searchAwesomeOpenclaw(query)
+  if (source === 'awesome-openclaw') return searchAwesomeSkills(query)
   return { skills: [], total: 0, source }
 }
 
@@ -429,7 +429,7 @@ export async function installFromRegistry(req: InstallRequest): Promise<InstallR
       content = result.content
       registryHash = result.hash
     } else if (req.source === 'awesome-openclaw') {
-      const result = await fetchAwesomeOpenclawSkill(req.slug)
+      const result = await fetchAwesomeSkill(req.slug)
       content = result.content
     } else {
       const result = await fetchSkillsShSkill(req.slug)

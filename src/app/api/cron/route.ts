@@ -26,7 +26,7 @@ interface CronJob {
  * Cron jobs live in the configured cron directory (jobs.json).
  * Format: { version: 1, jobs: [ { id, agentId, name, enabled, schedule: { kind, expr, tz }, payload, delivery, state } ] }
  */
-interface OpenClawCronJob {
+interface CronJobEntry {
   id: string
   agentId: string
   name: string
@@ -61,16 +61,16 @@ interface OpenClawCronJob {
   }
 }
 
-interface OpenClawCronFile {
+interface CronFile {
   version: number
-  jobs: OpenClawCronJob[]
+  jobs: CronJobEntry[]
 }
 
 function getCronFilePath(): string {
   return ''
 }
 
-async function loadCronFile(): Promise<OpenClawCronFile | null> {
+async function loadCronFile(): Promise<CronFile | null> {
   const filePath = getCronFilePath()
   if (!filePath) return null
   try {
@@ -81,7 +81,7 @@ async function loadCronFile(): Promise<OpenClawCronFile | null> {
   }
 }
 
-async function saveCronFile(data: OpenClawCronFile): Promise<boolean> {
+async function saveCronFile(data: CronFile): Promise<boolean> {
   const filePath = getCronFilePath()
   if (!filePath) return false
   try {
@@ -102,7 +102,7 @@ function mapLastStatus(status?: string): 'success' | 'error' | 'running' | undef
   return 'success' // default for unknown non-error statuses
 }
 
-function mapOpenClawJob(job: OpenClawCronJob): CronJob {
+function mapCronJob(job: CronJobEntry): CronJob {
   // Build a human-readable command description from the payload
   const payloadSummary = job.payload.message
     ? job.payload.message.slice(0, 200) + (job.payload.message.length > 200 ? '...' : '')
@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
         return NextResponse.json({ jobs: [] })
       }
 
-      const jobs = cronFile.jobs.map(mapOpenClawJob)
+      const jobs = cronFile.jobs.map(mapCronJob)
       return NextResponse.json({ jobs })
     }
 
@@ -359,7 +359,7 @@ export async function POST(request: NextRequest) {
       // Prevent duplicates: remove existing jobs with the same name
       cronFile.jobs = cronFile.jobs.filter(j => j.name !== name)
 
-      const newJob: OpenClawCronJob = {
+      const newJob: CronJobEntry = {
         id: `mc-${Date.now().toString(36)}`,
         agentId: String(process.env.MC_CRON_AGENT_ID || process.env.MC_COORDINATOR_AGENT || 'system'),
         name,
@@ -418,7 +418,7 @@ export async function POST(request: NextRequest) {
         counter++
       }
 
-      const clonedJob: OpenClawCronJob = {
+      const clonedJob: CronJobEntry = {
         ...JSON.parse(JSON.stringify(sourceJob)),
         id: `mc-${Date.now().toString(36)}`,
         name: cloneName,

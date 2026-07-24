@@ -29,7 +29,7 @@ interface ScanResult {
   categories: {
     credentials: Category
     network: Category
-    openclaw: Category
+    gateway: Category
     runtime: Category
     os: Category
   }
@@ -78,7 +78,7 @@ const OVERALL_COLOR: Record<string, string> = {
 const CATEGORY_LABELS: Record<string, { label: string; icon: string }> = {
   credentials: { label: 'Credenciais', icon: 'K' },
   network: { label: 'Rede', icon: 'N' },
-  openclaw: { label: 'OpenClaw', icon: 'O' },
+  gateway: { label: 'Gateway', icon: 'G' },
   runtime: { label: 'Runtime', icon: 'R' },
   os: { label: 'Segurança do SO', icon: 'S' },
 }
@@ -180,7 +180,7 @@ export function SecurityScanCard({ compact = false, autoScan = false }: { compac
       <div className="flex flex-col items-center gap-4 py-6">
         <div className="text-center">
           <p className="text-sm text-muted-foreground mb-1">Execute uma varredura de segurança completa da sua instalação</p>
-          <p className="text-xs text-muted-foreground/60">Verifica credenciais, configuração de rede, proteção OpenClaw e segurança de runtime</p>
+          <p className="text-xs text-muted-foreground/60">Verifica credenciais, configuração de rede, proteção do gateway e segurança de runtime</p>
         </div>
         <Button onClick={runScan} variant="outline" size="sm" className="border-void-purple/30 text-void-purple hover:bg-void-purple/10">
           Executar Varredura de Segurança

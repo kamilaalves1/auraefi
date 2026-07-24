@@ -115,7 +115,7 @@ export function buildBootstrapPlan(tenant: {
     },
     {
       key: 'seed-openclaw-template',
-      title: 'Seed base OpenClaw config scaffold',
+      title: 'Seed base gateway config scaffold',
       command: ['/usr/bin/cp', '-n', opts.templateOpenclawJsonPath, `${tenant.openclaw_home}/openclaw.json`],
       requires_root: true,
       timeout_ms: 12000,
@@ -390,7 +390,7 @@ export function createTenantAndBootstrapJob(request: TenantBootstrapRequest, act
 
   const tenantHomeRoot = getTenantHomeRoot()
   const workspaceDirname = getTenantWorkspaceDirname()
-  const openclawHome = joinPosix(tenantHomeRoot, linuxUser, '.openclaw')
+  const gatewayHome = joinPosix(tenantHomeRoot, linuxUser, '.openclaw')
   const workspaceRoot = joinPosix(tenantHomeRoot, linuxUser, workspaceDirname)
 
   const inserted = db.transaction(() => {
@@ -402,7 +402,7 @@ export function createTenantAndBootstrapJob(request: TenantBootstrapRequest, act
       displayName,
       linuxUser,
       planTier,
-      openclawHome,
+      gatewayHome,
       workspaceRoot,
       gatewayPort,
       dashboardPort,

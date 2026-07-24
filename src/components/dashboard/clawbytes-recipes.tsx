@@ -116,7 +116,7 @@ export function ClawBytesRecipes() {
           <span className="text-lg">🤖</span>
           <div>
             <h3 className="text-sm font-semibold text-foreground">ClawBytes Recipes</h3>
-            <p className="text-xs text-muted-foreground">Automation cookbook from OpenClaw + Amy</p>
+            <p className="text-xs text-muted-foreground">Automation cookbook from Gateway + Amy</p>
           </div>
         </div>
         <div className="flex items-center gap-3">

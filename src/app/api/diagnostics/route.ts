@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
 }
 
 async function getVersionInfo() {
-  return { app: APP_VERSION, openclaw: null }
+  return { app: APP_VERSION, gateway: null }
 }
 
 function getSecurityInfo() {

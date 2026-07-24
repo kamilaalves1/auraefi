@@ -31,7 +31,7 @@ interface ApiKeyInfo {
 
 interface CoordinatorTargetAgent {
   name: string
-  openclawId: string
+  agentId: string
   isDefault: boolean
   sessionKey: string | null
   configRaw: string
@@ -47,13 +47,13 @@ function parseCoordinatorTargetAgents(rawAgents: any[]): CoordinatorTargetAgent[
     const name = typeof raw?.name === 'string' ? raw.name.trim() : ''
     if (!name) continue
     const config = raw?.config && typeof raw.config === 'object' ? raw.config : {}
-    const openclawIdRaw = typeof config.openclawId === 'string' && config.openclawId.trim()
+    const agentIdRaw = typeof config.openclawId === 'string' && config.openclawId.trim()
       ? config.openclawId.trim()
       : name
-    const openclawId = openclawIdRaw.toLowerCase().replace(/\s+/g, '-')
+    const agentId = agentIdRaw.toLowerCase().replace(/\s+/g, '-')
     out.push({
       name,
-      openclawId,
+      agentId,
       isDefault: config.isDefault === true,
       sessionKey: typeof raw?.session_key === 'string' && raw.session_key.trim() ? raw.session_key.trim() : null,
       configRaw: JSON.stringify(config),
@@ -62,7 +62,7 @@ function parseCoordinatorTargetAgents(rawAgents: any[]): CoordinatorTargetAgent[
 
   const unique = new Map<string, CoordinatorTargetAgent>()
   for (const agent of out) {
-    const key = agent.openclawId || agent.name.toLowerCase()
+    const key = agent.agentId || agent.name.toLowerCase()
     if (!unique.has(key)) unique.set(key, agent)
   }
 
@@ -168,7 +168,7 @@ export function SettingsPanel() {
       fallback: 'fallback',
     }
 
-    const targetLabel = `${resolved.deliveryName}${resolved.openclawAgentId ? ` (${resolved.openclawAgentId})` : ''}`
+    const targetLabel = `${resolved.deliveryName}${resolved.agentId ? ` (${resolved.agentId})` : ''}`
     return `Resolves now to ${targetLabel} via ${viaLabel[resolved.resolvedBy] || resolved.resolvedBy}.`
   }, [coordinatorTargetAgents, coordinatorSessions])
 
@@ -767,8 +767,8 @@ export function SettingsPanel() {
             ? [
                 { label: 'Auto (default/main-session fallback)', value: '' },
                 ...coordinatorTargetAgents.map(agent => ({
-                  label: `${agent.name}${agent.isDefault ? ' (default)' : ''} — ${agent.openclawId}`,
-                  value: agent.openclawId,
+                  label: `${agent.name}${agent.isDefault ? ' (default)' : ''} — ${agent.agentId}`,
+                  value: agent.agentId,
                 })),
               ]
             : null

@@ -32,7 +32,7 @@ const settingDefinitions: Record<string, { category: string; description: string
   // Chat
   'chat.coordinator_target_agent': {
     category: 'chat',
-    description: 'Optional coordinator routing target (agent name or openclawId). When set, coordinator inbox messages are forwarded to this agent before default/main-session fallback.',
+    description: 'Optional coordinator routing target (agent name or agent ID). When set, coordinator inbox messages are forwarded to this agent before default/main-session fallback.',
     default: '',
   },
 

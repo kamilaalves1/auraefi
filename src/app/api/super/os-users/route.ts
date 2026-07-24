@@ -19,7 +19,7 @@ export interface OsUser {
   /** Whether codex CLI is installed/accessible for this user */
   has_codex: boolean
   /** Whether agent runtime is installed for this user */
-  has_openclaw: boolean
+  has_gateway: boolean
   /** Whether this OS user is the one running the MC process (i.e. "Default" org) */
   is_process_owner: boolean
 }
@@ -68,9 +68,9 @@ function installToolForUser(
   try {
     if (tool === 'openclaw') {
       // agent runtime is managed by MC — create dir structure + install latest from npm
-      const openclawDir = path.join(homeDir, '.openclaw')
+      const gatewayDir = path.join(homeDir, '.openclaw')
       const workspaceDir = path.join(homeDir, 'workspace')
-      for (const dir of [openclawDir, workspaceDir]) {
+      for (const dir of [gatewayDir, workspaceDir]) {
         try {
           execFileSync('/usr/bin/sudo', ['-n', 'install', '-d', '-o', username, dir], { timeout: 5000, stdio: 'pipe' })
         } catch {
@@ -88,7 +88,7 @@ function installToolForUser(
       } catch (npmErr: any) {
         // Dir structure created but npm install failed — still partially useful
         const msg = npmErr?.stderr?.toString?.()?.slice(0, 200) || npmErr?.message || 'npm install failed'
-        logger.warn({ tool, username, err: msg }, 'openclaw npm install failed, dir structure created')
+        logger.warn({ tool, username, err: msg }, 'gateway runtime npm install failed, dir structure created')
         return { success: true, error: `dirs created but npm install failed: ${msg}` }
       }
       return { success: true }
@@ -181,7 +181,7 @@ function discoverOsUsers(): OsUser[] {
         const hasClaude = checkToolExists(homeDir, 'claude')
         const hasCodex = checkToolExists(homeDir, 'codex')
         const hasOpenclaw = checkToolExists(homeDir, 'openclaw')
-        users.push({ username, uid, home_dir: homeDir, shell, linked_tenant_id: null, has_claude: hasClaude, has_codex: hasCodex, has_openclaw: hasOpenclaw, is_process_owner: false })
+        users.push({ username, uid, home_dir: homeDir, shell, linked_tenant_id: null, has_claude: hasClaude, has_codex: hasCodex, has_gateway: hasOpenclaw, is_process_owner: false })
       }
     } else if (platform === 'linux') {
       // Linux: getent passwd returns colon-separated fields (no shell needed)
@@ -200,7 +200,7 @@ function discoverOsUsers(): OsUser[] {
         const hasClaude = checkToolExists(homeDir, 'claude')
         const hasCodex = checkToolExists(homeDir, 'codex')
         const hasOpenclaw = checkToolExists(homeDir, 'openclaw')
-        users.push({ username, uid, home_dir: homeDir, shell, linked_tenant_id: null, has_claude: hasClaude, has_codex: hasCodex, has_openclaw: hasOpenclaw, is_process_owner: false })
+        users.push({ username, uid, home_dir: homeDir, shell, linked_tenant_id: null, has_claude: hasClaude, has_codex: hasCodex, has_gateway: hasOpenclaw, is_process_owner: false })
       }
     }
   } catch {
@@ -373,14 +373,14 @@ export async function POST(request: NextRequest) {
 
     // Determine home directory for the new user
     const homeDir = platform === 'darwin' ? `/Users/${username}` : `/home/${username}`
-    const openclawHome = path.posix.join(homeDir, '.openclaw')
+    const gatewayHome = path.posix.join(homeDir, '.openclaw')
     const workspaceRoot = path.posix.join(homeDir, 'workspace')
 
     // Register as tenant in DB
     const tenantRes = db.prepare(`
       INSERT INTO tenants (slug, display_name, linux_user, plan_tier, status, openclaw_home, workspace_root, gateway_port, dashboard_port, config, created_by, owner_gateway)
       VALUES (?, ?, ?, 'local', 'active', ?, ?, NULL, NULL, '{}', ?, 'local')
-    `).run(username, displayName, username, openclawHome, workspaceRoot, actor)
+    `).run(username, displayName, username, gatewayHome, workspaceRoot, actor)
 
     const tenantId = Number(tenantRes.lastInsertRowid)
 

@@ -90,9 +90,9 @@ export async function PUT(
       gateway_config &&
       (write_to_gateway === undefined || write_to_gateway === null || write_to_gateway === true)
     )
-    const openclawId = existingConfig.openclawId || agent.name.toLowerCase().replace(/\s+/g, '-')
+    const agentSlug = existingConfig.openclawId || agent.name.toLowerCase().replace(/\s+/g, '-')
     const getWriteBackPayload = (source: Record<string, any>) => {
-      const writeBack: any = { id: openclawId }
+      const writeBack: any = { id: agentSlug }
       if (source.model) writeBack.model = source.model
       if (source.identity) writeBack.identity = source.identity
       if (source.sandbox) writeBack.sandbox = source.sandbox
@@ -166,7 +166,7 @@ export async function PUT(
         actor_id: auth.user.id,
         target_type: 'agent',
         target_id: agent.id,
-        detail: { agent_name: agent.name, openclaw_id: openclawId, fields: Object.keys(gateway_config || {}) },
+        detail: { agent_name: agent.name, openclaw_id: agentSlug, fields: Object.keys(gateway_config || {}) },
         ip_address: ipAddress,
       })
     }
@@ -243,15 +243,15 @@ export async function DELETE(
     let configCleanupWarning: string | null = null
     try {
       const agentConfig = agent.config ? JSON.parse(agent.config) : {}
-      const openclawId =
+      const agentId =
         String(agentConfig?.openclawId || agent.name || '')
           .toLowerCase()
           .replace(/[^a-z0-9._-]+/g, '-')
           .replace(/^-+|-+$/g, '') || agent.name
-      await removeAgentFromConfig({ id: openclawId, name: agent.name })
+      await removeAgentFromConfig({ id: agentId, name: agent.name })
     } catch (err: any) {
-      configCleanupWarning = `OpenClaw config cleanup skipped for ${agent.name}: ${err?.message || 'unknown error'}`
-      logger.warn({ err, agent: agent.name }, 'Failed to remove OpenClaw agent config entry')
+      configCleanupWarning = `Gateway config cleanup skipped for ${agent.name}: ${err?.message || 'unknown error'}`
+      logger.warn({ err, agent: agent.name }, 'Failed to remove agent from gateway config')
     }
 
     db.prepare('DELETE FROM agents WHERE id = ? AND workspace_id = ?').run(agent.id, workspaceId)

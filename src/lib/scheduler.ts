@@ -239,17 +239,17 @@ async function syncAgentLiveStatuses(): Promise<number> {
   db.transaction(() => {
     for (const agent of agents) {
       // Match by agent name or agent id from config
-      let openclawId: string | null = null
+      let agentId: string | null = null
       if (agent.config) {
         try {
           const cfg = JSON.parse(agent.config)
           if (typeof cfg.openclawId === 'string' && cfg.openclawId.trim()) {
-            openclawId = cfg.openclawId.trim()
+            agentId = cfg.openclawId.trim()
           }
         } catch { /* ignore */ }
       }
 
-      const candidates = [openclawId, agent.name].filter(Boolean).map(s => normalize(s!))
+      const candidates = [agentId, agent.name].filter(Boolean).map(s => normalize(s!))
       let matched: { status: 'active' | 'idle' | 'offline'; lastActivity: number; channel: string } | undefined
 
       for (const [sessionAgent, info] of liveStatuses) {

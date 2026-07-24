@@ -16,7 +16,7 @@ function parseEnvLine(line: string): { key: string; value: string } | null {
   return { key, value }
 }
 
-async function readOpenClawEnvFile(envFilePath: string): Promise<Map<string, string>> {
+async function readEnvFile(envFilePath: string): Promise<Map<string, string>> {
   try {
     const raw = await readFile(envFilePath, 'utf-8')
     const envMap = new Map<string, string>()
@@ -36,7 +36,7 @@ export async function getEffectiveEnvValue(
   options?: { envFilePath?: string }
 ): Promise<string> {
   const envFilePath = options?.envFilePath || ''
-  const envMap = await readOpenClawEnvFile(envFilePath)
+  const envMap = await readEnvFile(envFilePath)
   const fromFile = envMap.get(key)
   if (typeof fromFile === 'string' && fromFile.length > 0) return fromFile
 

@@ -79,7 +79,7 @@ export async function createMcAgent(
     instructions = '',
   } = body
 
-  const openclawId = (openclaw_id || name || 'agent')
+  const agentSlug = (openclaw_id || name || 'agent')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
@@ -94,7 +94,7 @@ export async function createMcAgent(
     }
     const gwc = (gateway_config || {}) as Record<string, any>
     const builtConfig = buildAgentConfig(tpl, {
-      id: openclawId,
+      id: agentSlug,
       name,
       theme: role || gwc.identity?.theme || tpl.config.identity.theme,
       emoji: (gwc.identity?.emoji as string | undefined) ?? tpl.emoji,
@@ -128,7 +128,7 @@ export async function createMcAgent(
 
   if (provision_openclaw_workspace) {
     // Gateway CLI workspace provisioning is not available in this build
-    logger.warn({ openclawId, openclaw_workspace_path }, 'provision_openclaw_workspace requested but gateway CLI is not available; skipping')
+    logger.warn({ agentSlug, openclaw_workspace_path }, 'provision_openclaw_workspace requested but gateway CLI is not available; skipping')
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -195,7 +195,7 @@ export async function createMcAgent(
     const fc = finalConfig as Record<string, any>
     try {
       await writeAgentToConfig({
-        id: openclawId,
+        id: agentSlug,
         name,
         ...(fc.model && { model: fc.model }),
         ...(fc.identity && { identity: fc.identity }),
@@ -211,7 +211,7 @@ export async function createMcAgent(
         actor_id: ctx.actorUserId,
         target_type: 'agent',
         target_id: agentId,
-        detail: { name, openclaw_id: openclawId, template: template || null },
+        detail: { name, openclaw_id: agentSlug, template: template || null },
         ip_address: ctx.ipAddress,
       })
     } catch (gwErr: unknown) {

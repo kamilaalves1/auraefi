@@ -9,7 +9,7 @@ import { resolveWithin } from './paths'
 import { logger } from './logger'
 import { parseJsonRelaxed } from './json-relaxed'
 
-interface OpenClawAgent {
+interface AgentConfigEntry {
   id: string
   name?: string
   default?: boolean
@@ -178,7 +178,7 @@ export function enrichAgentConfigFromWorkspace(configData: any): any {
 }
 
 /** Read and parse agents list from config */
-async function readOpenClawAgents(): Promise<OpenClawAgent[]> {
+async function readAgentsFromConfig(): Promise<AgentConfigEntry[]> {
   const configPath = getConfigPath()
   if (!configPath) throw new Error('OPENCLAW_CONFIG_PATH not configured')
 
@@ -189,7 +189,7 @@ async function readOpenClawAgents(): Promise<OpenClawAgent[]> {
 }
 
 /** Extract MC-friendly fields from an agent config */
-function mapAgentToMC(agent: OpenClawAgent): {
+function mapAgentToMC(agent: AgentConfigEntry): {
   name: string
   role: string
   config: any
@@ -219,9 +219,9 @@ function mapAgentToMC(agent: OpenClawAgent): {
 
 /** Sync agents from config file into the MC database */
 export async function syncAgentsFromConfig(actor: string = 'system'): Promise<SyncResult> {
-  let agents: OpenClawAgent[]
+  let agents: AgentConfigEntry[]
   try {
-    agents = await readOpenClawAgents()
+    agents = await readAgentsFromConfig()
   } catch (err: any) {
     return { synced: 0, created: 0, updated: 0, agents: [], error: err.message }
   }
@@ -295,9 +295,9 @@ export async function syncAgentsFromConfig(actor: string = 'system'): Promise<Sy
 
 /** Preview the diff between config file and MC database without writing */
 export async function previewSyncDiff(): Promise<SyncDiff> {
-  let agents: OpenClawAgent[]
+  let agents: AgentConfigEntry[]
   try {
-    agents = await readOpenClawAgents()
+    agents = await readAgentsFromConfig()
   } catch {
     return { inConfig: 0, inMC: 0, newAgents: [], updatedAgents: [], onlyInMC: [] }
   }
@@ -350,13 +350,13 @@ export async function writeAgentToConfig(agentConfig: any): Promise<void> {
   if (!parsed.agents) parsed.agents = {}
   if (!parsed.agents.list) parsed.agents.list = []
 
-  const normalizedAgentConfig = normalizeAgentConfigForOpenClaw(agentConfig)
+  const normalizedAgentConfig = normalizeAgentConfig(agentConfig)
 
   // Find existing by id
   const idx = parsed.agents.list.findIndex((a: any) => a.id === normalizedAgentConfig.id)
   if (idx >= 0) {
     // Deep merge: preserve fields not in update
-    parsed.agents.list[idx] = normalizeAgentConfigForOpenClaw(
+    parsed.agents.list[idx] = normalizeAgentConfig(
       deepMerge(parsed.agents.list[idx], normalizedAgentConfig),
     )
   } else {
@@ -447,7 +447,7 @@ function normalizeModelConfig(model: unknown): unknown {
   }
 }
 
-function normalizeAgentConfigForOpenClaw(agentConfig: any): any {
+function normalizeAgentConfig(agentConfig: any): any {
   if (!agentConfig || typeof agentConfig !== 'object') return agentConfig
   if (!('model' in agentConfig)) return agentConfig
   return {

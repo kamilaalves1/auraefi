@@ -1,0 +1,8 @@
+{
+  "name": "swe-architecture-and-data",
+  "version": "1.0.0",
+  "description": "Technical architecture and data engineering guidance",
+  "author": "Vertex Control Center",
+  "license": "MIT",
+  "tags": ["architecture", "data", "nfr", "swe-squad"]
+}

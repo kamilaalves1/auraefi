@@ -1,0 +1,8 @@
+{
+  "name": "swe-quality-gates",
+  "version": "1.0.0",
+  "description": "QA: acceptance testing, evidence, and release readiness",
+  "author": "Vertex Control Center",
+  "license": "MIT",
+  "tags": ["qa", "testing", "release", "swe-squad"]
+}

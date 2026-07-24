@@ -1,0 +1,8 @@
+{
+  "name": "swe-security-review",
+  "version": "1.0.0",
+  "description": "Security review: threat framing and safe verification",
+  "author": "Vertex Control Center",
+  "license": "MIT",
+  "tags": ["security", "review", "swe-squad"]
+}

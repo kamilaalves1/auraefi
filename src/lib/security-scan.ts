@@ -35,7 +35,7 @@ export interface ScanResult {
   categories: {
     credentials: Category
     network: Category
-    openclaw: Category
+    gateway: Category
     runtime: Category
     os: Category
   }
@@ -78,11 +78,11 @@ const INSECURE_PASSWORDS = new Set([
 export function runSecurityScan(): ScanResult {
   const credentials = scanCredentials()
   const network = scanNetwork()
-  const openclaw = scanOpenClaw()
+  const gateway = scanGateway()
   const runtime = scanRuntime()
   const osLevel = scanOS()
 
-  const categories = { credentials, network, openclaw, runtime, os: osLevel }
+  const categories = { credentials, network, gateway, runtime, os: osLevel }
   const allChecks = Object.values(categories).flatMap(c => c.checks)
 
   const weightedMax = allChecks.reduce((s, c) => s + SEVERITY_WEIGHT[c.severity ?? 'medium'], 0)
@@ -260,7 +260,7 @@ function scanNetwork(): Category {
 // Category: Gateway
 // ---------------------------------------------------------------------------
 
-function scanOpenClaw(): Category {
+function scanGateway(): Category {
   const checks: Check[] = []
   const configPath = ''
 
@@ -268,11 +268,11 @@ function scanOpenClaw(): Category {
     const gatewayOptional = process.env.NEXT_PUBLIC_GATEWAY_OPTIONAL === 'true'
     checks.push({
       id: 'config_found',
-      name: 'OpenClaw config found',
+      name: 'Gateway config found',
       status: gatewayOptional ? 'pass' : 'warn',
       detail: gatewayOptional
-        ? 'OpenClaw not configured (standalone mode — gateway optional)'
-        : 'openclaw.json not found — OpenClaw checks skipped',
+        ? 'Gateway not configured (standalone mode — gateway optional)'
+        : 'gateway config not found — gateway checks skipped',
       fix: gatewayOptional ? '' : 'Set OPENCLAW_HOME or OPENCLAW_CONFIG_PATH in .env',
       severity: 'low',
     })
@@ -285,7 +285,7 @@ function scanOpenClaw(): Category {
   } catch (err) {
     checks.push({
       id: 'config_valid',
-      name: 'OpenClaw config valid',
+      name: 'Gateway config valid',
       status: 'fail',
       detail: 'openclaw.json could not be parsed',
       fix: 'Check openclaw.json for syntax errors',

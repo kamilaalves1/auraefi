@@ -37,7 +37,7 @@ export interface AgentMemorySearchConfig {
   }
 }
 
-export interface OpenClawAgentConfig {
+export interface AgentBuildConfig {
   id: string
   name?: string
   workspace?: string
@@ -57,7 +57,7 @@ export interface AgentTemplate {
   emoji: string
   modelTier: 'opus' | 'sonnet' | 'haiku'
   toolCount: number
-  config: Omit<OpenClawAgentConfig, 'id' | 'workspace' | 'agentDir'>
+  config: Omit<AgentBuildConfig, 'id' | 'workspace' | 'agentDir'>
 }
 
 import { getPluginToolProviders } from '@/lib/plugins'
@@ -844,7 +844,7 @@ export function buildAgentConfig(
     dockerNetwork?: 'none' | 'bridge'
     subagentAllowAgents?: string[]
   }
-): OpenClawAgentConfig {
+): AgentBuildConfig {
   const config = structuredClone(template.config)
 
   config.identity.name = overrides.name

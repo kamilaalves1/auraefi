@@ -40,18 +40,18 @@ export interface FrameworkInfo {
 export const FRAMEWORK_REGISTRY: Record<string, FrameworkInfo> = {
   openclaw: {
     id: 'openclaw',
-    label: 'OpenClaw',
+    label: 'Gateway',
     description: 'Native gateway-managed agents with full lifecycle control',
     docsUrl: 'https://github.com/openclaw/openclaw',
     connection: {
       connectionMode: 'websocket',
       heartbeatInterval: 30,
       setupHints: [
-        'Agents are managed via the OpenClaw gateway',
+        'Agents are managed via the gateway',
         'Config syncs bidirectionally via openclaw.json',
         'Use "pnpm openclaw agents add" to provision',
       ],
-      exampleSnippet: `# OpenClaw agents are auto-managed by the gateway.
+      exampleSnippet: `# Gateway agents are auto-managed.
 # No manual registration needed — sync happens automatically.
 # See: openclaw.json in your state directory.`,
     },
@@ -309,8 +309,8 @@ export interface UniversalTemplate {
   frameworks: string[]
   /** Role-based capabilities (framework-agnostic) */
   capabilities: string[]
-  /** The agent template to use when framework is openclaw */
-  openclawTemplateType?: string
+  /** The agent template to use when framework is gateway */
+  templateType?: string
 }
 
 /**
@@ -326,7 +326,7 @@ export const UNIVERSAL_TEMPLATES: UniversalTemplate[] = [
     emoji: '\ud83e\udded',
     frameworks: ['openclaw', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
     capabilities: ['task_routing', 'agent_management', 'workflow_control', 'full_access'],
-    openclawTemplateType: 'orchestrator',
+    templateType: 'orchestrator',
   },
   {
     type: 'developer',
@@ -335,7 +335,7 @@ export const UNIVERSAL_TEMPLATES: UniversalTemplate[] = [
     emoji: '\ud83d\udee0\ufe0f',
     frameworks: ['openclaw', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
     capabilities: ['code_write', 'code_execute', 'testing', 'debugging'],
-    openclawTemplateType: 'developer',
+    templateType: 'developer',
   },
   {
     type: 'reviewer',
@@ -344,7 +344,7 @@ export const UNIVERSAL_TEMPLATES: UniversalTemplate[] = [
     emoji: '\ud83d\udd2c',
     frameworks: ['openclaw', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
     capabilities: ['code_read', 'quality_review', 'security_audit'],
-    openclawTemplateType: 'reviewer',
+    templateType: 'reviewer',
   },
   {
     type: 'researcher',
@@ -353,7 +353,7 @@ export const UNIVERSAL_TEMPLATES: UniversalTemplate[] = [
     emoji: '\ud83d\udd0d',
     frameworks: ['openclaw', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
     capabilities: ['web_browse', 'data_gathering', 'summarization'],
-    openclawTemplateType: 'researcher',
+    templateType: 'researcher',
   },
   {
     type: 'content-creator',
@@ -362,7 +362,7 @@ export const UNIVERSAL_TEMPLATES: UniversalTemplate[] = [
     emoji: '\u270f\ufe0f',
     frameworks: ['openclaw', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
     capabilities: ['content_write', 'content_edit'],
-    openclawTemplateType: 'content-creator',
+    templateType: 'content-creator',
   },
   {
     type: 'security-auditor',
@@ -371,7 +371,7 @@ export const UNIVERSAL_TEMPLATES: UniversalTemplate[] = [
     emoji: '\ud83d\udee1\ufe0f',
     frameworks: ['openclaw', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
     capabilities: ['code_read', 'shell_execute', 'security_scan'],
-    openclawTemplateType: 'security-auditor',
+    templateType: 'security-auditor',
   },
 ]
 
@@ -418,8 +418,8 @@ export function resolveTemplateConfig(
   if (!universal) return undefined
   if (!universal.frameworks.includes(framework)) return undefined
 
-  if (framework === 'openclaw' && universal.openclawTemplateType) {
-    const template = AGENT_TEMPLATES.find(t => t.type === universal.openclawTemplateType)
+  if (framework === 'openclaw' && universal.templateType) {
+    const template = AGENT_TEMPLATES.find(t => t.type === universal.templateType)
     return { template, universal }
   }
 

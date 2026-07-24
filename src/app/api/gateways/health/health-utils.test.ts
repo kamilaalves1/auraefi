@@ -99,7 +99,7 @@ function parseGatewayVersion(headers: Record<string, string | null>): string | n
   return m?.[1] || null
 }
 
-function hasOpenClaw32ToolsProfileRisk(version: string | null): boolean {
+function hasGateway32ToolsProfileRisk(version: string | null): boolean {
   if (!version) return false
   const m = version.match(/^(\d{4})\.(\d+)\.(\d+)/)
   if (!m) return false
@@ -242,29 +242,29 @@ describe('parseGatewayVersion', () => {
   })
 })
 
-describe('hasOpenClaw32ToolsProfileRisk', () => {
+describe('hasGateway32ToolsProfileRisk', () => {
   it('returns false for null version', () => {
-    expect(hasOpenClaw32ToolsProfileRisk(null)).toBe(false)
+    expect(hasGateway32ToolsProfileRisk(null)).toBe(false)
   })
 
   it('returns false for versions before 2026.3.2', () => {
-    expect(hasOpenClaw32ToolsProfileRisk('2026.3.1')).toBe(false)
-    expect(hasOpenClaw32ToolsProfileRisk('2026.2.9')).toBe(false)
-    expect(hasOpenClaw32ToolsProfileRisk('2025.10.0')).toBe(false)
+    expect(hasGateway32ToolsProfileRisk('2026.3.1')).toBe(false)
+    expect(hasGateway32ToolsProfileRisk('2026.2.9')).toBe(false)
+    expect(hasGateway32ToolsProfileRisk('2025.10.0')).toBe(false)
   })
 
   it('returns true for version 2026.3.2', () => {
-    expect(hasOpenClaw32ToolsProfileRisk('2026.3.2')).toBe(true)
+    expect(hasGateway32ToolsProfileRisk('2026.3.2')).toBe(true)
   })
 
   it('returns true for versions after 2026.3.2', () => {
-    expect(hasOpenClaw32ToolsProfileRisk('2026.3.7')).toBe(true)
-    expect(hasOpenClaw32ToolsProfileRisk('2026.4.0')).toBe(true)
-    expect(hasOpenClaw32ToolsProfileRisk('2027.1.0')).toBe(true)
+    expect(hasGateway32ToolsProfileRisk('2026.3.7')).toBe(true)
+    expect(hasGateway32ToolsProfileRisk('2026.4.0')).toBe(true)
+    expect(hasGateway32ToolsProfileRisk('2027.1.0')).toBe(true)
   })
 
   it('returns false for unrecognized version format', () => {
-    expect(hasOpenClaw32ToolsProfileRisk('invalid')).toBe(false)
-    expect(hasOpenClaw32ToolsProfileRisk('')).toBe(false)
+    expect(hasGateway32ToolsProfileRisk('invalid')).toBe(false)
+    expect(hasGateway32ToolsProfileRisk('')).toBe(false)
   })
 })

@@ -422,9 +422,9 @@ export function SecurityAuditPanel() {
               </div>
               <div className="space-y-2">
                 {Object.entries(data.scan.categories).map(([key, cat]) => {
-                  const scanCategoryLabels: Record<string, string> = { credentials: t('scanCredentials'), network: t('scanNetwork'), openclaw: t('scanOpenclaw'), runtime: t('scanRuntime'), os: t('scanOs') }
+                  const scanCategoryLabels: Record<string, string> = { credentials: t('scanCredentials'), network: t('scanNetwork'), gateway: t('scanGateway'), runtime: t('scanRuntime'), os: t('scanOs') }
                   const label = scanCategoryLabels[key] || key
-                  const icon = { credentials: 'K', network: 'N', openclaw: 'O', runtime: 'R', os: 'S' }[key] || key[0].toUpperCase()
+                  const icon = { credentials: 'K', network: 'N', gateway: 'G', runtime: 'R', os: 'S' }[key] || key[0].toUpperCase()
                   const failing = cat.checks.filter(c => c.status !== 'pass')
                   return (
                     <ScanCategoryRow key={key} label={label} icon={icon} category={cat} failingCount={failing.length} />

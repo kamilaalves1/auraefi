@@ -52,7 +52,7 @@ function parseGatewayVersion(res: Response): string | null {
   return m?.[1] || null
 }
 
-function hasOpenClaw32ToolsProfileRisk(version: string | null): boolean {
+function hasGateway32ToolsProfileRisk(version: string | null): boolean {
   if (!version) return false
   const m = version.match(/^(\d{4})\.(\d+)\.(\d+)/)
   if (!m) return false
@@ -219,8 +219,8 @@ export async function POST(request: NextRequest) {
       const latency = Date.now() - start
       const status = res.ok ? "online" : "error"
       const gatewayVersion = parseGatewayVersion(res)
-      const compatibilityWarning = hasOpenClaw32ToolsProfileRisk(gatewayVersion)
-        ? 'OpenClaw 2026.3.2+ defaults tools.profile=messaging; Mission Control should enforce coding profile when spawning.'
+      const compatibilityWarning = hasGateway32ToolsProfileRisk(gatewayVersion)
+        ? 'Gateway 2026.3.2+ defaults tools.profile=messaging; Mission Control should enforce coding profile when spawning.'
         : undefined
 
       const errorMessage = res.ok ? null : `HTTP ${res.status}`

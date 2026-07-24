@@ -59,22 +59,22 @@ function extractDescription(content: string): string | undefined {
 function getSkillRoots(): Array<{ source: string; path: string }> {
   const home = homedir()
   const cwd = process.cwd()
-  const openclawState = process.env.OPENCLAW_STATE_DIR || process.env.OPENCLAW_HOME || join(home, '.openclaw')
+  const stateDir = process.env.OPENCLAW_STATE_DIR || process.env.OPENCLAW_HOME || join(home, '.openclaw')
   const roots: Array<{ source: string; path: string }> = [
     { source: 'user-agents', path: process.env.MC_SKILLS_USER_AGENTS_DIR || join(home, '.agents', 'skills') },
     { source: 'user-codex', path: process.env.MC_SKILLS_USER_CODEX_DIR || join(home, '.codex', 'skills') },
     { source: 'project-agents', path: process.env.MC_SKILLS_PROJECT_AGENTS_DIR || join(cwd, '.agents', 'skills') },
     { source: 'project-codex', path: process.env.MC_SKILLS_PROJECT_CODEX_DIR || join(cwd, '.codex', 'skills') },
-    { source: 'openclaw', path: process.env.MC_SKILLS_OPENCLAW_DIR || join(openclawState, 'skills') },
-    { source: 'workspace', path: process.env.MC_SKILLS_WORKSPACE_DIR || join(process.env.OPENCLAW_WORKSPACE_DIR || process.env.MISSION_CONTROL_WORKSPACE_DIR || join(openclawState, 'workspace'), 'skills') },
+    { source: 'openclaw', path: process.env.MC_SKILLS_OPENCLAW_DIR || join(stateDir, 'skills') },
+    { source: 'workspace', path: process.env.MC_SKILLS_WORKSPACE_DIR || join(process.env.OPENCLAW_WORKSPACE_DIR || process.env.MISSION_CONTROL_WORKSPACE_DIR || join(stateDir, 'workspace'), 'skills') },
   ]
 
   // Dynamic: scan for workspace-<agent> directories
   try {
-    const entries = readdirSync(openclawState)
+    const entries = readdirSync(stateDir)
     for (const entry of entries) {
       if (!entry.startsWith('workspace-')) continue
-      const skillsDir = join(openclawState, entry, 'skills')
+      const skillsDir = join(stateDir, entry, 'skills')
       if (existsSync(skillsDir)) {
         const agentName = entry.replace('workspace-', '')
         roots.push({ source: `workspace-${agentName}`, path: skillsDir })

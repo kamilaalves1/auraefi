@@ -24,15 +24,15 @@ export function getAgentWorkspaceCandidates(agentConfig: any, agentName: string)
   }
 
   const rawWorkspace = typeof agentConfig?.workspace === 'string' ? agentConfig.workspace.trim() : ''
-  const openclawIdRaw =
+  const agentIdRaw =
     typeof agentConfig?.openclawId === 'string' && agentConfig.openclawId.trim()
       ? agentConfig.openclawId.trim()
       : agentName
-  const openclawId = openclawIdRaw.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')
+  const agentId = agentIdRaw.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')
 
   push(rawWorkspace || null)
-  push(`workspace-${openclawId}`)
-  push(`agents/${openclawId}`)
+  push(`workspace-${agentId}`)
+  push(`agents/${agentId}`)
   push('workspace')
 
   return out.filter((value) => existsSync(value))

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
 const requireRole = vi.fn()
-const runOpenClaw = vi.fn()
+const runGateway = vi.fn()
 const removeAgentFromConfig = vi.fn()
 const prepare = vi.fn()
 
@@ -11,7 +11,7 @@ vi.mock('@/lib/auth', () => ({
 }))
 
 vi.mock('@/lib/command', () => ({
-  runOpenClaw,
+  runGateway,
 }))
 
 vi.mock('@/lib/agent-sync', () => ({
@@ -46,7 +46,7 @@ describe('DELETE /api/agents/[id]', () => {
   beforeEach(() => {
     vi.resetModules()
     requireRole.mockReturnValue({ user: { id: 1, username: 'admin', role: 'admin', workspace_id: 1 } })
-    runOpenClaw.mockReset()
+    runGateway.mockReset()
     removeAgentFromConfig.mockReset()
     prepare.mockReset()
   })
@@ -55,7 +55,7 @@ describe('DELETE /api/agents/[id]', () => {
     vi.clearAllMocks()
   })
 
-  it('removes the agent from OpenClaw config even when workspace deletion is disabled', async () => {
+  it('removes the agent from gateway config even when workspace deletion is disabled', async () => {
     const agent = { id: 7, name: 'neo', role: 'tester', config: JSON.stringify({ openclawId: 'neo' }) }
     const selectStmt = { get: vi.fn(() => agent) }
     const deleteStmt = { run: vi.fn() }
@@ -76,7 +76,7 @@ describe('DELETE /api/agents/[id]', () => {
     const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(runOpenClaw).not.toHaveBeenCalled()
+    expect(runGateway).not.toHaveBeenCalled()
     expect(removeAgentFromConfig).toHaveBeenCalledWith({ id: 'neo', name: 'neo' })
     expect(deleteStmt.run).toHaveBeenCalledWith(7, 1)
     expect(body.success).toBe(true)
@@ -102,7 +102,7 @@ describe('DELETE /api/agents/[id]', () => {
     const response = await DELETE(request, { params: Promise.resolve({ id: '8' }) })
 
     expect(response.status).toBe(200)
-    expect(runOpenClaw).not.toHaveBeenCalled()
+    expect(runGateway).not.toHaveBeenCalled()
     expect(removeAgentFromConfig).toHaveBeenCalledWith({ id: 'adam', name: 'adam' })
     expect(deleteStmt.run).toHaveBeenCalledWith(8, 1)
   })
@@ -130,6 +130,6 @@ describe('DELETE /api/agents/[id]', () => {
     expect(response.status).toBe(200)
     expect(deleteStmt.run).toHaveBeenCalledWith(9, 1)
     expect(body.success).toBe(true)
-    expect(body.warning).toContain('OpenClaw config cleanup skipped')
+    expect(body.warning).toContain('Gateway config cleanup skipped')
   })
 })

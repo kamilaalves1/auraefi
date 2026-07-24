@@ -1,0 +1,8 @@
+{
+  "name": "swe-release-operations",
+  "version": "1.0.0",
+  "description": "DevOps: delivery automation, observability, and safe operations",
+  "author": "Vertex Control Center",
+  "license": "MIT",
+  "tags": ["devops", "ci-cd", "observability", "swe-squad"]
+}

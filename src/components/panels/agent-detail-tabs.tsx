@@ -1500,7 +1500,7 @@ export function ConfigTab({
   return (
     <div className="p-6 space-y-4">
       <div className="flex justify-between items-center">
-        <h4 className="text-lg font-medium text-foreground">{t('openclawConfig')}</h4>
+        <h4 className="text-lg font-medium text-foreground">{t('gatewayConfig')}</h4>
         <div className="flex gap-2">
           <Button
             onClick={() => setShowJson(!showJson)}

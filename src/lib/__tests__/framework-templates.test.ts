@@ -79,10 +79,10 @@ describe('Universal Templates', () => {
     }
   })
 
-  it('templates with openclawTemplateType reference valid OpenClaw templates', () => {
+  it('templates with templateType reference valid agent templates', () => {
     for (const tpl of UNIVERSAL_TEMPLATES) {
-      if (tpl.openclawTemplateType) {
-        const ocTemplate = AGENT_TEMPLATES.find(t => t.type === tpl.openclawTemplateType)
+      if (tpl.templateType) {
+        const ocTemplate = AGENT_TEMPLATES.find(t => t.type === tpl.templateType)
         expect(ocTemplate).toBeDefined()
       }
     }
@@ -111,7 +111,7 @@ describe('Template-Framework Resolution', () => {
     expect(getTemplatesForFramework('nonexistent')).toEqual([])
   })
 
-  it('resolveTemplateConfig returns OpenClaw template for openclaw framework', () => {
+  it('resolveTemplateConfig returns gateway template for openclaw framework', () => {
     const result = resolveTemplateConfig('developer', 'openclaw')
     expect(result).toBeDefined()
     expect(result?.template).toBeDefined()
@@ -119,7 +119,7 @@ describe('Template-Framework Resolution', () => {
     expect(result?.universal.type).toBe('developer')
   })
 
-  it('resolveTemplateConfig returns universal-only for non-openclaw frameworks', () => {
+  it('resolveTemplateConfig returns universal-only for non-gateway frameworks', () => {
     const result = resolveTemplateConfig('developer', 'langgraph')
     expect(result).toBeDefined()
     expect(result?.template).toBeUndefined()

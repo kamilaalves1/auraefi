@@ -38,7 +38,7 @@ describe('resolveCoordinatorDeliveryTarget', () => {
     expect(resolved).toEqual({
       deliveryName: 'dev',
       sessionKey: 'agent:dev:main',
-      openclawAgentId: 'dev',
+      agentId: 'dev',
       resolvedBy: 'direct',
     })
   })
@@ -61,7 +61,7 @@ describe('resolveCoordinatorDeliveryTarget', () => {
     expect(resolved).toEqual({
       deliveryName: 'jarv',
       sessionKey: 'agent:jarv:main',
-      openclawAgentId: 'jarv',
+      agentId: 'jarv',
       resolvedBy: 'configured',
     })
   })
@@ -83,7 +83,7 @@ describe('resolveCoordinatorDeliveryTarget', () => {
     expect(resolved).toEqual({
       deliveryName: 'dev',
       sessionKey: 'agent:dev:main',
-      openclawAgentId: 'dev',
+      agentId: 'dev',
       resolvedBy: 'default',
     })
   })
@@ -100,7 +100,7 @@ describe('resolveCoordinatorDeliveryTarget', () => {
     expect(resolved).toEqual({
       deliveryName: 'jarv',
       sessionKey: 'agent:jarv:main',
-      openclawAgentId: 'jarv',
+      agentId: 'jarv',
       resolvedBy: 'main_session',
     })
   })
@@ -117,7 +117,7 @@ describe('resolveCoordinatorDeliveryTarget', () => {
     expect(resolved).toEqual({
       deliveryName: 'Coordinator Team',
       sessionKey: null,
-      openclawAgentId: 'coordinator-team',
+      agentId: 'coordinator-team',
       resolvedBy: 'fallback',
     })
   })
