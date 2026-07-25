@@ -26,13 +26,6 @@ const LOADER_AGENTS = [
     labelClass: 'absolute left-1/2 -top-5 -translate-x-1/2',
   },
   {
-    key: 'gateway',
-    name: 'Gateway',
-    src: '/brand/gateway-logo.png',
-    wrapperClass: 'absolute left-0 top-1/2 -translate-y-1/2 opacity-0 animate-converge-left',
-    labelClass: 'absolute -left-9 top-1/2 -translate-y-1/2',
-  },
-  {
     key: 'codex',
     name: 'Codex',
     src: '/brand/codex-logo.png',
