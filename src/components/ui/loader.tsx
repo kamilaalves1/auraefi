@@ -19,13 +19,6 @@ interface LoaderProps {
 
 const LOADER_AGENTS = [
   {
-    key: 'claude',
-    name: 'Claude',
-    src: '/brand/claude-logo.png',
-    wrapperClass: 'absolute left-1/2 top-0 -translate-x-1/2 opacity-0 animate-converge-top',
-    labelClass: 'absolute left-1/2 -top-5 -translate-x-1/2',
-  },
-  {
     key: 'codex',
     name: 'Codex',
     src: '/brand/codex-logo.png',
