@@ -55,8 +55,8 @@ const SOURCE_LABELS: Record<string, string> = {
   'user-codex': '~/.codex/skills (global)',
   'project-agents': '.agents/skills (project)',
   'project-codex': '.codex/skills (project)',
-  'openclaw': '~/.openclaw/skills (gateway)',
-  'workspace': '~/.openclaw/workspace/skills',
+  'gateway': '~/.gateway/skills (gateway)',
+  'workspace': '~/.gateway/workspace/skills',
 }
 
 function getSourceLabel(source: string): string {
@@ -81,19 +81,19 @@ export function SkillsPanel() {
   const [draftContent, setDraftContent] = useState('')
   const [drawerLoading, setDrawerLoading] = useState(false)
   const [drawerError, setDrawerError] = useState<string | null>(null)
-  const [createSource, setCreateSource] = useState(dashboardMode === 'full' ? 'openclaw' : 'user-codex')
+  const [createSource, setCreateSource] = useState(dashboardMode === 'full' ? 'gateway' : 'user-codex')
   const [createName, setCreateName] = useState('')
   const [createContent, setCreateContent] = useState('# new-skill\n\nDescribe this skill.\n')
   const [createError, setCreateError] = useState<string | null>(null)
   const [isMounted, setIsMounted] = useState(false)
   const [activeTab, setActiveTab] = useState<PanelTab>('installed')
-  const [registrySource, setRegistrySource] = useState<'clawhub' | 'skills-sh' | 'awesome-openclaw'>('awesome-openclaw')
+  const [registrySource, setRegistrySource] = useState<'clawhub' | 'skills-sh' | 'awesome-gateway'>('awesome-gateway')
   const [registryQuery, setRegistryQuery] = useState('')
   const [registryResults, setRegistryResults] = useState<RegistrySkill[]>([])
   const [registryLoading, setRegistryLoading] = useState(false)
   const [registryError, setRegistryError] = useState<string | null>(null)
   const [registrySearched, setRegistrySearched] = useState(false)
-  const [installTarget, setInstallTarget] = useState(dashboardMode === 'full' ? 'openclaw' : 'user-agents')
+  const [installTarget, setInstallTarget] = useState(dashboardMode === 'full' ? 'gateway' : 'user-agents')
   const [installing, setInstalling] = useState<string | null>(null)
   const [installMessage, setInstallMessage] = useState<string | null>(null)
   const [scanAll, setScanAll] = useState<{
@@ -523,7 +523,7 @@ export function SkillsPanel() {
                 <option value="project-agents">{SOURCE_LABELS['project-agents']}</option>
                 <option value="project-codex">{SOURCE_LABELS['project-codex']}</option>
                 {dashboardMode === 'full' && (
-                  <option value="openclaw">{SOURCE_LABELS['openclaw']}</option>
+                  <option value="gateway">{SOURCE_LABELS['gateway']}</option>
                 )}
                 <option value="workspace">{SOURCE_LABELS['workspace']}</option>
               </select>
@@ -561,14 +561,14 @@ export function SkillsPanel() {
                     {t('showAllRoots')}
                   </button>
                 )}
-                {(skillGroups || []).filter(g => g.skills.length > 0 || ['user-agents', 'user-codex', 'openclaw', 'workspace'].includes(g.source) || g.source.startsWith('workspace-')).map((group) => (
+                {(skillGroups || []).filter(g => g.skills.length > 0 || ['user-agents', 'user-codex', 'gateway', 'workspace'].includes(g.source) || g.source.startsWith('workspace-')).map((group) => (
                   <button
                     key={group.source}
                     onClick={() => setActiveRoot(activeRoot === group.source ? null : group.source)}
                     className={`rounded-lg border bg-card p-3 text-left transition-colors ${
                       activeRoot === group.source
                         ? 'border-primary ring-1 ring-primary/30'
-                        : group.source === 'openclaw' ? 'border-cyan-500/30 hover:border-cyan-500/50'
+                        : group.source === 'gateway' ? 'border-cyan-500/30 hover:border-cyan-500/50'
                         : group.source.startsWith('workspace-') ? 'border-violet-500/30 hover:border-violet-500/50'
                         : 'border-border hover:border-border/80'
                     }`}
@@ -602,7 +602,7 @@ export function SkillsPanel() {
                           <div className="flex items-center gap-2">
                             {securityBadge(skill.security_status)}
                             <span className={`text-2xs rounded-full border px-2 py-0.5 ${
-                              skill.source === 'openclaw'
+                              skill.source === 'gateway'
                                 ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
                                 : skill.source.startsWith('workspace-')
                                   ? 'bg-violet-500/10 text-violet-400 border-violet-500/30'
@@ -640,12 +640,12 @@ export function SkillsPanel() {
             <div className="flex items-center gap-2">
               <select
                 value={registrySource}
-                onChange={(e) => { setRegistrySource(e.target.value as 'clawhub' | 'skills-sh' | 'awesome-openclaw'); setRegistryResults([]); setRegistrySearched(false) }}
+                onChange={(e) => { setRegistrySource(e.target.value as 'clawhub' | 'skills-sh' | 'awesome-gateway'); setRegistryResults([]); setRegistrySearched(false) }}
                 className="h-9 rounded-md border border-border bg-secondary/50 px-2 text-xs text-foreground"
               >
                 <option value="clawhub">ClawdHub</option>
                 <option value="skills-sh">skills.sh</option>
-                <option value="awesome-openclaw">Awesome OpenClaw</option>
+                <option value="awesome-gateway">Awesome Gateway</option>
               </select>
               <input
                 value={registryQuery}
@@ -670,7 +670,7 @@ export function SkillsPanel() {
                 <option value="project-agents">{SOURCE_LABELS['project-agents']}</option>
                 <option value="project-codex">{SOURCE_LABELS['project-codex']}</option>
                 {dashboardMode === 'full' && (
-                  <option value="openclaw">{SOURCE_LABELS['openclaw']}</option>
+                  <option value="gateway">{SOURCE_LABELS['gateway']}</option>
                 )}
                 <option value="workspace">{SOURCE_LABELS['workspace']}</option>
               </select>
@@ -686,7 +686,7 @@ export function SkillsPanel() {
           {registryResults.length > 0 ? (
             <div className="rounded-lg border border-border bg-card overflow-hidden">
               <div className="px-4 py-3 border-b border-border text-xs text-muted-foreground">
-                {registryResults.length} results from {{ clawhub: 'ClawdHub', 'skills-sh': 'skills.sh', 'awesome-openclaw': 'Awesome OpenClaw' }[registrySource]}
+                {registryResults.length} results from {{ clawhub: 'ClawdHub', 'skills-sh': 'skills.sh', 'awesome-gateway': 'Awesome Gateway' }[registrySource]}
               </div>
               <div className="divide-y divide-border">
                 {registryResults.map((skill) => (
@@ -728,7 +728,7 @@ export function SkillsPanel() {
             <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">{t('searching')}</div>
           ) : registrySearched ? (
             <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">
-              {t('noRegistryResults', { query: registryQuery, registry: { clawhub: 'ClawdHub', 'skills-sh': 'skills.sh', 'awesome-openclaw': 'Awesome OpenClaw' }[registrySource] })}
+              {t('noRegistryResults', { query: registryQuery, registry: { clawhub: 'ClawdHub', 'skills-sh': 'skills.sh', 'awesome-gateway': 'Awesome Gateway' }[registrySource] })}
             </div>
           ) : (
             <div className="rounded-lg border border-border bg-card px-4 py-6 text-sm text-muted-foreground">

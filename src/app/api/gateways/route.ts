@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
   // If no gateways exist, seed defaults from environment
   if (gateways.length === 0) {
     const name = String(process.env.MC_DEFAULT_GATEWAY_NAME || 'primary')
-    const host = String(process.env.OPENCLAW_GATEWAY_HOST || '127.0.0.1')
+    const host = String(process.env.GATEWAY_HOST || '127.0.0.1')
     const mainPort = getDetectedGatewayPort() || parseInt(process.env.NEXT_PUBLIC_GATEWAY_PORT || '18789')
     const mainToken = getDetectedGatewayToken()
 

@@ -56,7 +56,7 @@ describe('DELETE /api/agents/[id]', () => {
   })
 
   it('removes the agent from gateway config even when workspace deletion is disabled', async () => {
-    const agent = { id: 7, name: 'neo', role: 'tester', config: JSON.stringify({ openclawId: 'neo' }) }
+    const agent = { id: 7, name: 'neo', role: 'tester', config: JSON.stringify({ agentId: 'neo' }) }
     const selectStmt = { get: vi.fn(() => agent) }
     const deleteStmt = { run: vi.fn() }
     prepare.mockImplementation((sql: string) => {
@@ -83,7 +83,7 @@ describe('DELETE /api/agents/[id]', () => {
   })
 
   it('logs a warning when remove_workspace is requested but does not call gateway CLI', async () => {
-    const agent = { id: 8, name: 'adam', role: 'tester', config: JSON.stringify({ openclawId: 'adam' }) }
+    const agent = { id: 8, name: 'adam', role: 'tester', config: JSON.stringify({ agentId: 'adam' }) }
     const selectStmt = { get: vi.fn(() => agent) }
     const deleteStmt = { run: vi.fn() }
     prepare.mockImplementation((sql: string) => {
@@ -108,7 +108,7 @@ describe('DELETE /api/agents/[id]', () => {
   })
 
   it('still deletes the Mission Control agent when config cleanup fails', async () => {
-    const agent = { id: 9, name: 'trinity', role: 'tester', config: JSON.stringify({ openclawId: 'trinity' }) }
+    const agent = { id: 9, name: 'trinity', role: 'tester', config: JSON.stringify({ agentId: 'trinity' }) }
     const selectStmt = { get: vi.fn(() => agent) }
     const deleteStmt = { run: vi.fn() }
     prepare.mockImplementation((sql: string) => {
@@ -116,7 +116,7 @@ describe('DELETE /api/agents/[id]', () => {
       if (sql.startsWith('DELETE FROM agents')) return deleteStmt
       throw new Error(`Unexpected SQL: ${sql}`)
     })
-    removeAgentFromConfig.mockRejectedValue(new Error('OPENCLAW_CONFIG_PATH not configured'))
+    removeAgentFromConfig.mockRejectedValue(new Error('GATEWAY_CONFIG_PATH not configured'))
 
     const { DELETE } = await import('@/app/api/agents/[id]/route')
     const request = new NextRequest('http://localhost/api/agents/9', {

@@ -8,8 +8,8 @@ import {
   type RegistrySource,
 } from '@/lib/skill-registry'
 
-const VALID_SOURCES: RegistrySource[] = ['clawhub', 'skills-sh', 'awesome-openclaw']
-const VALID_TARGETS = ['user-agents', 'user-codex', 'project-agents', 'project-codex', 'openclaw', 'workspace']
+const VALID_SOURCES: RegistrySource[] = ['clawhub', 'skills-sh', 'awesome-gateway']
+const VALID_TARGETS = ['user-agents', 'user-codex', 'project-agents', 'project-codex', 'gateway', 'workspace']
 
 /**
  * GET /api/skills/registry?source=clawhub&q=terraform

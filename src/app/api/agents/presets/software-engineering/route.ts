@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
   const validated = await validateBody(request, softwareEngineeringPresetSchema)
   if ('error' in validated) return validated.error
 
-  const { skip_existing, write_to_gateway, provision_openclaw_workspace, locale: bodyLocale } = validated.data
+  const { skip_existing, write_to_gateway, provision_workspace, locale: bodyLocale } = validated.data
 
   const acceptLang = request.headers.get('accept-language')?.split(',')[0]?.trim().split(';')[0]
   const resolvedLocale = resolvePresetLocale(bodyLocale || acceptLang || undefined)
@@ -48,12 +48,12 @@ export async function POST(request: NextRequest) {
     for (const m of members) {
       const result = await createMcAgent(db, ctx, {
         name: m.name,
-        openclaw_id: (m.name || m.template || 'agent').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+        agent_id: (m.name || m.template || 'agent').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
         template: m.template,
         role: m.roleLabel,
         soul_content: m.soulContent,
         write_to_gateway,
-        provision_openclaw_workspace,
+        provision_workspace,
         gateway_config: { identity: { emoji: m.emoji } },
       })
 

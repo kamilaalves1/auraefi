@@ -280,7 +280,7 @@ function resolveApiKey(provider: string): string | null {
     const { readFileSync } = require('fs') as typeof import('fs')
     const { join } = require('path') as typeof import('path')
     const { homedir } = require('os') as typeof import('os')
-    const content = readFileSync(join(homedir(), '.openclaw', '.env'), 'utf-8')
+    const content = readFileSync(join(homedir(), '.gateway', '.env'), 'utf-8')
     for (const line of content.split('\n')) {
       const m = line.match(new RegExp(`^${envKey}\\s*=\\s*(.+)$`))
       if (m) { const v = m[1].trim().replace(/^["']|["']$/g, ''); if (v) return v }

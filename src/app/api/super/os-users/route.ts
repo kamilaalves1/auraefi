@@ -63,12 +63,12 @@ function checkToolExists(homeDir: string, tool: string): boolean {
 function installToolForUser(
   homeDir: string,
   username: string,
-  tool: 'openclaw' | 'claude' | 'codex'
+  tool: 'gateway' | 'claude' | 'codex'
 ): { success: boolean; error?: string } {
   try {
-    if (tool === 'openclaw') {
+    if (tool === 'gateway') {
       // agent runtime is managed by MC — create dir structure + install latest from npm
-      const gatewayDir = path.join(homeDir, '.openclaw')
+      const gatewayDir = path.join(homeDir, '.gateway')
       const workspaceDir = path.join(homeDir, 'workspace')
       for (const dir of [gatewayDir, workspaceDir]) {
         try {
@@ -180,8 +180,8 @@ function discoverOsUsers(): OsUser[] {
 
         const hasClaude = checkToolExists(homeDir, 'claude')
         const hasCodex = checkToolExists(homeDir, 'codex')
-        const hasOpenclaw = checkToolExists(homeDir, 'openclaw')
-        users.push({ username, uid, home_dir: homeDir, shell, linked_tenant_id: null, has_claude: hasClaude, has_codex: hasCodex, has_gateway: hasOpenclaw, is_process_owner: false })
+        const hasGateway = checkToolExists(homeDir, 'gateway')
+        users.push({ username, uid, home_dir: homeDir, shell, linked_tenant_id: null, has_claude: hasClaude, has_codex: hasCodex, has_gateway: hasGateway, is_process_owner: false })
       }
     } else if (platform === 'linux') {
       // Linux: getent passwd returns colon-separated fields (no shell needed)
@@ -199,8 +199,8 @@ function discoverOsUsers(): OsUser[] {
 
         const hasClaude = checkToolExists(homeDir, 'claude')
         const hasCodex = checkToolExists(homeDir, 'codex')
-        const hasOpenclaw = checkToolExists(homeDir, 'openclaw')
-        users.push({ username, uid, home_dir: homeDir, shell, linked_tenant_id: null, has_claude: hasClaude, has_codex: hasCodex, has_gateway: hasOpenclaw, is_process_owner: false })
+        const hasGateway = checkToolExists(homeDir, 'gateway')
+        users.push({ username, uid, home_dir: homeDir, shell, linked_tenant_id: null, has_claude: hasClaude, has_codex: hasCodex, has_gateway: hasGateway, is_process_owner: false })
       }
     }
   } catch {
@@ -267,7 +267,7 @@ export async function POST(request: NextRequest) {
   const displayName = String(body.display_name || '').trim().slice(0, 100)
   const password = body.password ? String(body.password) : undefined
   const gatewayMode = !!body.gateway_mode
-  const installOpenclaw = !!body.install_openclaw
+  const installGateway = !!body.install_gateway
   const installClaude = !!body.install_claude
   const installCodex = !!body.install_codex
 
@@ -306,7 +306,7 @@ export async function POST(request: NextRequest) {
         gateway_port: body.gateway_port ? Number(body.gateway_port) : undefined,
         owner_gateway: body.owner_gateway || undefined,
         dry_run: body.dry_run !== false,
-        config: { install_openclaw: installOpenclaw, install_claude: installClaude, install_codex: installCodex },
+        config: { install_gateway: installGateway, install_claude: installClaude, install_codex: installCodex },
       }, actor)
       return NextResponse.json(result, { status: 201 })
     } catch (e: any) {
@@ -373,12 +373,12 @@ export async function POST(request: NextRequest) {
 
     // Determine home directory for the new user
     const homeDir = platform === 'darwin' ? `/Users/${username}` : `/home/${username}`
-    const gatewayHome = path.posix.join(homeDir, '.openclaw')
+    const gatewayHome = path.posix.join(homeDir, '.gateway')
     const workspaceRoot = path.posix.join(homeDir, 'workspace')
 
     // Register as tenant in DB
     const tenantRes = db.prepare(`
-      INSERT INTO tenants (slug, display_name, linux_user, plan_tier, status, openclaw_home, workspace_root, gateway_port, dashboard_port, config, created_by, owner_gateway)
+      INSERT INTO tenants (slug, display_name, linux_user, plan_tier, status, gateway_home, workspace_root, gateway_port, dashboard_port, config, created_by, owner_gateway)
       VALUES (?, ?, ?, 'local', 'active', ?, ?, NULL, NULL, '{}', ?, 'local')
     `).run(username, displayName, username, gatewayHome, workspaceRoot, actor)
 
@@ -396,11 +396,11 @@ export async function POST(request: NextRequest) {
 
     // Install requested tools (non-fatal)
     const installResults: Record<string, { success: boolean; error?: string }> = {}
-    const toolsToInstall: Array<'openclaw' | 'claude' | 'codex'> = []
-    if (installOpenclaw) toolsToInstall.push('openclaw')
+    const toolsToInstall: Array<'gateway' | 'claude' | 'codex'> = []
+    if (installGateway) toolsToInstall.push('gateway')
     // When agent runtime is selected, claude+codex are bundled — skip separate installs
-    if (installClaude && !installOpenclaw) toolsToInstall.push('claude')
-    if (installCodex && !installOpenclaw) toolsToInstall.push('codex')
+    if (installClaude && !installGateway) toolsToInstall.push('claude')
+    if (installCodex && !installGateway) toolsToInstall.push('codex')
 
     for (const tool of toolsToInstall) {
       installResults[tool] = installToolForUser(homeDir, username, tool)

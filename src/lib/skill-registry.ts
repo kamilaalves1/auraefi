@@ -16,7 +16,7 @@ import { logger } from './logger'
 // Types
 // ---------------------------------------------------------------------------
 
-export type RegistrySource = 'clawhub' | 'skills-sh' | 'awesome-openclaw'
+export type RegistrySource = 'clawhub' | 'skills-sh' | 'awesome-gateway'
 
 export interface RegistrySkill {
   slug: string
@@ -189,8 +189,8 @@ export function checkSkillSecurity(content: string): SecurityReport {
 
 const CLAWHUB_API = 'https://clawhub.ai/api'
 const SKILLS_SH_API = 'https://skills.sh/api'
-const AWESOME_OPENCLAW_README = 'https://raw.githubusercontent.com/VoltAgent/awesome-openclaw-skills/main/README.md'
-const AWESOME_OPENCLAW_RAW_BASE = 'https://raw.githubusercontent.com/openclaw/skills/main/skills'
+const AWESOME_GATEWAY_README = 'https://raw.githubusercontent.com/VoltAgent/awesome-openclaw-skills/main/README.md'
+const AWESOME_GATEWAY_RAW_BASE = 'https://raw.githubusercontent.com/openclaw/skills/main/skills'
 const FETCH_TIMEOUT = 10_000
 
 // ---------------------------------------------------------------------------
@@ -213,7 +213,7 @@ function parseAwesomeReadme(markdown: string): RegistrySkill[] {
       description: description.trim(),
       author,
       version: 'latest',
-      source: 'awesome-openclaw',
+      source: 'awesome-gateway',
     })
   }
   return skills
@@ -229,7 +229,7 @@ async function fetchAwesomeIndex(): Promise<RegistrySkill[]> {
     const timer = setTimeout(() => controller.abort(), 15_000)
     let res: Response
     try {
-      res = await fetch(AWESOME_OPENCLAW_README, { signal: controller.signal })
+      res = await fetch(AWESOME_GATEWAY_README, { signal: controller.signal })
     } finally {
       clearTimeout(timer)
     }
@@ -253,11 +253,11 @@ async function searchAwesomeSkills(query: string): Promise<RegistrySearchResult>
     s.description.toLowerCase().includes(q) ||
     s.author.toLowerCase().includes(q)
   ).slice(0, 50)
-  return { skills: matched, total: matched.length, source: 'awesome-openclaw' }
+  return { skills: matched, total: matched.length, source: 'awesome-gateway' }
 }
 
 async function fetchAwesomeSkill(slug: string): Promise<{ content: string }> {
-  const url = `${AWESOME_OPENCLAW_RAW_BASE}/${slug}/SKILL.md`
+  const url = `${AWESOME_GATEWAY_RAW_BASE}/${slug}/SKILL.md`
   const res = await fetchWithTimeout(url)
   if (!res.ok) throw new Error(`Awesome skills fetch failed (${res.status})`)
   const content = await res.text()
@@ -363,7 +363,7 @@ async function searchSkillsSh(query: string): Promise<RegistrySearchResult> {
 export async function searchRegistry(source: RegistrySource, query: string): Promise<RegistrySearchResult> {
   if (source === 'clawhub') return searchClawdHub(query)
   if (source === 'skills-sh') return searchSkillsSh(query)
-  if (source === 'awesome-openclaw') return searchAwesomeSkills(query)
+  if (source === 'awesome-gateway') return searchAwesomeSkills(query)
   return { skills: [], total: 0, source }
 }
 
@@ -381,13 +381,13 @@ function skillNameFromSlug(slug: string): string {
 function getTargetDir(targetRoot: string): string {
   const home = homedir()
   const cwd = process.cwd()
-  const openclawState = process.env.OPENCLAW_STATE_DIR || process.env.OPENCLAW_HOME || join(home, '.openclaw')
+  const stateDir = process.env.GATEWAY_STATE_DIR || process.env.GATEWAY_HOME || join(home, '.gateway')
   const rootMap: Record<string, string> = {
     'user-agents': process.env.MC_SKILLS_USER_AGENTS_DIR || join(home, '.agents', 'skills'),
     'user-codex': process.env.MC_SKILLS_USER_CODEX_DIR || join(home, '.codex', 'skills'),
     'project-agents': process.env.MC_SKILLS_PROJECT_AGENTS_DIR || join(cwd, '.agents', 'skills'),
     'project-codex': process.env.MC_SKILLS_PROJECT_CODEX_DIR || join(cwd, '.codex', 'skills'),
-    'openclaw': process.env.MC_SKILLS_OPENCLAW_DIR || join(openclawState, 'skills'),
+    'gateway': process.env.MC_SKILLS_GATEWAY_DIR || join(stateDir, 'skills'),
   }
   const dir = rootMap[targetRoot]
   if (!dir) throw new Error(`Invalid target root: ${targetRoot}`)
@@ -428,7 +428,7 @@ export async function installFromRegistry(req: InstallRequest): Promise<InstallR
       const result = await fetchClawdHubSkill(req.slug)
       content = result.content
       registryHash = result.hash
-    } else if (req.source === 'awesome-openclaw') {
+    } else if (req.source === 'awesome-gateway') {
       const result = await fetchAwesomeSkill(req.slug)
       content = result.content
     } else {

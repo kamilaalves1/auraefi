@@ -218,7 +218,7 @@ export function AgentSquadPanelPhase3() {
         body: JSON.stringify({
           skip_existing: true,
           write_to_gateway: false,
-          provision_openclaw_workspace: false,
+          provision_workspace: false,
           locale,
         }),
       })

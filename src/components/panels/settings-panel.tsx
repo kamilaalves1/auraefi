@@ -47,8 +47,8 @@ function parseCoordinatorTargetAgents(rawAgents: any[]): CoordinatorTargetAgent[
     const name = typeof raw?.name === 'string' ? raw.name.trim() : ''
     if (!name) continue
     const config = raw?.config && typeof raw.config === 'object' ? raw.config : {}
-    const agentIdRaw = typeof config.openclawId === 'string' && config.openclawId.trim()
-      ? config.openclawId.trim()
+    const agentIdRaw = typeof config.agentId === 'string' && config.agentId.trim()
+      ? config.agentId.trim()
       : name
     const agentId = agentIdRaw.toLowerCase().replace(/\s+/g, '-')
     out.push({

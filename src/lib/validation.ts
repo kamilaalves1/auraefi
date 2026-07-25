@@ -105,7 +105,7 @@ export const updateTaskSchema = z.object({
 
 export const createAgentSchema = z.object({
   name: z.string().min(1, 'Name is required').max(100),
-  openclaw_id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'openclaw_id must be kebab-case').max(100).optional(),
+  agent_id: z.string().regex(/^[a-z0-9][a-z0-9-]*$/, 'agent_id must be kebab-case').max(100).optional(),
   role: z.string().min(1, 'Role is required').max(100).optional(),
   session_key: z.string().max(200).optional(),
   soul_content: z.string().max(50000).optional(),
@@ -114,9 +114,9 @@ export const createAgentSchema = z.object({
   template: z.string().max(100).optional(),
   gateway_config: z.record(z.string(), z.unknown()).optional(),
   write_to_gateway: z.boolean().optional(),
-  provision_openclaw_workspace: z.boolean().optional(),
-  openclaw_workspace_path: z.string().min(1).max(500).optional(),
-  runtime_type: z.enum(['openclaw', 'claude', 'codex', 'custom']).optional(),
+  provision_workspace: z.boolean().optional(),
+  workspace_path: z.string().min(1).max(500).optional(),
+  runtime_type: z.enum(['gateway', 'claude', 'codex', 'custom']).optional(),
 })
 
 // Workspace fields (issue #677 slice 1). The `isolation` CHECK cannot live in
@@ -215,7 +215,7 @@ export const integrationActionSchema = z.object({
 export const softwareEngineeringPresetSchema = z.object({
   skip_existing: z.boolean().optional().default(true),
   write_to_gateway: z.boolean().optional().default(false),
-  provision_openclaw_workspace: z.boolean().optional().default(false),
+  provision_workspace: z.boolean().optional().default(false),
   locale: z.string().min(2).max(16).optional(),
 })
 
@@ -385,7 +385,7 @@ export const createOsUserSchema = z.object({
   gateway_port: z.number().int().min(1024).max(65535).optional(),
   owner_gateway: z.string().trim().min(1).max(120).optional(),
   dry_run: z.boolean().optional(),
-  install_openclaw: z.boolean().optional(),
+  install_gateway: z.boolean().optional(),
   install_claude: z.boolean().optional(),
   install_codex: z.boolean().optional(),
 }).strict().superRefine((body, ctx) => {
@@ -408,11 +408,11 @@ export const releaseUpdateSchema = z.object({
 }).strict()
 
 export const gatewayUpdateSchema = z.object({
-  confirmation: z.literal('update_openclaw'),
+  confirmation: z.literal('update_gateway'),
 }).strict()
 
 export const gatewayFixSchema = z.object({
-  confirmation: z.literal('fix_openclaw'),
+  confirmation: z.literal('fix_gateway'),
 }).strict()
 
 export const accessRequestActionSchema = z.object({

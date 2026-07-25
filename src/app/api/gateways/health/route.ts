@@ -45,7 +45,7 @@ interface HealthResult {
 }
 
 function parseGatewayVersion(res: Response): string | null {
-  const direct = res.headers.get('x-openclaw-version') || res.headers.get('x-clawdbot-version')
+  const direct = res.headers.get('x-gateway-version') || res.headers.get('x-clawdbot-version')
   if (direct) return direct.trim()
   const server = res.headers.get('server') || ''
   const m = server.match(/(\d{4}\.\d+\.\d+)/)

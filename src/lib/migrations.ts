@@ -1853,6 +1853,37 @@ const migrations: Migration[] = [
       }
     }
   },
+  {
+    id: '068_rename_openclaw_to_gateway',
+    up(db: Database.Database) {
+      // Rename the tenants.openclaw_home column to gateway_home
+      const hasTenants = db
+        .prepare(`SELECT 1 as ok FROM sqlite_master WHERE type='table' AND name='tenants'`)
+        .get() as { ok?: number } | undefined
+      if (hasTenants?.ok) {
+        const cols = db.prepare(`PRAGMA table_info(tenants)`).all() as Array<{ name: string }>
+        if (cols.some(c => c.name === 'openclaw_home') && !cols.some(c => c.name === 'gateway_home')) {
+          db.exec(`ALTER TABLE tenants RENAME COLUMN openclaw_home TO gateway_home`)
+        }
+      }
+
+      // Migrate openclawId → agentId inside agents.config JSON
+      const hasAgents = db
+        .prepare(`SELECT 1 as ok FROM sqlite_master WHERE type='table' AND name='agents'`)
+        .get() as { ok?: number } | undefined
+      if (hasAgents?.ok) {
+        db.exec(`
+          UPDATE agents
+          SET config = json_set(
+            json_remove(config, '$.openclawId'),
+            '$.agentId',
+            json_extract(config, '$.openclawId')
+          )
+          WHERE json_extract(config, '$.openclawId') IS NOT NULL
+        `)
+      }
+    }
+  },
 ]
 
 export function runMigrations(db: Database.Database) {

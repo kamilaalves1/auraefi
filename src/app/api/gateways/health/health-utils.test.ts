@@ -92,7 +92,7 @@ function buildGatewayProbeUrl(host: string, port: number): string | null {
 }
 
 function parseGatewayVersion(headers: Record<string, string | null>): string | null {
-  const direct = headers['x-openclaw-version'] || headers['x-clawdbot-version']
+  const direct = headers['x-gateway-version'] || headers['x-clawdbot-version']
   if (direct) return direct.trim()
   const server = headers['server'] || ''
   const m = server.match(/(\d{4}\.\d+\.\d+)/)
@@ -225,20 +225,20 @@ describe('buildGatewayProbeUrl', () => {
 })
 
 describe('parseGatewayVersion', () => {
-  it('reads x-openclaw-version header', () => {
-    expect(parseGatewayVersion({ 'x-openclaw-version': '2026.3.7', 'server': null, 'x-clawdbot-version': null })).toBe('2026.3.7')
+  it('reads x-gateway-version header', () => {
+    expect(parseGatewayVersion({ 'x-gateway-version': '2026.3.7', 'server': null, 'x-clawdbot-version': null })).toBe('2026.3.7')
   })
 
   it('reads x-clawdbot-version header', () => {
-    expect(parseGatewayVersion({ 'x-openclaw-version': null, 'x-clawdbot-version': '2026.2.1', 'server': null })).toBe('2026.2.1')
+    expect(parseGatewayVersion({ 'x-gateway-version': null, 'x-clawdbot-version': '2026.2.1', 'server': null })).toBe('2026.2.1')
   })
 
   it('extracts version from server header', () => {
-    expect(parseGatewayVersion({ 'x-openclaw-version': null, 'x-clawdbot-version': null, 'server': 'openclaw/2026.3.5' })).toBe('2026.3.5')
+    expect(parseGatewayVersion({ 'x-gateway-version': null, 'x-clawdbot-version': null, 'server': 'gateway/2026.3.5' })).toBe('2026.3.5')
   })
 
   it('returns null when no version headers', () => {
-    expect(parseGatewayVersion({ 'x-openclaw-version': null, 'x-clawdbot-version': null, 'server': null })).toBeNull()
+    expect(parseGatewayVersion({ 'x-gateway-version': null, 'x-clawdbot-version': null, 'server': null })).toBeNull()
   })
 })
 

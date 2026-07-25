@@ -24,7 +24,7 @@ const log = createClientLogger('WebSocket')
 
 // Gateway protocol version (v3)
 const PROTOCOL_VERSION = 3
-const DEFAULT_GATEWAY_CLIENT_ID = process.env.NEXT_PUBLIC_GATEWAY_CLIENT_ID || 'openclaw-control-ui'
+const DEFAULT_GATEWAY_CLIENT_ID = process.env.NEXT_PUBLIC_GATEWAY_CLIENT_ID || 'gateway-control-ui'
 
 // Heartbeat configuration
 const PING_INTERVAL_MS = 30_000
@@ -129,7 +129,7 @@ export function useWebSocket() {
       return 'Gateway rejected device signature. Clear local device identity in the browser and reconnect.'
     }
     if (normalized.includes('invalid connect params') || normalized.includes('/client/id')) {
-      return 'Gateway rejected client identity params. Ensure NEXT_PUBLIC_GATEWAY_CLIENT_ID is set to openclaw-control-ui and reconnect.'
+      return 'Gateway rejected client identity params. Ensure NEXT_PUBLIC_GATEWAY_CLIENT_ID is set to gateway-control-ui and reconnect.'
     }
     if (normalized.includes('auth rate limit') || normalized.includes('rate limited')) {
       return 'Gateway authentication is rate limited. Wait briefly, then reconnect.'

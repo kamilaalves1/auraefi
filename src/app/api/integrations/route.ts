@@ -39,19 +39,19 @@ const INTEGRATION_PROBE_TTL_MS = 5000
 
 const INTEGRATIONS: IntegrationDef[] = [
   // AI Providers
-  { id: 'anthropic', name: 'Anthropic', category: 'ai', envVars: ['ANTHROPIC_API_KEY'], vaultItem: 'openclaw-anthropic-api-key', testable: true },
-  { id: 'openai', name: 'OpenAI', category: 'ai', envVars: ['OPENAI_API_KEY'], vaultItem: 'openclaw-openai-api-key', testable: true },
-  { id: 'openrouter', name: 'OpenRouter', category: 'ai', envVars: ['OPENROUTER_API_KEY'], vaultItem: 'openclaw-openrouter-api-key', testable: true },
-  { id: 'venice', name: 'Venice AI', category: 'ai', envVars: ['VENICE_API_KEY'], vaultItem: 'openclaw-venice-api-key', testable: true },
-  { id: 'nvidia', name: 'NVIDIA', category: 'ai', envVars: ['NVIDIA_API_KEY'], vaultItem: 'openclaw-nvidia-api-key' },
-  { id: 'moonshot', name: 'Moonshot / Kimi', category: 'ai', envVars: ['MOONSHOT_API_KEY'], vaultItem: 'openclaw-moonshot-api-key' },
-  { id: 'gemini', name: 'Google Gemini', category: 'ai', envVars: ['GEMINI_API_KEY'], vaultItem: 'openclaw-gemini-api-key', testable: true },
-  { id: 'deepseek', name: 'DeepSeek', category: 'ai', envVars: ['DEEPSEEK_API_KEY'], vaultItem: 'openclaw-deepseek-api-key', testable: true },
-  { id: 'groq', name: 'Groq', category: 'ai', envVars: ['GROQ_API_KEY'], vaultItem: 'openclaw-groq-api-key', testable: true },
-  { id: 'ollama', name: 'Ollama (Local)', category: 'ai', envVars: ['OLLAMA_API_KEY'], vaultItem: 'openclaw-ollama-api-key' },
+  { id: 'anthropic', name: 'Anthropic', category: 'ai', envVars: ['ANTHROPIC_API_KEY'], vaultItem: 'gateway-anthropic-api-key', testable: true },
+  { id: 'openai', name: 'OpenAI', category: 'ai', envVars: ['OPENAI_API_KEY'], vaultItem: 'gateway-openai-api-key', testable: true },
+  { id: 'openrouter', name: 'OpenRouter', category: 'ai', envVars: ['OPENROUTER_API_KEY'], vaultItem: 'gateway-openrouter-api-key', testable: true },
+  { id: 'venice', name: 'Venice AI', category: 'ai', envVars: ['VENICE_API_KEY'], vaultItem: 'gateway-venice-api-key', testable: true },
+  { id: 'nvidia', name: 'NVIDIA', category: 'ai', envVars: ['NVIDIA_API_KEY'], vaultItem: 'gateway-nvidia-api-key' },
+  { id: 'moonshot', name: 'Moonshot / Kimi', category: 'ai', envVars: ['MOONSHOT_API_KEY'], vaultItem: 'gateway-moonshot-api-key' },
+  { id: 'gemini', name: 'Google Gemini', category: 'ai', envVars: ['GEMINI_API_KEY'], vaultItem: 'gateway-gemini-api-key', testable: true },
+  { id: 'deepseek', name: 'DeepSeek', category: 'ai', envVars: ['DEEPSEEK_API_KEY'], vaultItem: 'gateway-deepseek-api-key', testable: true },
+  { id: 'groq', name: 'Groq', category: 'ai', envVars: ['GROQ_API_KEY'], vaultItem: 'gateway-groq-api-key', testable: true },
+  { id: 'ollama', name: 'Ollama (Local)', category: 'ai', envVars: ['OLLAMA_API_KEY'], vaultItem: 'gateway-ollama-api-key' },
 
   // Search
-  { id: 'brave', name: 'Brave Search', category: 'search', envVars: ['BRAVE_API_KEY'], vaultItem: 'openclaw-brave-api-key' },
+  { id: 'brave', name: 'Brave Search', category: 'search', envVars: ['BRAVE_API_KEY'], vaultItem: 'gateway-brave-api-key' },
 
   // Social
   {
@@ -64,10 +64,10 @@ const INTEGRATIONS: IntegrationDef[] = [
   { id: 'linkedin', name: 'LinkedIn', category: 'social', envVars: ['LINKEDIN_ACCESS_TOKEN'] },
 
   // Messaging
-  { id: 'telegram', name: 'Telegram', category: 'messaging', envVars: ['TELEGRAM_BOT_TOKEN'], vaultItem: 'openclaw-telegram-bot-token', testable: true },
+  { id: 'telegram', name: 'Telegram', category: 'messaging', envVars: ['TELEGRAM_BOT_TOKEN'], vaultItem: 'gateway-telegram-bot-token', testable: true },
 
   // Dev Tools
-  { id: 'github', name: 'GitHub', category: 'devtools', envVars: ['GITHUB_TOKEN'], vaultItem: 'openclaw-github-token', testable: true },
+  { id: 'github', name: 'GitHub', category: 'devtools', envVars: ['GITHUB_TOKEN'], vaultItem: 'gateway-github-token', testable: true },
 
   // Productivity
   {
@@ -83,7 +83,7 @@ const INTEGRATIONS: IntegrationDef[] = [
   { id: 'onepassword', name: '1Password', category: 'security', envVars: ['OP_SERVICE_ACCOUNT_TOKEN'] },
 
   // Infrastructure
-  { id: 'gateway', name: 'Gateway Auth', category: 'infra', envVars: ['OPENCLAW_GATEWAY_TOKEN'], vaultItem: 'openclaw-openclaw-gateway-token' },
+  { id: 'gateway', name: 'Gateway Auth', category: 'infra', envVars: ['GATEWAY_TOKEN'], vaultItem: 'gateway-token' },
 
   // Browser Automation
   { id: 'hyperbrowser', name: 'Hyperbrowser', category: 'browser', envVars: ['HYPERBROWSER_API_KEY'], testable: true, recommendation: 'Cloud browser automation for AI agents. Get a key at hyperbrowser.ai' },
@@ -612,7 +612,7 @@ async function handleTest(
           brave: 'https://api.search.brave.com',
           linkedin: 'https://api.linkedin.com',
           ollama: resolveOllamaBaseUrl(),
-          gateway: String(process.env.OPENCLAW_GATEWAY_URL || '').trim() || '',
+          gateway: String(process.env.GATEWAY_URL || '').trim() || '',
         }
         const url = baseUrls[integration.id]
         if (url) {

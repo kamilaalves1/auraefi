@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
       table: 'Gateway Session Store',
       retention_days: ret.gatewaySessions,
       stale_count: countStaleGatewaySessions(ret.gatewaySessions),
-      note: 'Stored under ~/.openclaw/agents/*/sessions/sessions.json',
+      note: 'Stored under ~/.gateway/agents/*/sessions/sessions.json',
     })
   } else {
     preview.push({ table: 'Gateway Session Store', retention_days: 0, stale_count: 0, note: 'Retention disabled (keep forever)' })

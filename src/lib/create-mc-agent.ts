@@ -10,7 +10,7 @@ import { config as appConfig } from '@/lib/config'
 
 export type CreateMcAgentBody = {
   name: string
-  openclaw_id?: string
+  agent_id?: string
   role?: string
   session_key?: string
   soul_content?: string
@@ -19,8 +19,8 @@ export type CreateMcAgentBody = {
   template?: string
   gateway_config?: Record<string, unknown>
   write_to_gateway?: boolean
-  provision_openclaw_workspace?: boolean
-  openclaw_workspace_path?: string
+  provision_workspace?: boolean
+  workspace_path?: string
   model?: string
   instructions?: string
 }
@@ -64,7 +64,7 @@ export async function createMcAgent(
 ): Promise<CreateMcAgentResult> {
   const {
     name,
-    openclaw_id,
+    agent_id,
     role,
     session_key,
     soul_content,
@@ -73,13 +73,13 @@ export async function createMcAgent(
     template,
     gateway_config,
     write_to_gateway,
-    provision_openclaw_workspace,
-    openclaw_workspace_path,
+    provision_workspace,
+    workspace_path,
     model = 'claude-sonnet-4-6',
     instructions = '',
   } = body
 
-  const agentSlug = (openclaw_id || name || 'agent')
+  const agentSlug = (agent_id || name || 'agent')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
@@ -126,9 +126,9 @@ export async function createMcAgent(
     return { ok: false, status: 409, error: 'Agent name already exists' }
   }
 
-  if (provision_openclaw_workspace) {
+  if (provision_workspace) {
     // Gateway CLI workspace provisioning is not available in this build
-    logger.warn({ agentSlug, openclaw_workspace_path }, 'provision_openclaw_workspace requested but gateway CLI is not available; skipping')
+    logger.warn({ agentSlug, workspace_path }, 'provision_workspace requested but gateway CLI is not available; skipping')
   }
 
   const now = Math.floor(Date.now() / 1000)
@@ -211,7 +211,7 @@ export async function createMcAgent(
         actor_id: ctx.actorUserId,
         target_type: 'agent',
         target_id: agentId,
-        detail: { name, openclaw_id: agentSlug, template: template || null },
+        detail: { name, agent_id: agentSlug, template: template || null },
         ip_address: ctx.ipAddress,
       })
     } catch (gwErr: unknown) {

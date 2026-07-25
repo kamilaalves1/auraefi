@@ -9,7 +9,7 @@ vi.mock('@/lib/auth', () => ({
 }))
 
 vi.mock('@/lib/config', () => ({
-  config: { openclawConfigPath: '' },
+  config: { gatewayConfigPath: '' },
 }))
 
 vi.mock('@/lib/db', () => ({

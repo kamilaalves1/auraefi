@@ -85,12 +85,12 @@ function getSkillRoots(): SkillRoot[] {
     { source: 'project-codex', path: resolveSkillRoot('MC_SKILLS_PROJECT_CODEX_DIR', join(cwd, '.codex', 'skills')) },
   ]
   // Add gateway skill roots when configured
-  const stateDir = process.env.OPENCLAW_STATE_DIR || process.env.OPENCLAW_HOME || join(home, '.openclaw')
-  const openclawSkills = resolveSkillRoot('MC_SKILLS_OPENCLAW_DIR', join(stateDir, 'skills'))
-  roots.push({ source: 'openclaw', path: openclawSkills })
+  const stateDir = process.env.GATEWAY_STATE_DIR || process.env.GATEWAY_HOME || join(home, '.gateway')
+  const gatewaySkills = resolveSkillRoot('MC_SKILLS_GATEWAY_DIR', join(stateDir, 'skills'))
+  roots.push({ source: 'gateway', path: gatewaySkills })
 
   // Add workspace-local skills (takes precedence when names conflict)
-  const workspaceDir = process.env.OPENCLAW_WORKSPACE_DIR || process.env.MISSION_CONTROL_WORKSPACE_DIR || join(stateDir, 'workspace')
+  const workspaceDir = process.env.GATEWAY_WORKSPACE_DIR || process.env.MISSION_CONTROL_WORKSPACE_DIR || join(stateDir, 'workspace')
   const workspaceSkills = resolveSkillRoot('MC_SKILLS_WORKSPACE_DIR', join(workspaceDir, 'skills'))
   roots.push({ source: 'workspace', path: workspaceSkills })
 

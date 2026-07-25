@@ -180,7 +180,7 @@ export function enrichAgentConfigFromWorkspace(configData: any): any {
 /** Read and parse agents list from config */
 async function readAgentsFromConfig(): Promise<AgentConfigEntry[]> {
   const configPath = getConfigPath()
-  if (!configPath) throw new Error('OPENCLAW_CONFIG_PATH not configured')
+  if (!configPath) throw new Error('GATEWAY_CONFIG_PATH not configured')
 
   const { readFile } = require('fs/promises')
   const raw = await readFile(configPath, 'utf-8')
@@ -199,7 +199,7 @@ function mapAgentToMC(agent: AgentConfigEntry): {
   const role = agent.identity?.theme || 'agent'
   // Store the full config minus systemPrompt/soul (which can be large)
   const configData = enrichAgentConfigFromWorkspace({
-    openclawId: agent.id,
+    agentId: agent.id,
     model: agent.model,
     identity: agent.identity,
     sandbox: agent.sandbox,
@@ -341,7 +341,7 @@ export async function previewSyncDiff(): Promise<SyncDiff> {
 /** Write an agent config back to the agents list */
 export async function writeAgentToConfig(agentConfig: any): Promise<void> {
   const configPath = getConfigPath()
-  if (!configPath) throw new Error('OPENCLAW_CONFIG_PATH not configured')
+  if (!configPath) throw new Error('GATEWAY_CONFIG_PATH not configured')
 
   const { readFile, writeFile } = require('fs/promises')
   const raw = await readFile(configPath, 'utf-8')
@@ -371,7 +371,7 @@ export async function removeAgentFromConfig(match: {
   name?: string | null
 }): Promise<{ removed: boolean }> {
   const configPath = getConfigPath()
-  if (!configPath) throw new Error('OPENCLAW_CONFIG_PATH not configured')
+  if (!configPath) throw new Error('GATEWAY_CONFIG_PATH not configured')
 
   const id = String(match.id || '').trim()
   const name = String(match.name || '').trim()

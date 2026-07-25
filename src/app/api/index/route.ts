@@ -140,9 +140,9 @@ const endpoints: Endpoint[] = [
   { path: '/api/export', methods: ['GET'], description: 'Data export', tag: 'System', auth: 'viewer' },
   { path: '/api/workload', methods: ['GET'], description: 'Agent workload stats', tag: 'System', auth: 'viewer' },
   { path: '/api/releases/check', methods: ['GET'], description: 'Check for updates', tag: 'System', auth: 'public' },
-  { path: '/api/openclaw/version', methods: ['GET'], description: 'Installed OpenClaw version and latest release metadata', tag: 'System', auth: 'public' },
-  { path: '/api/openclaw/update', methods: ['POST'], description: 'Update OpenClaw to the latest stable release', tag: 'System', auth: 'admin' },
-  { path: '/api/openclaw/doctor', methods: ['GET', 'POST'], description: 'Inspect and fix OpenClaw configuration drift', tag: 'System', auth: 'admin' },
+  { path: '/api/gateway/version', methods: ['GET'], description: 'Installed gateway version and latest release metadata', tag: 'System', auth: 'public' },
+  { path: '/api/gateway/update', methods: ['POST'], description: 'Update gateway to the latest stable release', tag: 'System', auth: 'admin' },
+  { path: '/api/gateway/doctor', methods: ['GET', 'POST'], description: 'Inspect and fix gateway configuration drift', tag: 'System', auth: 'admin' },
 
   // ── Local ─────────────────────────────────────────
   { path: '/api/local/flight-deck', methods: ['GET'], description: 'Local flight deck status', tag: 'Local', auth: 'viewer' },

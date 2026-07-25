@@ -302,7 +302,7 @@ export async function POST(request: NextRequest) {
         if (triggerMode === 'due') {
           args.push('--if-due')
         }
-        const { stdout, stderr } = await runCommand('openclaw', args, { timeoutMs: 30000 })
+        const { stdout, stderr } = await runCommand('gateway', args, { timeoutMs: 30000 })
 
         return NextResponse.json({
           success: true,

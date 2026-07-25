@@ -81,7 +81,7 @@ function resolveGatewayAgentId(task: DispatchableTask): string {
   if (task.agent_config) {
     try {
       const cfg = JSON.parse(task.agent_config)
-      if (typeof cfg.openclawId === 'string' && cfg.openclawId) return cfg.openclawId
+      if (typeof cfg.agentId === 'string' && cfg.agentId) return cfg.agentId
     } catch { /* ignore */ }
   }
   return task.agent_name
@@ -301,7 +301,7 @@ function resolveGatewayAgentIdForReview(task: ReviewableTask): string {
   if (task.agent_config) {
     try {
       const cfg = JSON.parse(task.agent_config)
-      if (typeof cfg.openclawId === 'string' && cfg.openclawId) return cfg.openclawId
+      if (typeof cfg.agentId === 'string' && cfg.agentId) return cfg.agentId
     } catch { /* ignore */ }
   }
   return task.assigned_to || 'jarv'

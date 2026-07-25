@@ -129,7 +129,7 @@ export function SuperAdminPanel() {
     display_name: '',
     linux_user: '',
     plan_tier: 'standard',
-    owner_gateway: 'openclaw-main',
+    owner_gateway: 'gateway-main',
     gateway_port: '',
     dashboard_port: '',
     dry_run: true,
@@ -366,7 +366,7 @@ export function SuperAdminPanel() {
         display_name: '',
         linux_user: '',
         plan_tier: 'standard',
-        owner_gateway: 'openclaw-main',
+        owner_gateway: 'gateway-main',
         gateway_port: '',
         dashboard_port: '',
         dry_run: true,
@@ -634,7 +634,7 @@ export function SuperAdminPanel() {
                 className="h-9 px-3 rounded-md bg-secondary border border-border text-sm text-foreground"
               >
                 {gatewayOptions.length === 0 ? (
-                  <option value={form.owner_gateway || 'openclaw-main'}>{form.owner_gateway || 'openclaw-main'}</option>
+                  <option value={form.owner_gateway || 'gateway-main'}>{form.owner_gateway || 'gateway-main'}</option>
                 ) : (
                   gatewayOptions.map((gw) => (
                     <option key={gw.id} value={gw.name}>

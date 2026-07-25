@@ -80,12 +80,12 @@ function normalizeOwnerGateway(value: any, slug: string): string {
 export function buildBootstrapPlan(tenant: {
   slug: string
   linux_user: string
-  openclaw_home: string
+  gateway_home: string
   workspace_root: string
   gateway_port?: number | null
   dashboard_port?: number | null
 }, opts: {
-  templateOpenclawJsonPath: string
+  templateConfigPath: string
   gatewaySystemdTemplatePath: string
 }): ProvisionStep[] {
   const artifactDir = path.join(appConfig.dataDir, 'provisioner', tenant.slug)
@@ -100,9 +100,9 @@ export function buildBootstrapPlan(tenant: {
       timeout_ms: 10000,
     },
     {
-      key: 'create-openclaw-state',
-      title: `Create OpenClaw state directory ${tenant.openclaw_home}`,
-      command: ['/usr/bin/install', '-d', '-m', '0750', '-o', tenant.linux_user, '-g', tenant.linux_user, tenant.openclaw_home],
+      key: 'create-gateway-state',
+      title: `Create gateway state directory ${tenant.gateway_home}`,
+      command: ['/usr/bin/install', '-d', '-m', '0750', '-o', tenant.linux_user, '-g', tenant.linux_user, tenant.gateway_home],
       requires_root: true,
       timeout_ms: 10000,
     },
@@ -114,9 +114,9 @@ export function buildBootstrapPlan(tenant: {
       timeout_ms: 10000,
     },
     {
-      key: 'seed-openclaw-template',
+      key: 'seed-gateway-template',
       title: 'Seed base gateway config scaffold',
-      command: ['/usr/bin/cp', '-n', opts.templateOpenclawJsonPath, `${tenant.openclaw_home}/openclaw.json`],
+      command: ['/usr/bin/cp', '-n', opts.templateConfigPath, `${tenant.gateway_home}/gateway.json`],
       requires_root: true,
       timeout_ms: 12000,
     },
@@ -128,23 +128,23 @@ export function buildBootstrapPlan(tenant: {
       timeout_ms: 20000,
     },
     {
-      key: 'ensure-openclaw-tenants-dir',
-      title: 'Ensure /etc/openclaw-tenants exists',
-      command: ['/usr/bin/install', '-d', '-m', '0750', '-o', 'root', '-g', 'root', '/etc/openclaw-tenants'],
+      key: 'ensure-gateway-tenants-dir',
+      title: 'Ensure /etc/gateway-tenants exists',
+      command: ['/usr/bin/install', '-d', '-m', '0750', '-o', 'root', '-g', 'root', '/etc/gateway-tenants'],
       requires_root: true,
       timeout_ms: 5000,
     },
     {
       key: 'install-gateway-systemd-template',
-      title: 'Install openclaw-gateway@.service template',
-      command: ['/usr/bin/cp', '-n', opts.gatewaySystemdTemplatePath, '/etc/systemd/system/openclaw-gateway@.service'],
+      title: 'Install gateway@.service template',
+      command: ['/usr/bin/cp', '-n', opts.gatewaySystemdTemplatePath, '/etc/systemd/system/gateway@.service'],
       requires_root: true,
       timeout_ms: 5000,
     },
     {
       key: 'install-tenant-gateway-env',
       title: 'Install tenant gateway env file',
-      command: ['/usr/bin/cp', '-f', `${artifactDir}/openclaw-gateway.env`, `/etc/openclaw-tenants/${tenant.linux_user}.env`],
+      command: ['/usr/bin/cp', '-f', `${artifactDir}/gateway.env`, `/etc/gateway-tenants/${tenant.linux_user}.env`],
       requires_root: true,
       timeout_ms: 5000,
     },
@@ -157,8 +157,8 @@ export function buildBootstrapPlan(tenant: {
     },
     {
       key: 'enable-start-gateway',
-      title: `Enable/start openclaw-gateway@${tenant.linux_user}.service`,
-      command: ['/usr/bin/systemctl', 'enable', '--now', `openclaw-gateway@${tenant.linux_user}.service`],
+      title: `Enable/start gateway@${tenant.linux_user}.service`,
+      command: ['/usr/bin/systemctl', 'enable', '--now', `gateway@${tenant.linux_user}.service`],
       requires_root: true,
       timeout_ms: 5000,
     },
@@ -168,7 +168,7 @@ export function buildBootstrapPlan(tenant: {
 export function buildDecommissionPlan(tenant: {
   slug: string
   linux_user: string
-  openclaw_home: string
+  gateway_home: string
   workspace_root: string
 }, options?: {
   remove_linux_user?: boolean
@@ -180,15 +180,15 @@ export function buildDecommissionPlan(tenant: {
   const plan: ProvisionStep[] = [
     {
       key: 'disable-stop-gateway',
-      title: `Disable/stop openclaw-gateway@${tenant.linux_user}.service`,
-      command: ['/usr/bin/systemctl', 'disable', '--now', `openclaw-gateway@${tenant.linux_user}.service`],
+      title: `Disable/stop gateway@${tenant.linux_user}.service`,
+      command: ['/usr/bin/systemctl', 'disable', '--now', `gateway@${tenant.linux_user}.service`],
       requires_root: true,
       timeout_ms: 10000,
     },
     {
       key: 'remove-tenant-gateway-env',
-      title: `Remove /etc/openclaw-tenants/${tenant.linux_user}.env`,
-      command: ['/usr/bin/rm', '-f', `/etc/openclaw-tenants/${tenant.linux_user}.env`],
+      title: `Remove /etc/gateway-tenants/${tenant.linux_user}.env`,
+      command: ['/usr/bin/rm', '-f', `/etc/gateway-tenants/${tenant.linux_user}.env`],
       requires_root: true,
       timeout_ms: 5000,
     },
@@ -197,9 +197,9 @@ export function buildDecommissionPlan(tenant: {
   if (removeStateDirs && !removeLinuxUser) {
     plan.push(
       {
-        key: 'remove-openclaw-state-dir',
-        title: `Remove ${tenant.openclaw_home}`,
-        command: ['/usr/bin/rm', '-rf', tenant.openclaw_home],
+        key: 'remove-gateway-state-dir',
+        title: `Remove ${tenant.gateway_home}`,
+        command: ['/usr/bin/rm', '-rf', tenant.gateway_home],
         requires_root: true,
         timeout_ms: 10000,
       },
@@ -249,12 +249,12 @@ function ensureProvisionArtifacts(job: any) {
   const requestJson = parseJobRequest(job) as any
   const slug = String(requestJson?.slug || job?.tenant_slug || '').trim()
   const linuxUser = String(job?.linux_user || '').trim()
-  const openclawHome = String(job?.openclaw_home || '').trim()
+  const gatewayHome = String(job?.gateway_home || '').trim()
   const gatewayPort = Number(requestJson?.gateway_port ?? job?.gateway_port ?? 0)
 
   if (!slug) throw new Error('Missing tenant slug for artifact generation')
   if (!linuxUser) throw new Error('Missing linux_user for artifact generation')
-  if (!openclawHome) throw new Error('Missing openclaw_home for artifact generation')
+  if (!gatewayHome) throw new Error('Missing gateway_home for artifact generation')
   if (!Number.isInteger(gatewayPort) || gatewayPort < 1024 || gatewayPort > 65535) {
     throw new Error('Missing/invalid gateway_port for gateway unit provisioning')
   }
@@ -265,14 +265,14 @@ function ensureProvisionArtifacts(job: any) {
   const gatewayEnv = [
     `TENANT_SLUG=${slug}`,
     `TENANT_USER=${linuxUser}`,
-    `OPENCLAW_HOME=${openclawHome}`,
-    `OPENCLAW_STATE_DIR=${openclawHome}`,
-    `OPENCLAW_CONFIG_PATH=${openclawHome}/openclaw.json`,
-    `OPENCLAW_GATEWAY_PORT=${gatewayPort}`,
+    `GATEWAY_HOME=${gatewayHome}`,
+    `GATEWAY_STATE_DIR=${gatewayHome}`,
+    `GATEWAY_CONFIG_PATH=${gatewayHome}/gateway.json`,
+    `GATEWAY_PORT=${gatewayPort}`,
     '',
   ].join('\n')
 
-  fs.writeFileSync(path.join(artifactDir, 'openclaw-gateway.env'), gatewayEnv, { mode: 0o600 })
+  fs.writeFileSync(path.join(artifactDir, 'gateway.env'), gatewayEnv, { mode: 0o600 })
 }
 
 export function listTenants() {
@@ -329,7 +329,7 @@ export function listProvisionJobs(filters: { tenant_id?: number; status?: string
 export function getProvisionJob(jobId: number) {
   const db = getDatabase()
   const row = db.prepare(`
-    SELECT pj.*, t.slug as tenant_slug, t.display_name as tenant_display_name, t.linux_user, t.openclaw_home, t.workspace_root
+    SELECT pj.*, t.slug as tenant_slug, t.display_name as tenant_display_name, t.linux_user, t.gateway_home, t.workspace_root
     FROM provision_jobs pj
     JOIN tenants t ON t.id = pj.tenant_id
     WHERE pj.id = ?
@@ -353,14 +353,14 @@ export function getProvisionJob(jobId: number) {
 export function createTenantAndBootstrapJob(request: TenantBootstrapRequest, actor: string) {
   const db = getDatabase()
 
-  const templateOpenclawJsonPath =
-    String(process.env.MC_SUPER_TEMPLATE_OPENCLAW_JSON || (process.env.OPENCLAW_HOME ? path.join(process.env.OPENCLAW_HOME, 'openclaw.json') : '')).trim()
-  if (!templateOpenclawJsonPath) {
-    throw new Error('Missing OpenClaw template config. Set MC_SUPER_TEMPLATE_OPENCLAW_JSON to an openclaw.json to seed new tenants.')
+  const templateConfigPath =
+    String(process.env.MC_SUPER_TEMPLATE_GATEWAY_JSON || (process.env.GATEWAY_HOME ? path.join(process.env.GATEWAY_HOME, 'gateway.json') : '')).trim()
+  if (!templateConfigPath) {
+    throw new Error('Missing gateway template config. Set MC_SUPER_TEMPLATE_GATEWAY_JSON to a gateway.json to seed new tenants.')
   }
 
   const repoRoot = String(process.env.MISSION_CONTROL_REPO_ROOT || process.cwd()).trim() || process.cwd()
-  const gatewaySystemdTemplatePath = path.join(repoRoot, 'ops', 'templates', 'openclaw-gateway@.service')
+  const gatewaySystemdTemplatePath = path.join(repoRoot, 'ops', 'templates', 'gateway@.service')
 
   const slug = normalizeSlug(request.slug)
   if (!isValidSlug(slug)) {
@@ -390,12 +390,12 @@ export function createTenantAndBootstrapJob(request: TenantBootstrapRequest, act
 
   const tenantHomeRoot = getTenantHomeRoot()
   const workspaceDirname = getTenantWorkspaceDirname()
-  const gatewayHome = joinPosix(tenantHomeRoot, linuxUser, '.openclaw')
+  const gatewayHome = joinPosix(tenantHomeRoot, linuxUser, '.gateway')
   const workspaceRoot = joinPosix(tenantHomeRoot, linuxUser, workspaceDirname)
 
   const inserted = db.transaction(() => {
     const tenantRes = db.prepare(`
-      INSERT INTO tenants (slug, display_name, linux_user, plan_tier, status, openclaw_home, workspace_root, gateway_port, dashboard_port, config, created_by, owner_gateway)
+      INSERT INTO tenants (slug, display_name, linux_user, plan_tier, status, gateway_home, workspace_root, gateway_port, dashboard_port, config, created_by, owner_gateway)
       VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
     `).run(
       slug,
@@ -416,12 +416,12 @@ export function createTenantAndBootstrapJob(request: TenantBootstrapRequest, act
     const plan = buildBootstrapPlan({
       slug,
       linux_user: linuxUser,
-      openclaw_home: openclawHome,
+      gateway_home: gatewayHome,
       workspace_root: workspaceRoot,
       gateway_port: gatewayPort,
       dashboard_port: dashboardPort,
     }, {
-      templateOpenclawJsonPath,
+      templateConfigPath,
       gatewaySystemdTemplatePath,
     })
 
@@ -500,7 +500,7 @@ export function createTenantDecommissionJob(tenantId: number, request: TenantDec
   const plan = buildDecommissionPlan({
     slug: tenant.slug,
     linux_user: tenant.linux_user,
-    openclaw_home: tenant.openclaw_home,
+    gateway_home: tenant.gateway_home,
     workspace_root: tenant.workspace_root,
   }, {
     remove_linux_user: removeLinuxUser,

@@ -24,7 +24,7 @@ describe('resolveCoordinatorDeliveryTarget', () => {
     const directAgent: CoordinatorAgentRecord = {
       name: 'dev',
       session_key: 'agent:dev:main',
-      config: JSON.stringify({ openclawId: 'dev' }),
+      config: JSON.stringify({ agentId: 'dev' }),
     }
 
     const resolved = resolveCoordinatorDeliveryTarget({
@@ -45,8 +45,8 @@ describe('resolveCoordinatorDeliveryTarget', () => {
 
   it('resolves coordinator to explicitly configured target when present', () => {
     const allAgents: CoordinatorAgentRecord[] = [
-      { name: 'jarv', config: JSON.stringify({ openclawId: 'jarv' }) },
-      { name: 'dev', config: JSON.stringify({ isDefault: true, openclawId: 'dev' }) },
+      { name: 'jarv', config: JSON.stringify({ agentId: 'jarv' }) },
+      { name: 'dev', config: JSON.stringify({ isDefault: true, agentId: 'dev' }) },
     ]
 
     const resolved = resolveCoordinatorDeliveryTarget({
@@ -68,8 +68,8 @@ describe('resolveCoordinatorDeliveryTarget', () => {
 
   it('resolves coordinator to default agent when no explicit target is configured', () => {
     const allAgents: CoordinatorAgentRecord[] = [
-      { name: 'jarv', config: JSON.stringify({ openclawId: 'jarv' }) },
-      { name: 'dev', config: JSON.stringify({ isDefault: true, openclawId: 'dev' }) },
+      { name: 'jarv', config: JSON.stringify({ agentId: 'jarv' }) },
+      { name: 'dev', config: JSON.stringify({ isDefault: true, agentId: 'dev' }) },
     ]
 
     const resolved = resolveCoordinatorDeliveryTarget({
@@ -93,7 +93,7 @@ describe('resolveCoordinatorDeliveryTarget', () => {
       to: 'Coordinator',
       coordinatorAgent: 'Coordinator',
       directAgent: null,
-      allAgents: [{ name: 'admin', config: JSON.stringify({ openclawId: 'admin' }) }],
+      allAgents: [{ name: 'admin', config: JSON.stringify({ agentId: 'admin' }) }],
       sessions: [mkSession('jarv', 'agent:jarv:main')],
     })
 

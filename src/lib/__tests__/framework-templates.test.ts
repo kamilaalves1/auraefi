@@ -111,8 +111,8 @@ describe('Template-Framework Resolution', () => {
     expect(getTemplatesForFramework('nonexistent')).toEqual([])
   })
 
-  it('resolveTemplateConfig returns gateway template for openclaw framework', () => {
-    const result = resolveTemplateConfig('developer', 'openclaw')
+  it('resolveTemplateConfig returns gateway template for gateway framework', () => {
+    const result = resolveTemplateConfig('developer', 'gateway')
     expect(result).toBeDefined()
     expect(result?.template).toBeDefined()
     expect(result?.template?.type).toBe('developer')

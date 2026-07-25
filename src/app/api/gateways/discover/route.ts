@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
       'list-units', '--type=service', '--plain', '--no-legend', '--no-pager',
     ], { encoding: 'utf-8', timeout: 3000 })
 
-    const gwLines = output.split('\n').filter(l => l.includes('openclaw') && l.includes('gateway'))
+    const gwLines = output.split('\n').filter(l => l.includes('gateway'))
 
     for (const line of gwLines) {
       // e.g. "gateway@quant.service loaded active running Gateway (quant)"
@@ -38,12 +38,12 @@ export async function GET(request: NextRequest) {
 
       // Extract user from service name
       let user = ''
-      const templateMatch = serviceName.match(/openclaw-gateway@(\w+)\.service/)
+      const templateMatch = serviceName.match(/gateway@(\w+)\.service/)
       if (templateMatch) {
         user = templateMatch[1]
       } else {
         // Custom service name like "leads-gateway.service"
-        const customMatch = serviceName.match(/openclaw-(\w+)-gateway\.service/)
+        const customMatch = serviceName.match(/(\w+)-gateway\.service/)
         if (customMatch) user = customMatch[1]
       }
       if (!user) continue
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
       // Find the port by checking what gateway processes are listening on
       let port = 0
       try {
-        const configPath = `/home/${user}/.openclaw/openclaw.json`
+        const configPath = `/home/${user}/.gateway/gateway.json`
         const raw = readFileSync(configPath, 'utf-8')
         const config = JSON.parse(raw)
         if (typeof config?.gateway?.port === 'number') port = config.gateway.port

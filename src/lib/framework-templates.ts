@@ -38,8 +38,8 @@ export interface FrameworkInfo {
 // ─── Framework Registry ─────────────────────────────────────────────────────
 
 export const FRAMEWORK_REGISTRY: Record<string, FrameworkInfo> = {
-  openclaw: {
-    id: 'openclaw',
+  gateway: {
+    id: 'gateway',
     label: 'Gateway',
     description: 'Native gateway-managed agents with full lifecycle control',
     docsUrl: 'https://github.com/openclaw/openclaw',
@@ -48,12 +48,12 @@ export const FRAMEWORK_REGISTRY: Record<string, FrameworkInfo> = {
       heartbeatInterval: 30,
       setupHints: [
         'Agents are managed via the gateway',
-        'Config syncs bidirectionally via openclaw.json',
-        'Use "pnpm openclaw agents add" to provision',
+        'Config syncs bidirectionally via gateway.json',
+        'Use "pnpm gateway agents add" to provision',
       ],
       exampleSnippet: `# Gateway agents are auto-managed.
 # No manual registration needed — sync happens automatically.
-# See: openclaw.json in your state directory.`,
+# See: gateway.json in your state directory.`,
     },
   },
   generic: {
@@ -324,7 +324,7 @@ export const UNIVERSAL_TEMPLATES: UniversalTemplate[] = [
     label: 'Orchestrator',
     description: 'Coordinates other agents, routes tasks, and manages workflows. Full access.',
     emoji: '\ud83e\udded',
-    frameworks: ['openclaw', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
+    frameworks: ['gateway', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
     capabilities: ['task_routing', 'agent_management', 'workflow_control', 'full_access'],
     templateType: 'orchestrator',
   },
@@ -333,7 +333,7 @@ export const UNIVERSAL_TEMPLATES: UniversalTemplate[] = [
     label: 'Developer',
     description: 'Writes and edits code, runs builds and tests. Read-write workspace access.',
     emoji: '\ud83d\udee0\ufe0f',
-    frameworks: ['openclaw', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
+    frameworks: ['gateway', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
     capabilities: ['code_write', 'code_execute', 'testing', 'debugging'],
     templateType: 'developer',
   },
@@ -342,7 +342,7 @@ export const UNIVERSAL_TEMPLATES: UniversalTemplate[] = [
     label: 'Reviewer / QA',
     description: 'Reviews code and validates quality. Read-only access, lightweight model.',
     emoji: '\ud83d\udd2c',
-    frameworks: ['openclaw', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
+    frameworks: ['gateway', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
     capabilities: ['code_read', 'quality_review', 'security_audit'],
     templateType: 'reviewer',
   },
@@ -351,7 +351,7 @@ export const UNIVERSAL_TEMPLATES: UniversalTemplate[] = [
     label: 'Researcher',
     description: 'Browses the web and gathers information. No code execution.',
     emoji: '\ud83d\udd0d',
-    frameworks: ['openclaw', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
+    frameworks: ['gateway', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
     capabilities: ['web_browse', 'data_gathering', 'summarization'],
     templateType: 'researcher',
   },
@@ -360,7 +360,7 @@ export const UNIVERSAL_TEMPLATES: UniversalTemplate[] = [
     label: 'Content Creator',
     description: 'Generates and edits written content. No code execution or browsing.',
     emoji: '\u270f\ufe0f',
-    frameworks: ['openclaw', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
+    frameworks: ['gateway', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
     capabilities: ['content_write', 'content_edit'],
     templateType: 'content-creator',
   },
@@ -369,7 +369,7 @@ export const UNIVERSAL_TEMPLATES: UniversalTemplate[] = [
     label: 'Security Auditor',
     description: 'Scans for vulnerabilities. Read-only with shell access for scanning tools.',
     emoji: '\ud83d\udee1\ufe0f',
-    frameworks: ['openclaw', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
+    frameworks: ['gateway', 'generic', 'langgraph', 'crewai', 'autogen', 'claude-sdk'],
     capabilities: ['code_read', 'shell_execute', 'security_scan'],
     templateType: 'security-auditor',
   },
@@ -418,7 +418,7 @@ export function resolveTemplateConfig(
   if (!universal) return undefined
   if (!universal.frameworks.includes(framework)) return undefined
 
-  if (framework === 'openclaw' && universal.templateType) {
+  if (framework === 'gateway' && universal.templateType) {
     const template = AGENT_TEMPLATES.find(t => t.type === universal.templateType)
     return { template, universal }
   }

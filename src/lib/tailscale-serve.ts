@@ -72,7 +72,7 @@ export function detectTailscaleServe(web: Record<string, any> | null | undefined
   }
 
   // Legacy: check agent config
-  const effectivePath = configPath || process.env.OPENCLAW_CONFIG_PATH || ''
+  const effectivePath = configPath || process.env.GATEWAY_CONFIG_PATH || ''
   if (!effectivePath) return false
   try {
     const raw = readFileSync(effectivePath, 'utf-8')

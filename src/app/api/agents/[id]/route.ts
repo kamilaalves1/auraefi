@@ -90,7 +90,7 @@ export async function PUT(
       gateway_config &&
       (write_to_gateway === undefined || write_to_gateway === null || write_to_gateway === true)
     )
-    const agentSlug = existingConfig.openclawId || agent.name.toLowerCase().replace(/\s+/g, '-')
+    const agentSlug = existingConfig.agentId || agent.name.toLowerCase().replace(/\s+/g, '-')
     const getWriteBackPayload = (source: Record<string, any>) => {
       const writeBack: any = { id: agentSlug }
       if (source.model) writeBack.model = source.model
@@ -166,7 +166,7 @@ export async function PUT(
         actor_id: auth.user.id,
         target_type: 'agent',
         target_id: agent.id,
-        detail: { agent_name: agent.name, openclaw_id: agentSlug, fields: Object.keys(gateway_config || {}) },
+        detail: { agent_name: agent.name, agent_id: agentSlug, fields: Object.keys(gateway_config || {}) },
         ip_address: ipAddress,
       })
     }
@@ -244,7 +244,7 @@ export async function DELETE(
     try {
       const agentConfig = agent.config ? JSON.parse(agent.config) : {}
       const agentId =
-        String(agentConfig?.openclawId || agent.name || '')
+        String(agentConfig?.agentId || agent.name || '')
           .toLowerCase()
           .replace(/[^a-z0-9._-]+/g, '-')
           .replace(/^-+|-+$/g, '') || agent.name

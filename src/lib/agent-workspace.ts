@@ -25,8 +25,8 @@ export function getAgentWorkspaceCandidates(agentConfig: any, agentName: string)
 
   const rawWorkspace = typeof agentConfig?.workspace === 'string' ? agentConfig.workspace.trim() : ''
   const agentIdRaw =
-    typeof agentConfig?.openclawId === 'string' && agentConfig.openclawId.trim()
-      ? agentConfig.openclawId.trim()
+    typeof agentConfig?.agentId === 'string' && agentConfig.agentId.trim()
+      ? agentConfig.agentId.trim()
       : agentName
   const agentId = agentIdRaw.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')
 

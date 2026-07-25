@@ -249,7 +249,7 @@ function scanNetwork(): Category {
     name: 'Gateway bound to localhost',
     status: gwHost === '127.0.0.1' || gwHost === 'localhost' ? 'pass' : 'fail',
     detail: `Gateway host is ${gwHost}`,
-    fix: gwHost !== '127.0.0.1' && gwHost !== 'localhost' ? 'Set OPENCLAW_GATEWAY_HOST=127.0.0.1 — never expose the gateway publicly' : '',
+    fix: gwHost !== '127.0.0.1' && gwHost !== 'localhost' ? 'Set GATEWAY_HOST=127.0.0.1 — never expose the gateway publicly' : '',
     severity: 'critical',
   })
 
@@ -273,7 +273,7 @@ function scanGateway(): Category {
       detail: gatewayOptional
         ? 'Gateway not configured (standalone mode — gateway optional)'
         : 'gateway config not found — gateway checks skipped',
-      fix: gatewayOptional ? '' : 'Set OPENCLAW_HOME or OPENCLAW_CONFIG_PATH in .env',
+      fix: gatewayOptional ? '' : 'Set GATEWAY_HOME or GATEWAY_CONFIG_PATH in .env',
       severity: 'low',
     })
     return scoreCategory(checks)
@@ -287,8 +287,8 @@ function scanGateway(): Category {
       id: 'config_valid',
       name: 'Gateway config valid',
       status: 'fail',
-      detail: 'openclaw.json could not be parsed',
-      fix: 'Check openclaw.json for syntax errors',
+      detail: 'gateway.json could not be parsed',
+      fix: 'Check gateway.json for syntax errors',
       severity: 'high',
     })
     return scoreCategory(checks)
@@ -301,7 +301,7 @@ function scanGateway(): Category {
       id: 'config_permissions',
       name: 'Config file permissions',
       status: mode === '600' ? 'pass' : 'warn',
-      detail: `openclaw.json permissions are ${mode}`,
+      detail: `gateway.json permissions are ${mode}`,
       fix: mode !== '600' ? `Run: chmod 600 ${configPath}` : '',
       severity: 'medium',
       fixSafety: 'safe',

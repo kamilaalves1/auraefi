@@ -243,8 +243,8 @@ async function syncAgentLiveStatuses(): Promise<number> {
       if (agent.config) {
         try {
           const cfg = JSON.parse(agent.config)
-          if (typeof cfg.openclawId === 'string' && cfg.openclawId.trim()) {
-            agentId = cfg.openclawId.trim()
+          if (typeof cfg.agentId === 'string' && cfg.agentId.trim()) {
+            agentId = cfg.agentId.trim()
           }
         } catch { /* ignore */ }
       }
@@ -363,7 +363,7 @@ export function initScheduler() {
 
   tasks.set('gateway_agent_sync', {
     name: 'Gateway Agent Sync',
-    intervalMs: TICK_MS, // Every 60s — re-read openclaw.json
+    intervalMs: TICK_MS, // Every 60s — re-read gateway.json
     lastRun: null,
     nextRun: now + 20_000, // First scan 20s after startup (after local sync)
     enabled: true,
