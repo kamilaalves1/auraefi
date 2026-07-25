@@ -16,8 +16,6 @@ export interface OsUser {
   linked_tenant_id: number | null
   /** Whether claude CLI is installed/accessible for this user */
   has_claude: boolean
-  /** Whether codex CLI is installed/accessible for this user */
-  has_codex: boolean
   /** Whether agent runtime is installed for this user */
   has_gateway: boolean
   /** Whether this OS user is the one running the MC process (i.e. "Default" org) */
@@ -40,7 +38,7 @@ const SERVICE_ACCOUNTS = new Set([
   'ntp', 'chrony', 'systemd-network', 'systemd-resolve',
 ])
 
-/** Check if a CLI tool (claude, codex) is accessible for a given user home dir */
+/** Check if a CLI tool is accessible for a given user home dir */
 function checkToolExists(homeDir: string, tool: string): boolean {
   // Check common install locations relative to user home
   const candidates = [
@@ -59,11 +57,11 @@ function checkToolExists(homeDir: string, tool: string): boolean {
   return false
 }
 
-/** Install a tool (claude, codex) for a given OS user. Non-fatal — returns success/error. */
+/** Install a tool for a given OS user. Non-fatal — returns success/error. */
 function installToolForUser(
   homeDir: string,
   username: string,
-  tool: 'gateway' | 'claude' | 'codex'
+  tool: 'gateway' | 'claude'
 ): { success: boolean; error?: string } {
   try {
     if (tool === 'gateway') {
@@ -116,28 +114,6 @@ function installToolForUser(
       return { success: true }
     }
 
-    if (tool === 'codex') {
-      // Install codex CLI globally for the user
-      try {
-        execFileSync('/usr/bin/sudo', ['-n', '-u', username, 'npm', 'install', '-g', '@openai/codex@latest'], {
-          timeout: 120000,
-          stdio: 'pipe',
-          env: { ...process.env, HOME: homeDir },
-        })
-      } catch (npmErr: any) {
-        // Fallback: create config dir so checkToolExists detects it
-        const codexDir = path.join(homeDir, '.codex')
-        try {
-          execFileSync('/usr/bin/sudo', ['-n', 'install', '-d', '-o', username, codexDir], { timeout: 5000, stdio: 'pipe' })
-        } catch {
-          fs.mkdirSync(codexDir, { recursive: true })
-        }
-        const msg = npmErr?.stderr?.toString?.()?.slice(0, 200) || npmErr?.message || 'npm install failed'
-        return { success: false, error: msg }
-      }
-      return { success: true }
-    }
-
     return { success: false, error: `Unknown tool: ${tool}` }
   } catch (e: any) {
     return { success: false, error: e?.message || 'Unknown error' }
@@ -179,9 +155,8 @@ function discoverOsUsers(): OsUser[] {
         } catch {}
 
         const hasClaude = checkToolExists(homeDir, 'claude')
-        const hasCodex = checkToolExists(homeDir, 'codex')
         const hasGateway = checkToolExists(homeDir, 'gateway')
-        users.push({ username, uid, home_dir: homeDir, shell, linked_tenant_id: null, has_claude: hasClaude, has_codex: hasCodex, has_gateway: hasGateway, is_process_owner: false })
+        users.push({ username, uid, home_dir: homeDir, shell, linked_tenant_id: null, has_claude: hasClaude, has_gateway: hasGateway, is_process_owner: false })
       }
     } else if (platform === 'linux') {
       // Linux: getent passwd returns colon-separated fields (no shell needed)
@@ -198,9 +173,8 @@ function discoverOsUsers(): OsUser[] {
         if (shell.endsWith('/nologin') || shell.endsWith('/false')) continue
 
         const hasClaude = checkToolExists(homeDir, 'claude')
-        const hasCodex = checkToolExists(homeDir, 'codex')
         const hasGateway = checkToolExists(homeDir, 'gateway')
-        users.push({ username, uid, home_dir: homeDir, shell, linked_tenant_id: null, has_claude: hasClaude, has_codex: hasCodex, has_gateway: hasGateway, is_process_owner: false })
+        users.push({ username, uid, home_dir: homeDir, shell, linked_tenant_id: null, has_claude: hasClaude, has_gateway: hasGateway, is_process_owner: false })
       }
     }
   } catch {
@@ -269,7 +243,6 @@ export async function POST(request: NextRequest) {
   const gatewayMode = !!body.gateway_mode
   const installGateway = !!body.install_gateway
   const installClaude = !!body.install_claude
-  const installCodex = !!body.install_codex
 
   // Validate username (safe for OS user creation — alphanumeric + dash/underscore)
   if (!/^[a-z][a-z0-9_-]{1,30}[a-z0-9]$/.test(username)) {
@@ -306,7 +279,7 @@ export async function POST(request: NextRequest) {
         gateway_port: body.gateway_port ? Number(body.gateway_port) : undefined,
         owner_gateway: body.owner_gateway || undefined,
         dry_run: body.dry_run !== false,
-        config: { install_gateway: installGateway, install_claude: installClaude, install_codex: installCodex },
+        config: { install_gateway: installGateway, install_claude: installClaude },
       }, actor)
       return NextResponse.json(result, { status: 201 })
     } catch (e: any) {
@@ -396,11 +369,10 @@ export async function POST(request: NextRequest) {
 
     // Install requested tools (non-fatal)
     const installResults: Record<string, { success: boolean; error?: string }> = {}
-    const toolsToInstall: Array<'gateway' | 'claude' | 'codex'> = []
+    const toolsToInstall: Array<'gateway' | 'claude'> = []
     if (installGateway) toolsToInstall.push('gateway')
-    // When agent runtime is selected, claude+codex are bundled — skip separate installs
+    // When agent runtime is selected, claude is bundled — skip separate install
     if (installClaude && !installGateway) toolsToInstall.push('claude')
-    if (installCodex && !installGateway) toolsToInstall.push('codex')
 
     for (const tool of toolsToInstall) {
       installResults[tool] = installToolForUser(homeDir, username, tool)

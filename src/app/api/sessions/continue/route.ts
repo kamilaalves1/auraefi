@@ -1,11 +1,9 @@
-import { promises as fs } from 'node:fs'
-import path from 'node:path'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { runCommand } from '@/lib/command'
 
-type ContinueKind = 'claude-code' | 'codex-cli'
+type ContinueKind = 'claude-code'
 
 function sanitizePrompt(value: unknown): string {
   return typeof value === 'string' ? value.trim() : ''
@@ -13,7 +11,7 @@ function sanitizePrompt(value: unknown): string {
 
 /**
  * POST /api/sessions/continue
- * Body: { kind: 'claude-code'|'codex-cli', id: string, prompt: string }
+ * Body: { kind: 'claude-code', id: string, prompt: string }
  */
 export async function POST(request: NextRequest) {
   const auth = requireRole(request, 'operator')
@@ -28,7 +26,7 @@ export async function POST(request: NextRequest) {
     if (!sessionId || !/^[a-zA-Z0-9._:-]+$/.test(sessionId)) {
       return NextResponse.json({ error: 'Invalid session id' }, { status: 400 })
     }
-    if (kind !== 'claude-code' && kind !== 'codex-cli') {
+    if (kind !== 'claude-code') {
       return NextResponse.json({ error: 'Invalid kind' }, { status: 400 })
     }
     if (!prompt || prompt.length > 6000) {
@@ -37,33 +35,10 @@ export async function POST(request: NextRequest) {
 
     let reply = ''
 
-    if (kind === 'claude-code') {
-      const result = await runCommand('claude', ['--print', '--resume', sessionId, prompt], {
-        timeoutMs: 180000,
-      })
-      reply = (result.stdout || '').trim() || (result.stderr || '').trim()
-    } else {
-      const outputPath = path.join('/tmp', `mc-codex-last-${Date.now()}-${Math.random().toString(36).slice(2)}.txt`)
-      try {
-        await runCommand('codex', ['exec', 'resume', sessionId, prompt, '--skip-git-repo-check', '-o', outputPath], {
-          timeoutMs: 180000,
-        })
-      } finally {
-        // Read after run attempt either way for best-effort output
-      }
-
-      try {
-        reply = (await fs.readFile(outputPath, 'utf-8')).trim()
-      } catch {
-        reply = ''
-      }
-
-      try {
-        await fs.unlink(outputPath)
-      } catch {
-        // ignore
-      }
-    }
+    const result = await runCommand('claude', ['--print', '--resume', sessionId, prompt], {
+      timeoutMs: 180000,
+    })
+    reply = (result.stdout || '').trim() || (result.stderr || '').trim()
 
     if (!reply) {
       reply = 'Session continued, but no text response was returned.'

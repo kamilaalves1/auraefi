@@ -44,8 +44,6 @@ const settingDefinitions: Record<string, { category: string; description: string
 
   // Subscription overrides
   'subscription.plan_override': { category: 'general', description: 'Override auto-detected subscription plan (e.g. max, max_5x, pro)', default: '' },
-  'subscription.codex_plan': { category: 'general', description: 'Codex/OpenAI subscription plan (e.g. chatgpt, plus, pro)', default: '' },
-
   // Interface
   'general.interface_mode': { category: 'general', description: 'Interface complexity (essential or full)', default: 'essential' },
 

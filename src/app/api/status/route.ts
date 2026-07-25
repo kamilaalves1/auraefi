@@ -610,10 +610,6 @@ async function getCapabilities(request?: NextRequest) {
     if (planOverride?.value && subscription) {
       subscription.type = planOverride.value
     }
-    const codexPlan = settingsDb.prepare("SELECT value FROM settings WHERE key = 'subscription.codex_plan'").get() as { value: string } | undefined
-    if (codexPlan?.value) {
-      subscriptions['openai'] = { provider: 'openai', type: codexPlan.value, source: 'env' as const }
-    }
   } catch {
     // settings table may not exist yet
   }

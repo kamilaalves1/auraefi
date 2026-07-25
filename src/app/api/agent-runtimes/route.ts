@@ -6,7 +6,7 @@ import type { RuntimeId, DeploymentMode } from '@/lib/agent-runtimes'
 import { logAuditEvent } from '@/lib/db'
 import { logger } from '@/lib/logger'
 
-const VALID_RUNTIMES = new Set<RuntimeId>(['claude', 'codex'])
+const VALID_RUNTIMES = new Set<RuntimeId>(['claude'])
 const VALID_MODES = new Set<DeploymentMode>(['local', 'docker'])
 
 export async function GET(request: NextRequest) {
@@ -37,7 +37,7 @@ export async function POST(request: NextRequest) {
     const runtime = body.runtime as RuntimeId
     const mode = (body.mode || 'local') as DeploymentMode
     if (!runtime || !VALID_RUNTIMES.has(runtime)) {
-      return NextResponse.json({ error: 'Invalid runtime. Use: claude, codex' }, { status: 400 })
+      return NextResponse.json({ error: 'Invalid runtime. Use: claude' }, { status: 400 })
     }
     if (!VALID_MODES.has(mode)) {
       return NextResponse.json({ error: 'Invalid mode. Use: local, docker' }, { status: 400 })

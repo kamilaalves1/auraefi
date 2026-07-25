@@ -93,13 +93,6 @@ const subscriptionDropdowns: Record<string, { label: string; value: string }[]> 
     { label: 'Team ($30/mês)', value: 'team' },
     { label: 'Enterprise', value: 'enterprise' },
   ],
-  'subscription.codex_plan': [
-    { label: 'Nenhum', value: '' },
-    { label: 'ChatGPT Gratuito ($0/mês)', value: 'chatgpt' },
-    { label: 'Plus ($20/mês)', value: 'plus' },
-    { label: 'Pro ($200/mês)', value: 'pro' },
-    { label: 'Team ($30/mês)', value: 'team' },
-  ],
 }
 
 export function SettingsPanel() {

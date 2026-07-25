@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { syncClaudeSessions } from '@/lib/claude-sessions'
-import { scanCodexSessions } from '@/lib/codex-sessions'
 import { getDatabase, db_helpers } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
@@ -20,8 +19,7 @@ export async function GET(request: NextRequest) {
     // Always include local sessions alongside gateway sessions
     await syncClaudeSessions()
     const claudeSessions = getLocalClaudeSessions()
-    const codexSessions = getLocalCodexSessions()
-    const localMerged = mergeLocalSessions(claudeSessions, codexSessions)
+    const localMerged = mergeLocalSessions(claudeSessions)
 
     if (mappedGatewaySessions.length === 0 && localMerged.length === 0) {
       return NextResponse.json({ sessions: [] })
@@ -222,50 +220,10 @@ function getLocalClaudeSessions() {
   }
 }
 
-function getLocalCodexSessions() {
-  try {
-    const rows = scanCodexSessions(100)
-
-    return rows.map((s) => {
-      const total = s.totalTokens || (s.inputTokens + s.outputTokens)
-      const lastMsg = s.lastMessageAt ? new Date(s.lastMessageAt).getTime() : 0
-      const firstMsg = s.firstMessageAt ? new Date(s.firstMessageAt).getTime() : 0
-      const effectiveLastActivity = s.isActive ? Date.now() : lastMsg
-      return {
-        id: s.sessionId,
-        key: s.projectSlug || s.sessionId,
-        agent: s.projectSlug || 'codex-local',
-        kind: 'codex-cli',
-        age: s.isActive ? 'now' : formatAge(lastMsg),
-        model: s.model || 'codex',
-        tokens: `${formatTokens(s.inputTokens || 0)}/${formatTokens(s.outputTokens || 0)}`,
-        channel: 'local',
-        flags: [],
-        active: s.isActive,
-        startTime: firstMsg,
-        lastActivity: effectiveLastActivity,
-        source: 'local' as const,
-        userMessages: s.userMessages || 0,
-        assistantMessages: s.assistantMessages || 0,
-        toolUses: 0,
-        estimatedCost: 0,
-        lastUserPrompt: null,
-        totalTokens: total,
-        workingDir: s.projectPath || null,
-      }
-    })
-  } catch (err) {
-    logger.warn({ err }, 'Failed to read local Codex sessions')
-    return []
-  }
-}
-
 function mergeLocalSessions(
   claudeSessions: Array<Record<string, any>>,
-  codexSessions: Array<Record<string, any>>,
 ) {
-  const merged = [...claudeSessions, ...codexSessions]
-  return dedupeAndSortSessions(merged)
+  return dedupeAndSortSessions(claudeSessions)
 }
 
 function dedupeAndSortSessions(merged: Array<Record<string, any>>) {

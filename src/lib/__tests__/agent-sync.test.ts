@@ -86,7 +86,7 @@ describe('removeAgentFromConfig', () => {
                 primary: {
                   primary: 'anthropic/claude-sonnet-4-20250514',
                 },
-                fallbacks: ['openai/codex-mini-latest', 'openai/codex-mini-latest'],
+                fallbacks: ['anthropic/claude-haiku-4-20250514', 'anthropic/claude-haiku-4-20250514'],
               },
             },
           ],

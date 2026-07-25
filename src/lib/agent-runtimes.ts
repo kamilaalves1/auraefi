@@ -4,7 +4,7 @@ import { runCommand } from './command'
 import { logger } from './logger'
 import { config } from './config'
 
-export type RuntimeId = 'claude' | 'codex'
+export type RuntimeId = 'claude'
 export type DeploymentMode = 'local' | 'docker'
 
 export interface RuntimeStatus {
@@ -43,12 +43,6 @@ const RUNTIME_META: Record<RuntimeId, RuntimeMeta> = {
     description: 'Anthropic CLI agent for software engineering tasks.',
     authRequired: true,
     authHint: 'Run "claude login" after install to authenticate.',
-  },
-  codex: {
-    name: 'Codex CLI',
-    description: 'OpenAI CLI agent for code generation and editing.',
-    authRequired: true,
-    authHint: 'Run "codex auth" after install to authenticate.',
   },
 }
 
@@ -108,29 +102,8 @@ function detectClaude(): RuntimeStatus {
   return { id: 'claude', ...meta, installed, version, running: false, authenticated }
 }
 
-function detectCodex(): RuntimeStatus {
-  const meta = RUNTIME_META.codex
-  const { installed, version } = detectBinary(['codex'])
-
-  // Check authentication: codex stores config in ~/.codex/
-  let authenticated = false
-  if (installed) {
-    try {
-      const homedir = require('node:os').homedir()
-      const path = require('node:path')
-      authenticated = existsSync(path.join(homedir, '.codex', 'auth.json'))
-        || existsSync(path.join(homedir, '.codex', 'config.json'))
-    } catch {
-      // ignore
-    }
-  }
-
-  return { id: 'codex', ...meta, installed, version, running: false, authenticated }
-}
-
 const DETECTORS: Record<RuntimeId, () => RuntimeStatus> = {
   claude: detectClaude,
-  codex: detectCodex,
 }
 
 export function detectRuntime(id: RuntimeId): RuntimeStatus {
@@ -173,7 +146,6 @@ export function startInstall(runtime: RuntimeId, mode: DeploymentMode): InstallJ
   // Local install — run in background
   const INSTALL_FNS: Record<RuntimeId, (job: InstallJob) => Promise<void>> = {
     claude: installClaudeLocal,
-    codex: installCodexLocal,
   }
   const installFn = INSTALL_FNS[runtime] || installClaudeLocal
   installFn(job).catch((err) => {
@@ -231,19 +203,6 @@ async function installClaudeLocal(job: InstallJob): Promise<void> {
     job.status = 'success'
     job.output += '\n> Claude Code installed successfully.\n'
     job.output += '> Run "claude login" to authenticate.\n'
-  } else {
-    job.status = 'failed'
-    job.error = 'npm install failed — see output above'
-  }
-  job.finishedAt = Date.now()
-}
-
-async function installCodexLocal(job: InstallJob): Promise<void> {
-  job.output += '> Installing Codex CLI...\n'
-  if (await runInstallCmd('npm', ['install', '-g', '@openai/codex'], job)) {
-    job.status = 'success'
-    job.output += '\n> Codex CLI installed successfully.\n'
-    job.output += '> Run "codex auth" to authenticate.\n'
   } else {
     job.status = 'failed'
     job.error = 'npm install failed — see output above'

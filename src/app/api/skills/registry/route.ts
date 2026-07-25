@@ -9,7 +9,7 @@ import {
 } from '@/lib/skill-registry'
 
 const VALID_SOURCES: RegistrySource[] = ['clawhub', 'skills-sh', 'awesome-gateway']
-const VALID_TARGETS = ['user-agents', 'user-codex', 'project-agents', 'project-codex', 'gateway', 'workspace']
+const VALID_TARGETS = ['user-agents', 'project-agents', 'gateway', 'workspace']
 
 /**
  * GET /api/skills/registry?source=clawhub&q=terraform

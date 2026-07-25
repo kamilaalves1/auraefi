@@ -116,7 +116,7 @@ export const createAgentSchema = z.object({
   write_to_gateway: z.boolean().optional(),
   provision_workspace: z.boolean().optional(),
   workspace_path: z.string().min(1).max(500).optional(),
-  runtime_type: z.enum(['gateway', 'claude', 'codex', 'custom']).optional(),
+  runtime_type: z.enum(['gateway', 'claude', 'custom']).optional(),
 })
 
 // Workspace fields (issue #677 slice 1). The `isolation` CHECK cannot live in
@@ -387,7 +387,6 @@ export const createOsUserSchema = z.object({
   dry_run: z.boolean().optional(),
   install_gateway: z.boolean().optional(),
   install_claude: z.boolean().optional(),
-  install_codex: z.boolean().optional(),
 }).strict().superRefine((body, ctx) => {
   if (body.gateway_mode && body.gateway_port === undefined) {
     ctx.addIssue({

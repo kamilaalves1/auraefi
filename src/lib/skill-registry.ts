@@ -384,9 +384,7 @@ function getTargetDir(targetRoot: string): string {
   const stateDir = process.env.GATEWAY_STATE_DIR || process.env.GATEWAY_HOME || join(home, '.gateway')
   const rootMap: Record<string, string> = {
     'user-agents': process.env.MC_SKILLS_USER_AGENTS_DIR || join(home, '.agents', 'skills'),
-    'user-codex': process.env.MC_SKILLS_USER_CODEX_DIR || join(home, '.codex', 'skills'),
     'project-agents': process.env.MC_SKILLS_PROJECT_AGENTS_DIR || join(cwd, '.agents', 'skills'),
-    'project-codex': process.env.MC_SKILLS_PROJECT_CODEX_DIR || join(cwd, '.codex', 'skills'),
     'gateway': process.env.MC_SKILLS_GATEWAY_DIR || join(stateDir, 'skills'),
   }
   const dir = rootMap[targetRoot]

@@ -185,9 +185,7 @@ export function Dashboard() {
     : agents.filter((a) => a.status !== 'offline').length
 
   const claudeLocalSessions = sessions.filter((s) => s.kind === 'claude-code')
-  const codexLocalSessions = sessions.filter((s) => s.kind === 'codex-cli')
   const claudeActive = claudeLocalSessions.filter((s) => s.active).length
-  const codexActive = codexLocalSessions.filter((s) => s.active).length
 
   const runningTasks = dbStats?.tasks.byStatus?.in_progress ?? tasks.filter((t) => t.status === 'in_progress').length
   const inboxCount = dbStats?.tasks.byStatus?.inbox ?? 0
@@ -203,10 +201,6 @@ export function Dashboard() {
   const claudeHealth = isClaudeLoading
     ? { value: 'Carregando...', status: 'warn' as const }
     : getProviderHealth(claudeStats?.active_sessions ?? claudeActive, claudeStats?.total_sessions ?? claudeLocalSessions.length)
-
-  const codexHealth = isSessionsLoading
-    ? { value: 'Carregando...', status: 'warn' as const }
-    : getProviderHealth(codexActive, codexLocalSessions.length)
 
   const mcHealth = isSystemLoading
     ? { value: 'Carregando...', status: 'warn' as const }
@@ -225,7 +219,7 @@ export function Dashboard() {
           id: `local-session-${session.id}-${ts}`,
           timestamp: ts,
           level: 'info',
-          source: session.kind === 'codex-cli' ? 'codex-local' : 'claude-local',
+          source: 'claude-local',
           message: lastPrompt
             ? `Prompt: ${lastPrompt}`
             : `${session.active ? 'Active' : 'Idle'} session: ${session.key || session.id}`,
@@ -272,9 +266,7 @@ export function Dashboard() {
     errorCount,
     onlineAgents,
     claudeActive,
-    codexActive,
     claudeLocalSessions,
-    codexLocalSessions,
     runningTasks,
     inboxCount,
     assignedCount,
@@ -285,7 +277,6 @@ export function Dashboard() {
     recentErrorLogs,
     localOsStatus,
     claudeHealth,
-    codexHealth,
     mcHealth,
     gatewayHealthStatus,
     isSystemLoading,
@@ -328,7 +319,7 @@ export function Dashboard() {
             </h2>
             <p className="text-xs text-muted-foreground">
               {isLocal
-                ? 'Unified visibility for Claude & Codex local sessions, host pressure, and operator continuity.'
+                ? 'Unified visibility for Claude local sessions, host pressure, and operator continuity.'
                 : 'Gateway-first health, session routing, queue pressure, and incident response signals.'}
             </p>
           </div>

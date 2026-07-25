@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import Image from 'next/image'
 import { useState, useEffect } from 'react'
@@ -774,7 +774,7 @@ function ContextSwitcher({ currentUser, isAdmin, isLocal, isConnected, tenants, 
   const unlinkedOsUsers = osUsers.filter(u => !linkedUsernames.has(u.username) && !u.is_process_owner)
   const [open, setOpen] = useState(false)
   const [createMode, setCreateMode] = useState(false)
-  const [createForm, setCreateForm] = useState({ username: '', display_name: '', gateway_port: '', install_claude: true, install_codex: false })
+  const [createForm, setCreateForm] = useState({ username: '', display_name: '', gateway_port: '', install_claude: true })
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState<string | null>(null)
 
@@ -985,11 +985,10 @@ function ContextSwitcher({ currentUser, isAdmin, isLocal, isConnected, tenants, 
                   ))}
                   {/* Discovered OS users not yet linked to a tenant — shown inline as unprovisioned orgs */}
                   {unlinkedOsUsers.map((osUser) => {
-                    const hasTools = osUser.has_claude || osUser.has_codex
+                    const hasTools = osUser.has_claude
                     const disabled = isLocal && !hasTools
                     const tools = [
                       osUser.has_claude && 'claude',
-                      osUser.has_codex && 'codex',
                     ].filter(Boolean)
                     const statusLabel = isLocal
                       ? (tools.length > 0 ? tools.join('+') : tcs('noTools'))
@@ -1001,7 +1000,7 @@ function ContextSwitcher({ currentUser, isAdmin, isLocal, isConnected, tenants, 
                         onClick={() => { if (!disabled) { navigateToPanel('super-admin'); setOpen(false) } }}
                         disabled={disabled}
                         title={disabled
-                          ? `${osUser.username} — no claude or codex installed at ${osUser.home_dir}`
+                          ? `${osUser.username} — no claude installed at ${osUser.home_dir}`
                           : `${osUser.home_dir} (uid ${osUser.uid}) — click to provision as organization`
                         }
                         className={`w-full flex items-center gap-2 px-2 py-1.5 h-auto rounded-md text-xs justify-start ${
@@ -1073,15 +1072,6 @@ function ContextSwitcher({ currentUser, isAdmin, isLocal, isConnected, tenants, 
                               />
                               <span className="text-[10px] text-foreground">claude</span>
                             </label>
-                            <label className="flex items-center gap-1 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={createForm.install_codex}
-                                onChange={(e) => setCreateForm(f => ({ ...f, install_codex: e.target.checked }))}
-                                className="w-3 h-3 rounded accent-primary"
-                              />
-                              <span className="text-[10px] text-foreground">codex</span>
-                            </label>
                           </div>
                         </div>
                       )}
@@ -1110,12 +1100,11 @@ function ContextSwitcher({ currentUser, isAdmin, isLocal, isConnected, tenants, 
                                   gateway_mode: !isLocal,
                                   gateway_port: createForm.gateway_port ? Number(createForm.gateway_port) : undefined,
                                   install_claude: createForm.install_claude,
-                                  install_codex: createForm.install_codex,
                                 }),
                               })
                               const json = await res.json().catch(() => ({}))
                               if (!res.ok) throw new Error(json?.error || 'Failed to create organization')
-                              setCreateForm({ username: '', display_name: '', gateway_port: '', install_claude: true, install_codex: false })
+                              setCreateForm({ username: '', display_name: '', gateway_port: '', install_claude: true })
                               setCreateMode(false)
                               await Promise.all([fetchTenants(), fetchOsUsers()])
                             } catch (e: any) {

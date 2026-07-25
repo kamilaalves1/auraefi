@@ -17,13 +17,10 @@ export function MetricCardsWidget({ data }: { data: DashboardData }) {
   const {
     isLocal,
     isClaudeLoading,
-    isSessionsLoading,
     isSystemLoading,
     claudeActive,
-    codexActive,
     claudeStats,
     claudeLocalSessions,
-    codexLocalSessions,
     systemLoad,
     memPct,
     diskPct,
@@ -50,14 +47,6 @@ export function MetricCardsWidget({ data }: { data: DashboardData }) {
           subtitle="sessões ativas"
           icon={<SessionIcon />}
           color="blue"
-        />
-        <MetricCard
-          label="Codex"
-          value={isSessionsLoading ? '...' : codexActive}
-          total={isSessionsLoading ? undefined : codexLocalSessions.length}
-          subtitle="sessões ativas"
-          icon={<SessionIcon />}
-          color="green"
         />
         <MetricCard
           label="Carga do Sistema"

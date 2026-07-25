@@ -873,7 +873,6 @@ function getConversationStatus(agents: Array<{ name: string; status: string }>, 
   if (conversationId === 'agent_amy') return 'AI Operations Assistant • via Ollama'
   if (conversationId.startsWith('session:')) {
     if (conversationId.includes('claude-code')) return 'Local Claude session'
-    if (conversationId.includes('codex-cli')) return 'Local Codex session'
     return 'Gateway session'
   }
   const name = conversationId.replace('agent_', '')

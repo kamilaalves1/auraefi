@@ -52,9 +52,7 @@ type PanelTab = 'installed' | 'registry'
 
 const SOURCE_LABELS: Record<string, string> = {
   'user-agents': '~/.agents/skills (global)',
-  'user-codex': '~/.codex/skills (global)',
   'project-agents': '.agents/skills (project)',
-  'project-codex': '.codex/skills (project)',
   'gateway': '~/.gateway/skills (gateway)',
   'workspace': '~/.gateway/workspace/skills',
 }
@@ -81,7 +79,7 @@ export function SkillsPanel() {
   const [draftContent, setDraftContent] = useState('')
   const [drawerLoading, setDrawerLoading] = useState(false)
   const [drawerError, setDrawerError] = useState<string | null>(null)
-  const [createSource, setCreateSource] = useState(dashboardMode === 'full' ? 'gateway' : 'user-codex')
+  const [createSource, setCreateSource] = useState(dashboardMode === 'full' ? 'gateway' : 'user-agents')
   const [createName, setCreateName] = useState('')
   const [createContent, setCreateContent] = useState('# new-skill\n\nDescribe this skill.\n')
   const [createError, setCreateError] = useState<string | null>(null)
@@ -519,9 +517,7 @@ export function SkillsPanel() {
                 className="h-9 rounded-md border border-border bg-secondary/50 px-2 text-xs text-foreground"
               >
                 <option value="user-agents">{SOURCE_LABELS['user-agents']}</option>
-                <option value="user-codex">{SOURCE_LABELS['user-codex']}</option>
                 <option value="project-agents">{SOURCE_LABELS['project-agents']}</option>
-                <option value="project-codex">{SOURCE_LABELS['project-codex']}</option>
                 {dashboardMode === 'full' && (
                   <option value="gateway">{SOURCE_LABELS['gateway']}</option>
                 )}
@@ -561,7 +557,7 @@ export function SkillsPanel() {
                     {t('showAllRoots')}
                   </button>
                 )}
-                {(skillGroups || []).filter(g => g.skills.length > 0 || ['user-agents', 'user-codex', 'gateway', 'workspace'].includes(g.source) || g.source.startsWith('workspace-')).map((group) => (
+                {(skillGroups || []).filter(g => g.skills.length > 0 || ['user-agents', 'gateway', 'workspace'].includes(g.source) || g.source.startsWith('workspace-')).map((group) => (
                   <button
                     key={group.source}
                     onClick={() => setActiveRoot(activeRoot === group.source ? null : group.source)}
@@ -666,9 +662,7 @@ export function SkillsPanel() {
                 className="h-7 rounded-md border border-border bg-secondary/50 px-2 text-xs text-foreground"
               >
                 <option value="user-agents">{SOURCE_LABELS['user-agents']}</option>
-                <option value="user-codex">{SOURCE_LABELS['user-codex']}</option>
                 <option value="project-agents">{SOURCE_LABELS['project-agents']}</option>
-                <option value="project-codex">{SOURCE_LABELS['project-codex']}</option>
                 {dashboardMode === 'full' && (
                   <option value="gateway">{SOURCE_LABELS['gateway']}</option>
                 )}

@@ -26,9 +26,7 @@ export async function GET(request: NextRequest) {
   const candidates = [
     join(cwd, 'AGENTS.md'),
     join(cwd, 'agents.md'),
-    join(home, '.codex', 'AGENTS.md'),
     join(home, '.agents', 'AGENTS.md'),
-    join(home, '.config', 'codex', 'AGENTS.md'),
   ]
 
   const found = await findFirstReadable(candidates)

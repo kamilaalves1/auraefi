@@ -51,8 +51,8 @@ const endpoints: Endpoint[] = [
   // ── Sessions ──────────────────────────────────────
   { path: '/api/sessions', methods: ['GET'], description: 'List gateway sessions', tag: 'Sessions', auth: 'viewer' },
   { path: '/api/sessions/:id/control', methods: ['POST'], description: 'Session control (stop, message)', tag: 'Sessions', auth: 'operator' },
-  { path: '/api/sessions/continue', methods: ['POST'], description: 'Continue a local Claude/Codex session with a prompt', tag: 'Sessions', auth: 'operator' },
-  { path: '/api/sessions/transcript', methods: ['GET'], description: 'Read local Claude/Codex session transcript snippets', tag: 'Sessions', auth: 'viewer' },
+  { path: '/api/sessions/continue', methods: ['POST'], description: 'Continue a local Claude session with a prompt', tag: 'Sessions', auth: 'operator' },
+  { path: '/api/sessions/transcript', methods: ['GET'], description: 'Read local Claude session transcript snippets', tag: 'Sessions', auth: 'viewer' },
   { path: '/api/claude/sessions', methods: ['GET'], description: 'Claude CLI session scanner', tag: 'Sessions', auth: 'viewer' },
 
   // ── Activities & Notifications ────────────────────

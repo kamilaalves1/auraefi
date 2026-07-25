@@ -4,7 +4,6 @@
  *
  * Scans:
  *   ~/.agents/         — top-level dirs with agent config files
- *   ~/.codex/agents/   — Codex agent definitions
  *   ~/.claude/agents/  — Claude agent definitions (if present)
  *
  * A directory counts as an agent if it contains one of:
@@ -101,7 +100,6 @@ function getLocalAgentRoots(): string[] {
   const home = homedir()
   return [
     join(home, '.agents'),
-    join(home, '.codex', 'agents'),
     join(home, '.claude', 'agents'),
   ]
 }

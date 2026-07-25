@@ -170,72 +170,10 @@ function readClaudeTranscript(sessionId: string, limit: number): TranscriptMessa
   return sorted.slice(-limit)
 }
 
-function readCodexTranscript(sessionId: string, limit: number): TranscriptMessage[] {
-  const root = path.join(config.homeDir, '.codex', 'sessions')
-  const files = listRecentFiles(root, '.jsonl', 300)
-  const out: TranscriptMessage[] = []
-
-  for (const file of files) {
-    let raw = ''
-    try {
-      raw = fs.readFileSync(file, 'utf-8')
-    } catch {
-      continue
-    }
-
-    let matchedSession = file.includes(sessionId)
-    const lines = raw.split('\n').filter(Boolean)
-    for (const line of lines) {
-      let parsed: any
-      try {
-        parsed = JSON.parse(line)
-      } catch {
-        continue
-      }
-
-      if (!matchedSession && parsed?.type === 'session_meta' && parsed?.payload?.id === sessionId) {
-        matchedSession = true
-      }
-      if (!matchedSession) continue
-
-      const ts = typeof parsed?.timestamp === 'string' ? parsed.timestamp : undefined
-      if (parsed?.type === 'response_item') {
-        const payload = parsed?.payload
-        if (payload?.type === 'message') {
-          const role = payload?.role === 'assistant' ? 'assistant' as const : 'user' as const
-          const parts: MessageContentPart[] = []
-          if (typeof payload?.content === 'string') {
-            const part = textPart(payload.content)
-            if (part) parts.push(part)
-          } else if (Array.isArray(payload?.content)) {
-            for (const block of payload.content) {
-              const blockType = String(block?.type || '')
-              // Codex CLI emits message content as input_text/output_text.
-              if (
-                (blockType === 'text' || blockType === 'input_text' || blockType === 'output_text')
-                && typeof block?.text === 'string'
-              ) {
-                const part = textPart(block.text)
-                if (part) parts.push(part)
-              }
-            }
-          }
-          pushMessage(out, role, parts, ts)
-        }
-      }
-    }
-  }
-
-  const sorted = out
-    .slice()
-    .sort((a, b) => messageTimestampMs(a) - messageTimestampMs(b))
-  return sorted.slice(-limit)
-}
-
 /**
  * GET /api/sessions/transcript
  * Query params:
- *   kind=claude-code|codex-cli
+ *   kind=claude-code
  *   id=<session-id>
  *   limit=40
  */
@@ -249,13 +187,11 @@ export async function GET(request: NextRequest) {
     const sessionId = searchParams.get('id') || ''
     const limit = Math.min(parseInt(searchParams.get('limit') || '40', 10), 200)
 
-    if (!sessionId || (kind !== 'claude-code' && kind !== 'codex-cli')) {
+    if (!sessionId || kind !== 'claude-code') {
       return NextResponse.json({ error: 'kind and id are required' }, { status: 400 })
     }
 
-    const messages = kind === 'claude-code'
-      ? readClaudeTranscript(sessionId, limit)
-      : readCodexTranscript(sessionId, limit)
+    const messages = readClaudeTranscript(sessionId, limit)
 
     return NextResponse.json({ messages })
   } catch (error) {

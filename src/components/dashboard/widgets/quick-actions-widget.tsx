@@ -21,7 +21,7 @@ export function QuickActionsWidget({ data }: { data: DashboardData }) {
       <QuickAction label="Ver Logs" desc="Visualizador em tempo real" tab="logs" icon={<LogActionIcon />} onNavigate={navigateToPanel} />
       <QuickAction label="Memória" desc="Conhecimento + recall" tab="memory" icon={<MemoryActionIcon />} onNavigate={navigateToPanel} />
       {isLocal
-        ? <QuickAction label="Sessões" desc="Claude + Codex" tab="sessions" icon={<SessionIcon />} onNavigate={navigateToPanel} />
+        ? <QuickAction label="Sessões" desc="Claude" tab="sessions" icon={<SessionIcon />} onNavigate={navigateToPanel} />
         : <QuickAction label="Orquestração" desc="Fluxos + pipelines" tab="agents" icon={<PipelineActionIcon />} onNavigate={navigateToPanel} />}
     </section>
   )

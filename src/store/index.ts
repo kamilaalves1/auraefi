@@ -238,7 +238,7 @@ export interface Conversation {
     prefKey?: string
     sessionId: string
     sessionKey?: string
-    sessionKind: 'claude-code' | 'codex-cli' | 'gateway'
+    sessionKind: 'claude-code' | 'gateway'
     agent?: string
     displayName?: string
     colorTag?: string
@@ -321,7 +321,6 @@ export interface OsUser {
   shell: string
   linked_tenant_id: number | null
   has_claude: boolean
-  has_codex: boolean
   is_process_owner: boolean
 }
 

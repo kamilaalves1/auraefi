@@ -1,27 +1,16 @@
 'use client'
 
-import Image from 'next/image'
-
-type SessionKind = 'claude-code' | 'codex-cli' | 'gateway'
+type SessionKind = 'claude-code' | 'gateway'
 
 const SESSION_KIND_META: Record<SessionKind, {
   label: string
   shortLabel: string
   pillClassName: string
-  imageSrc?: string
-  imageAlt?: string
 }> = {
   'claude-code': {
     label: 'Claude Code',
     shortLabel: 'CC',
     pillClassName: 'bg-primary/15 text-primary/80',
-  },
-  'codex-cli': {
-    label: 'Codex CLI',
-    shortLabel: 'CX',
-    pillClassName: 'bg-amber-500/15 text-amber-400/80',
-    imageSrc: '/brand/codex-logo.png',
-    imageAlt: 'Codex logo',
   },
   gateway: {
     label: 'Gateway',
@@ -48,24 +37,6 @@ export function SessionKindAvatar({
   sizeClassName?: string
 }) {
   const meta = getMeta(kind)
-
-  if (meta.imageSrc) {
-    return (
-      <div
-        className={`${sizeClassName} relative overflow-hidden rounded-full border border-border/50 bg-surface-2 shrink-0`}
-        title={meta.label}
-        aria-label={meta.label}
-      >
-        <Image
-          src={meta.imageSrc}
-          alt={meta.imageAlt || meta.label}
-          fill
-          sizes="28px"
-          className="object-cover"
-        />
-      </div>
-    )
-  }
 
   return (
     <div

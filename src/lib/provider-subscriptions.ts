@@ -19,7 +19,6 @@ const NEGATIVE_TYPES = new Set(['none', 'no', 'false', 'free', 'unknown', 'api_k
 const OPENAI_CREDENTIAL_PATHS = [
   path.join(os.homedir(), '.config', 'openai', 'auth.json'),
   path.join(os.homedir(), '.openai', 'auth.json'),
-  path.join(os.homedir(), '.codex', 'auth.json'),
 ]
 
 let detectionCache: { ts: number; value: SubscriptionDetectionResult } | null = null
@@ -107,12 +106,6 @@ function detectOpenAIFromFile(): ProviderSubscription | null {
   for (const credsPath of OPENAI_CREDENTIAL_PATHS) {
     const creds = parseJsonFile(credsPath) as Record<string, unknown> | null
     if (!creds) continue
-
-    // Codex stores auth_mode: "chatgpt" to indicate ChatGPT subscription auth
-    const authMode = typeof creds.auth_mode === 'string' ? creds.auth_mode : ''
-    if (authMode === 'chatgpt') {
-      return { provider: 'openai', type: 'chatgpt', source: 'file' }
-    }
 
     const plan = findNestedString(creds, [
       'subscriptionType',
@@ -222,7 +215,7 @@ export function getProviderFromModel(modelName: string): string {
   }
 
   if (normalized.includes('claude')) return 'anthropic'
-  if (normalized.includes('gpt') || normalized.includes('codex') || normalized.includes('o1') || normalized.includes('o3')) return 'openai'
+  if (normalized.includes('gpt') || normalized.includes('o1') || normalized.includes('o3')) return 'openai'
   return 'unknown'
 }
 
