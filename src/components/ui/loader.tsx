@@ -17,18 +17,7 @@ interface LoaderProps {
   steps?: InitStep[]
 }
 
-const LOADER_AGENTS = [
-  {
-    key: 'codex',
-    name: 'Codex',
-    src: '/brand/codex-logo.png',
-    wrapperClass: 'absolute right-0 top-1/2 -translate-y-1/2 opacity-0 animate-converge-right',
-    labelClass: 'absolute -right-7 top-1/2 -translate-y-1/2',
-  },
-] as const
-
 const LOADER_IMAGE_SOURCES = [
-  ...LOADER_AGENTS.map((agent) => agent.src),
   '/brand/mc-logo-128.png',
 ] as const
 
@@ -82,50 +71,19 @@ function PageLoader({ steps }: { steps?: InitStep[] }) {
       className={`flex items-center justify-center min-h-screen bg-background dark:void-bg transition-opacity duration-300 ${allDone ? 'opacity-0' : 'opacity-100'}`}
     >
       <div className="flex flex-col items-center gap-8 w-64">
-        {/* Animated logo sequence: converge → morph into MC mark */}
+        {/* MC logo with ambient glow */}
         <div className="relative flex items-center justify-center h-28 w-full">
-          {/* Ambient glow */}
-          <div
-            className="absolute w-28 h-28 rounded-full bg-primary/8 blur-2xl animate-glow-pulse"
-            style={{ animationDelay: '2.2s' }}
-          />
-          {/* Phase 1: Four logos converge from cardinal directions (fades out at 1.8s) */}
-          <div className="absolute inset-0 flex items-center justify-center animate-pair-fade-out">
-            <div className="relative w-28 h-28">
-              {LOADER_AGENTS.map((agent) => (
-                <div key={agent.key} className={agent.wrapperClass}>
-                  <div className="relative">
-                    <Image
-                      src={agent.src}
-                      alt={agent.name}
-                      width={36}
-                      height={36}
-                      priority
-                      className="w-9 h-9 rounded-lg border border-border/60 bg-card/90 shadow-[0_0_24px_rgba(14,165,233,0.12)]"
-                    />
-                    <span className={`${agent.labelClass} rounded-full border border-border/50 bg-background/85 px-1.5 py-0.5 text-[9px] font-mono uppercase tracking-[0.18em] text-muted-foreground shadow-sm`}>
-                      {agent.name}
-                    </span>
-                  </div>
-                </div>
-              ))}
-              {/* Center burst */}
-              <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 w-1 h-1 rounded-full bg-primary opacity-0 animate-converge-burst" />
-            </div>
-          </div>
-          {/* Phase 2: MC mark emerges (fades in at 2.0s) */}
-          <div className="absolute inset-0 flex items-center justify-center opacity-0 animate-mc-fade-in">
-            <div className="animate-float" style={{ animationDelay: '2.7s' }}>
-              <Image
-                src="/brand/mc-logo-128.png"
-                alt="Mission Control"
-                width={56}
-                height={56}
-                priority
-                fetchPriority="high"
-                className="w-14 h-14"
-              />
-            </div>
+          <div className="absolute w-28 h-28 rounded-full bg-primary/8 blur-2xl animate-glow-pulse" />
+          <div className="animate-float">
+            <Image
+              src="/brand/mc-logo-128.png"
+              alt="Mission Control"
+              width={56}
+              height={56}
+              priority
+              fetchPriority="high"
+              className="w-14 h-14"
+            />
           </div>
         </div>
 
