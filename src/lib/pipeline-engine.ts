@@ -1721,8 +1721,25 @@ async function advanceToNextColumn(
 
   if (hasAgents(nextColumn)) {
     await startColumn(updatedRun, nextColumn, cfg, secrets)
+  } else if (!getNextColumn(nextColumn)) {
+    // Last column with no agents — auto-complete the run
+    updateRun(run.id, { status: 'done', task_id: null })
+    const doneMsg = `✅ **Esteira concluída** — todos os estágios de _${run.card_key}_ foram processados com sucesso.`
+    await postCardComment(run.provider, cfg, secrets, run.card_key, doneMsg)
+    eventBus.broadcast('pipeline.run_completed', { run_id: run.id, card_key: run.card_key })
+    try {
+      db_helpers.logActivity(
+        'pipeline.card_done',
+        'pipeline_card',
+        run.id,
+        'pipeline',
+        `${run.card_key} concluído — ${run.card_title}`,
+        { card_key: run.card_key, card_title: run.card_title, run_count: run.run_count, cost_usd: run.cost_usd },
+        run.workspace_id
+      )
+    } catch { /* non-critical */ }
   } else {
-    // Pass-through column (no agents assigned) — wait for user input
+    // Pass-through column (no agents assigned) in the middle of the pipeline — wait for user input
     const waitMsg = `⏸️ **${nextColumn.column_name}** — aguardando ação manual. Responda com \`avançar\` para continuar ou \`cancelar\` para encerrar.`
     await postCardComment(run.provider, cfg, secrets, run.card_key, waitMsg)
     updateRun(run.id, { status: 'waiting_input' })
