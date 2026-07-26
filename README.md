@@ -379,19 +379,6 @@ Todos os clientes conectam em `/api/events` (SSE). O event bus transmite eventos
 | `notification.created` | Notificação emitida |
 | `chat.message` | Mensagem de chat do card postada |
 
-### Servidor MCP
-
-Exponha todas as capacidades do dashboard para qualquer cliente MCP (Claude Code, etc.):
-
-```bash
-claude mcp add vertex-control -- node /path/to/vertex-control-center/scripts/mc-mcp-server.cjs
-# Ambiente:
-# MC_URL=http://127.0.0.1:3000
-# MC_API_KEY=<sua-api-key>
-```
-
-Fornece ~35 ferramentas: agents, tasks, sessions, memory, soul, comments, tokens, skills, cron, status.
-
 ### Webhooks
 
 Webhooks de saída disparam em tipos de evento configuráveis. Cada entrega é registrada com status, código de resposta e latência. Entregas com falha podem ser reprocessadas manualmente ou via scheduler.
