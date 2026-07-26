@@ -1,14 +1,14 @@
-# Agent Setup Guide
+# Guia de Configuração de Agentes
 
-This guide covers everything you need to configure agents in Mission Control: registration methods, SOUL personalities, working files, configuration, and liveness monitoring.
+Tudo que você precisa para configurar agentes no Vertex Control Center: métodos de registro, personalidades SOUL, configuração e monitoramento de liveness.
 
-## Agent Registration
+## Registro de Agentes
 
-There are three ways to register agents with Mission Control.
+Há três formas de registrar agentes no sistema.
 
-### Method 1: API Self-Registration (Recommended for Autonomous Agents)
+### Método 1: Auto-registro via API (Recomendado)
 
-Agents register themselves at startup. This is the simplest path and requires no manual setup:
+Agentes se registram na inicialização. É o caminho mais simples e não requer configuração manual:
 
 ```bash
 curl -X POST http://localhost:3000/api/agents/register \
@@ -17,20 +17,19 @@ curl -X POST http://localhost:3000/api/agents/register \
   -d '{
     "name": "scout",
     "role": "researcher",
-    "capabilities": ["web-search", "summarization"],
-    "framework": "claude-sdk"
+    "capabilities": ["web-search", "summarization"]
   }'
 ```
 
-**Name rules**: 1-63 characters, alphanumeric plus `.`, `-`, `_`. Must start with a letter or digit.
+**Regras para o nome**: 1–63 caracteres, alfanumérico mais `.`, `-`, `_`. Deve começar com letra ou dígito.
 
-**Valid roles**: `coder`, `reviewer`, `tester`, `devops`, `researcher`, `assistant`, `agent`
+**Papéis válidos**: `coder`, `reviewer`, `tester`, `devops`, `researcher`, `assistant`, `agent`
 
-The endpoint is idempotent — registering the same name again updates the agent's status to `idle` and refreshes `last_seen`. Rate-limited to 5 registrations per minute per IP.
+O endpoint é idempotente — registrar o mesmo nome novamente atualiza o status para `idle` e renova `last_seen`. Rate-limitado a 5 registros por minuto por IP.
 
-### Method 2: Manual Creation (UI or API)
+### Método 2: Criação Manual (UI ou API)
 
-Create agents through the dashboard UI or the API:
+Crie agentes pelo dashboard ou diretamente via API:
 
 ```bash
 curl -X POST http://localhost:3000/api/agents \
@@ -39,22 +38,15 @@ curl -X POST http://localhost:3000/api/agents \
   -d '{
     "name": "aegis",
     "role": "reviewer",
-    "status": "offline",
-    "soul_content": "You are Aegis, the quality reviewer...",
-    "config": {
-      "dispatchModel": "9router/cc/claude-opus-4-6",
-      "VertexId": "aegis"
-    }
+    "soul_content": "Você é Aegis, o revisor de qualidade..."
   }'
 ```
 
-This requires `operator` role and supports additional fields like `soul_content`, `config`, and `template`.
+Requer papel `operator` e suporta campos como `soul_content` e `config`.
 
-### Method 3: Config Sync (Local Discovery)
+### Método 3: Sincronização por Config
 
-Mission Control can auto-discover agents from:
-
-**agent config sync** — Reads agents from your `agent-config.json` file:
+O sistema pode descobrir agentes automaticamente a partir de um arquivo `agent-config.json`:
 
 ```bash
 curl -X POST http://localhost:3000/api/agents/sync \
@@ -63,155 +55,86 @@ curl -X POST http://localhost:3000/api/agents/sync \
   -d '{"source": "config"}'
 ```
 
-Set `AGENT_CONFIG_PATH` to point to your `agent-config.json`.
+Configure `AGENT_CONFIG_PATH` para apontar para seu `agent-config.json`.
 
-**Local agent discovery** — Scans standard directories for agent definitions:
+## SOUL.md — Personalidade do Agente
 
-```bash
-curl -X POST http://localhost:3000/api/agents/sync \
-  -H "Authorization: Bearer $MC_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"source": "local"}'
-```
+SOUL é a definição de personalidade e capacidades de um agente. É um arquivo markdown injetado nos prompts de execução, moldando como o agente aborda as tarefas.
 
-Scanned directories:
-- `~/.agents/` — Top-level agent directories or `.md` files
-- `~/.external/agents/` — External agent definitions
-- `~/.claude/agents/` — Claude Code agent definitions
-- `~/.gateway/skills/` — Gateway skill definitions
+### O que vai em um SOUL
 
-Agent directories are detected by the presence of marker files: `soul.md`, `AGENT.md`, `identity.md`, `config.json`, or `agent.json`.
+- **Identidade** — Quem é o agente, seu nome e papel
+- **Expertise** — Quais domínios ele domina
+- **Comportamento** — Como aborda problemas, estilo de comunicação
+- **Restrições** — O que deve evitar, limitações
 
-**Flat markdown files** (Claude Code format) are also supported:
+### Exemplo: Agente Desenvolvedor
 
 ```markdown
----
-name: my-agent
-description: A research assistant
-model: claude-opus-4
-tools: ["read", "write", "web-search"]
----
-You are a research assistant specializing in competitive analysis...
-```
+# Scout — Desenvolvedor
 
-## SOUL.md — Agent Personality
-
-SOUL is the personality and capability definition for an agent. It's a markdown file that gets injected into dispatch prompts, shaping how the agent approaches tasks.
-
-### What Goes in a SOUL
-
-A SOUL defines:
-- **Identity** — Who the agent is, its name, role
-- **Expertise** — What domains it specializes in
-- **Behavior** — How it approaches problems, communication style
-- **Constraints** — What it should avoid, limitations
-
-### Example: Developer Agent
-
-```markdown
-# Scout — Developer
-
-You are Scout, a senior developer agent specializing in full-stack TypeScript development.
+Você é Scout, um agente desenvolvedor sênior especializado em TypeScript full-stack.
 
 ## Expertise
 - Next.js, React, Node.js
-- Database design (PostgreSQL, SQLite)
-- API architecture and testing
+- Design de banco de dados (SQLite, PostgreSQL)
+- Arquitetura de APIs e testes
 
-## Approach
-- Read existing code before proposing changes
-- Write tests alongside implementation
-- Keep changes minimal and focused
+## Abordagem
+- Leia o código existente antes de propor mudanças
+- Escreva testes junto com a implementação
+- Mantenha as alterações mínimas e focadas
 
-## Constraints
-- Never commit secrets or credentials
-- Ask for clarification on ambiguous requirements
-- Flag security concerns immediately
+## Restrições
+- Nunca commite segredos ou credenciais
+- Peça esclarecimentos em requisitos ambíguos
+- Sinalize imediatamente preocupações de segurança
 ```
 
-### Example: Researcher Agent
+### Exemplo: Agente Revisor
 
 ```markdown
-# Iris — Researcher
+# Aegis — Revisor de Qualidade
 
-You are Iris, a research agent focused on gathering and synthesizing information.
+Você é Aegis, a porta de qualidade para todo trabalho no sistema.
 
-## Expertise
-- Web research and source verification
-- Competitive analysis
-- Data synthesis and report writing
+## Papel
+Revise tarefas concluídas quanto a correção, completude e qualidade.
 
-## Approach
-- Always cite sources with URLs
-- Present findings in structured format
-- Distinguish facts from inferences
+## Critérios de Revisão
+- O resultado atende a todas as partes da tarefa?
+- Há erros factuais ou alucinações?
+- O trabalho é acionável e bem estruturado?
 
-## Output Format
-- Use bullet points for key findings
-- Include a "Sources" section at the end
-- Highlight actionable insights
-```
-
-### Example: Reviewer Agent
-
-```markdown
-# Aegis — Quality Reviewer
-
-You are Aegis, the quality gate for all agent work in Mission Control.
-
-## Role
-Review completed tasks for correctness, completeness, and quality.
-
-## Review Criteria
-- Does the output address all parts of the task?
-- Are there factual errors or hallucinations?
-- Is the work actionable and well-structured?
-
-## Verdict Format
-Respond with EXACTLY one of:
+## Formato do Veredicto
+Responda com EXATAMENTE um de:
 
 VERDICT: APPROVED
-NOTES: <brief summary>
+NOTES: <resumo breve>
 
 VERDICT: REJECTED
-NOTES: <specific issues to fix>
+NOTES: <problemas específicos a corrigir>
 ```
 
-### Managing SOUL Content
+### Gerenciando o SOUL
 
-**Read** an agent's SOUL:
+**Ler** o SOUL de um agente:
 
 ```bash
 curl -s http://localhost:3000/api/agents/1/soul \
   -H "Authorization: Bearer $MC_API_KEY" | jq
 ```
 
-Response:
-
-```json
-{
-  "soul_content": "# Scout — Developer\n...",
-  "source": "workspace",
-  "available_templates": ["developer", "researcher", "reviewer"],
-  "updated_at": 1711234567
-}
-```
-
-The `source` field tells you where the SOUL was loaded from:
-- `workspace` — Read from the agent's workspace `soul.md` file on disk
-- `database` — Read from the MC database (no workspace file found)
-- `none` — No SOUL content set
-
-**Update** a SOUL:
+**Atualizar** o SOUL:
 
 ```bash
 curl -X PUT http://localhost:3000/api/agents/1/soul \
   -H "Authorization: Bearer $MC_API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"soul_content": "# Scout — Developer\n\nYou are Scout..."}'
+  -d '{"soul_content": "# Scout — Desenvolvedor\n\nVocê é Scout..."}'
 ```
 
-**Apply a template**:
+**Aplicar um template**:
 
 ```bash
 curl -X PUT http://localhost:3000/api/agents/1/soul \
@@ -220,67 +143,44 @@ curl -X PUT http://localhost:3000/api/agents/1/soul \
   -d '{"template_name": "developer"}'
 ```
 
-Templates support substitution variables: `{{AGENT_NAME}}`, `{{AGENT_ROLE}}`, `{{TIMESTAMP}}`.
+Templates suportam variáveis de substituição: `{{AGENT_NAME}}`, `{{AGENT_ROLE}}`, `{{TIMESTAMP}}`.
 
-SOUL content syncs bidirectionally — edits in the UI write back to the workspace `soul.md` file, and changes on disk are picked up on the next sync.
+## Configuração do Agente
 
-## WORKING.md — Runtime Scratchpad
+Cada agente tem um objeto JSON `config` armazenado no banco. Campos principais:
 
-`WORKING.md` is an agent's runtime state file. It tracks:
-- Current task context
-- Intermediate results
-- Session notes from the agent's perspective
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `dispatchModel` | string | Modelo LLM para execução (ex.: `claude-sonnet-5`) |
+| `capabilities` | string[] | Lista de capacidades do agente |
+| `framework` | string | Framework que criou o agente (ex.: `claude-sdk`) |
 
-**Do not hand-edit WORKING.md** — it's written and managed by the agent during task execution. If you need to give an agent persistent instructions, use SOUL.md instead.
-
-## Agent Configuration
-
-Each agent has a JSON `config` object stored in the database. Key fields:
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `VertexId` | string | Gateway agent identifier (falls back to agent name) |
-| `dispatchModel` | string | Model override for auto-dispatch (e.g., `9router/cc/claude-opus-4-6`) |
-| `capabilities` | string[] | List of agent capabilities |
-| `framework` | string | Framework that created the agent (e.g., `claude-sdk`, `crewai`) |
-
-Example config:
-
-```json
-{
-  "VertexId": "scout",
-  "dispatchModel": "9router/cc/claude-sonnet-4-6",
-  "capabilities": ["code-review", "testing", "documentation"],
-  "framework": "claude-sdk"
-}
-```
-
-Update via API:
+Atualizar via API:
 
 ```bash
 curl -X PUT http://localhost:3000/api/agents \
   -H "Authorization: Bearer $MC_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "id": 1,
+    "name": "scout",
     "config": {
-      "dispatchModel": "9router/cc/claude-opus-4-6"
+      "dispatchModel": "claude-sonnet-5"
     }
   }'
 ```
 
-## Heartbeat and Liveness
+## Heartbeat e Liveness
 
-Mission Control tracks agent health through heartbeats.
+O sistema acompanha a saúde dos agentes via heartbeats.
 
-### How It Works
+### Como Funciona
 
-1. Agent sends `POST /api/agents/{id}/heartbeat` every 30 seconds
-2. MC updates `status` to `idle` and refreshes `last_seen`
-3. If no heartbeat for 10 minutes (configurable), agent is marked `offline`
-4. Stale tasks (in_progress for 10+ min with offline agent) are requeued
+1. Agente envia `POST /api/agents/{id}/heartbeat` a cada 30 segundos
+2. Sistema atualiza `status` para `idle` e renova `last_seen`
+3. Sem heartbeat por 10 minutos, agente é marcado como `offline`
+4. Tarefas presas (in_progress por 10+ min com agente offline) são requeueadas
 
-### Heartbeat Request
+### Requisição de Heartbeat
 
 ```bash
 curl -X POST http://localhost:3000/api/agents/1/heartbeat \
@@ -288,55 +188,37 @@ curl -X POST http://localhost:3000/api/agents/1/heartbeat \
   -H "Content-Type: application/json" \
   -d '{
     "token_usage": {
-      "model": "claude-sonnet-4-6",
+      "model": "claude-sonnet-5",
       "inputTokens": 1500,
       "outputTokens": 300
     }
   }'
 ```
 
-The heartbeat response includes pending work items (assigned tasks, mentions, notifications), so agents can use it as both a keepalive and a lightweight work check.
+A resposta inclui itens de trabalho pendentes (tarefas atribuídas, menções, notificações).
 
-### Agent Status Values
+### Status do Agente
 
-| Status | Meaning |
-|--------|---------|
-| `offline` | No recent heartbeat, agent is unreachable |
-| `idle` | Online and ready for work |
-| `busy` | Currently executing a task |
-| `sleeping` | Paused by user (wake with `POST /api/agents/{id}/wake`) |
-| `error` | Agent reported an error state |
+| Status | Significado |
+|--------|-------------|
+| `offline` | Sem heartbeat recente, agente inacessível |
+| `idle` | Online e pronto para trabalho |
+| `busy` | Executando uma tarefa |
+| `sleeping` | Pausado pelo usuário |
+| `error` | Agente reportou estado de erro |
 
-## Agent Sources
+## Fontes de Agentes
 
-The `source` field on each agent indicates how it was registered:
+O campo `source` em cada agente indica como ele foi registrado:
 
-| Source | Origin |
-|--------|--------|
-| `manual` | Created through UI or direct API call |
-| `self` | Agent self-registered via `/api/agents/register` |
-| `local` | Discovered from `~/.agents/`, `~/.claude/agents/`, etc. |
-| `config` | Synced from `agent-config.json` |
-| `gateway` | Registered by a gateway connection |
+| Fonte | Origem |
+|-------|--------|
+| `manual` | Criado pela UI ou chamada direta de API |
+| `self` | Agente se auto-registrou via `/api/agents/register` |
+| `config` | Sincronizado do `agent-config.json` |
 
-## Agent Templates
+## Próximos Passos
 
-When creating agents via API, you can specify a `template` name to pre-populate the config:
-
-```bash
-curl -X POST http://localhost:3000/api/agents \
-  -H "Authorization: Bearer $MC_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "scout", "role": "coder", "template": "developer"}'
-```
-
-Templates define model tier, tool permissions, and default configuration. Available templates include:
-- `developer` — Full coding toolset (read, write, edit, exec, bash)
-- `researcher` — Read-only tools plus web and memory access
-- `reviewer` — Read-only tools for code review and quality checks
-
-## What's Next
-
-- **[Quickstart](quickstart.md)** — 5-minute first agent tutorial
-- **[Orchestration Patterns](orchestration.md)** — Multi-agent workflows, auto-dispatch, quality review
-- **[CLI Reference](cli-agent-control.md)** — Full CLI command reference
+- **[Primeiros Passos](quickstart.md)** — Tutorial do primeiro agente em 5 minutos
+- **[Padrões de Orquestração](orchestration.md)** — Workflows multi-agente, auto-dispatch, revisão de qualidade
+- **[Deploy](deployment.md)** — Produção: standalone, Docker, AWS ECS

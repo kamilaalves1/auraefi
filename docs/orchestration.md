@@ -1,216 +1,185 @@
-﻿# Orchestration Patterns
+# Padrões de Orquestração
 
-This guide covers the task orchestration patterns available in Mission Control, from simple manual assignment to fully automated multi-agent workflows.
+Este guia cobre os padrões de orquestração disponíveis no Vertex Control Center, desde atribuição manual até workflows totalmente automatizados com múltiplos agentes.
 
-## Task Lifecycle
+## Ciclo de Vida da Tarefa
 
-Every task in Mission Control follows this status flow:
+Toda tarefa segue este fluxo de status:
 
 ```
 inbox ──► assigned ──► in_progress ──► review ──► done
-  │          │             │              │
-  │          │             │              └──► rejected ──► assigned (retry)
-  │          │             │
-  │          │             └──► failed (max retries or timeout)
+  │          │              │              │
+  │          │              │              └──► rejected ──► assigned (retry)
+  │          │              │
+  │          │              └──► failed (limite de tentativas ou timeout)
   │          │
   │          └──► cancelled
   │
-  └──► assigned (triaged by human or auto-dispatch)
+  └──► assigned (triagem manual ou pipeline automático)
 ```
 
-Key transitions:
-- **inbox → assigned**: Human triages or auto-dispatch picks it up
-- **assigned → in_progress**: Agent claims via queue poll or auto-dispatch sends it
-- **in_progress → review**: Agent completes work, awaits quality check
-- **review → done**: Aegis approves the work
-- **review → assigned**: Aegis rejects, task is requeued with feedback
+Transições principais:
+- **inbox → assigned**: Triagem humana ou pipeline engine detecta o card
+- **assigned → in_progress**: Agente reivindica via polling da fila ou auto-dispatch
+- **in_progress → review**: Agente conclui o trabalho, aguarda revisão de qualidade
+- **review → done**: Aegis aprova o trabalho
+- **review → assigned**: Aegis rejeita, tarefa é requeueada com feedback
 
-## Pattern 1: Manual Assignment
+## Padrão 1: Atribuição Manual
 
-The simplest pattern. A human creates a task and assigns it to a specific agent.
+O padrão mais simples. Um humano cria uma tarefa e a atribui a um agente específico.
 
 ```bash
-# Create and assign in one step
 curl -X POST "$MC_URL/api/tasks" \
   -H "Authorization: Bearer $MC_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "title": "Fix login page CSS",
-    "description": "The login button overlaps the form on mobile viewports.",
+    "title": "Corrigir CSS da página de login",
+    "description": "O botão de login sobrepõe o formulário em viewports mobile.",
     "priority": "high",
     "assigned_to": "scout"
   }'
 ```
 
-The agent picks it up on the next queue poll:
+O agente busca a tarefa no próximo polling da fila:
 
 ```bash
 curl "$MC_URL/api/tasks/queue?agent=scout" \
   -H "Authorization: Bearer $MC_API_KEY"
 ```
 
-**When to use**: Small teams, well-known agent capabilities, human-driven task triage.
+**Quando usar**: Times pequenos, capacidades de agentes bem conhecidas, triagem conduzida por humanos.
 
-## Pattern 2: Queue-Based Dispatch
+## Padrão 2: Dispatch por Fila
 
-Agents poll the queue and MC assigns the highest-priority available task. No human triage needed.
+Agentes fazem polling da fila e o sistema atribui a tarefa de maior prioridade disponível. Sem triagem manual necessária.
 
-### Setup
+### Configuração
 
-1. Create tasks in `inbox` status (no `assigned_to`):
+1. Crie tarefas no status `inbox` (sem `assigned_to`):
 
 ```bash
 curl -X POST "$MC_URL/api/tasks" \
   -H "Authorization: Bearer $MC_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "title": "Update API documentation",
+    "title": "Atualizar documentação da API",
     "priority": "medium"
   }'
 ```
 
-2. Agents poll the queue. MC atomically claims the best task:
+2. Agentes fazem polling da fila — o sistema atribui atomicamente (sem condição de corrida):
 
 ```bash
-# Agent "scout" asks for work
-curl "$MC_URL/api/tasks/queue?agent=scout" \
-  -H "Authorization: Bearer $MC_API_KEY"
+# Agente "scout" pede trabalho
+curl "$MC_URL/api/tasks/queue?agent=scout" -H "Authorization: Bearer $MC_API_KEY"
 
-# Agent "iris" also asks — gets a different task (no race condition)
-curl "$MC_URL/api/tasks/queue?agent=iris" \
-  -H "Authorization: Bearer $MC_API_KEY"
+# Agente "iris" também pede — recebe tarefa diferente
+curl "$MC_URL/api/tasks/queue?agent=iris" -H "Authorization: Bearer $MC_API_KEY"
 ```
 
-### Priority Ordering
+### Ordenação de Prioridade
 
-Tasks are assigned in this order:
-1. **Priority**: critical > high > medium > low
-2. **Due date**: Earliest due date first (null = last)
-3. **Created at**: Oldest first (FIFO within same priority)
+Tarefas são atribuídas nesta ordem:
+1. **Prioridade**: critical > high > medium > low
+2. **Data de entrega**: Mais cedo primeiro (null = último)
+3. **Criação**: Mais antigo primeiro (FIFO dentro da mesma prioridade)
 
-### Capacity Control
+### Controle de Capacidade
 
-Each agent can set `max_capacity` to limit concurrent tasks:
+Cada agente pode limitar tarefas simultâneas com `max_capacity`:
 
 ```bash
-# Agent can handle 3 tasks at once
 curl "$MC_URL/api/tasks/queue?agent=scout&max_capacity=3" \
   -H "Authorization: Bearer $MC_API_KEY"
 ```
 
-If the agent already has `max_capacity` tasks in `in_progress`, the response returns `"reason": "at_capacity"` with no task.
+**Quando usar**: Múltiplos agentes com capacidades sobrepostas, balanceamento de carga automático.
 
-**When to use**: Multiple agents with overlapping capabilities, want automatic load balancing.
+## Padrão 3: Pipeline Engine (JIRA / Azure DevOps)
 
-## Pattern 3: Auto-Dispatch (Gateway Required)
+O pipeline engine monitora boards de JIRA ou Azure DevOps e despacha tarefas automaticamente aos agentes quando cards mudam de coluna.
 
-The scheduler automatically dispatches `assigned` tasks to agents through the gateway. This is the fully hands-off mode.
+### Como Funciona
 
-### How It Works
+1. O poller verifica o board configurado periodicamente
+2. Quando um card entra em uma coluna mapeada, a tarefa é criada automaticamente
+3. O engine classifica a complexidade da tarefa para selecionar o modelo LLM
+4. Despacha para o agente configurado na integração
+5. A resolução é postada de volta no card como comentário
+6. O card avança para a próxima coluna no board
 
-1. Tasks are created with `assigned_to` set
-2. The scheduler's `dispatchAssignedTasks` job runs periodically
-3. For each task, MC:
-   - Marks it `in_progress`
-   - Classifies the task complexity to select a model
-   - Sends the task prompt to the agent via the gateway
-   - Parses the response and stores the resolution
-   - Moves the task to `review` status
+### Roteamento de Modelo
 
-### Model Routing
+O engine seleciona o modelo com base no conteúdo da tarefa:
 
-MC automatically selects a model based on task content:
+| Tier | Sinais |
+|------|--------|
+| **Complexo** | debug, diagnose, architect, security audit, incident, refactor, migration |
+| **Rotina** | status check, format, rename, ping, summarize, translate, simple, minor |
+| **Padrão** | Modelo configurado na integração (tudo mais) |
 
-| Tier | Model | Signals |
-|------|-------|---------|
-| **Complex** | Opus | debug, diagnose, architect, security audit, incident, refactor, migration |
-| **Routine** | Haiku | status check, format, rename, ping, summarize, translate, simple, minor |
-| **Default** | Agent's configured model | Everything else |
+Tarefas de prioridade crítica sempre usam o modelo mais capaz configurado.
 
-Critical priority tasks always get Opus. Low priority with routine signals get Haiku.
+### Configuração
 
-Override per-agent by setting `config.dispatchModel`:
+Configure a integração em **Configurações → Integrações** no dashboard, informando:
+- Provider (JIRA ou Azure DevOps)
+- URL da instância e credenciais
+- Mapeamento de colunas → status
+- Agente padrão para execução
+- Modelo LLM e API key
+
+**Quando usar**: Operação totalmente autônoma integrada ao backlog da equipe.
+
+## Padrão 4: Revisão de Qualidade (Aegis)
+
+Aegis é o gate de qualidade integrado. Quando uma tarefa chega ao status `review`, o scheduler a envia ao agente revisor Aegis para aprovação.
+
+### Fluxo
+
+```
+in_progress ──► review ──► Aegis revisa ──► APPROVED ──► done
+                                         └─► REJECTED ──► assigned (com feedback)
+```
+
+### Como Aegis Revisa
+
+1. O scheduler pega tarefas no status `review`
+2. Constrói um prompt de revisão com a descrição e a resolução do agente
+3. Envia ao agente Aegis (configurável via `MC_COORDINATOR_AGENT`)
+4. Faz parse do veredicto:
+   - `VERDICT: APPROVED` → tarefa vai para `done`
+   - `VERDICT: REJECTED` → feedback vira comentário, tarefa volta para `assigned`
+5. Tarefas rejeitadas são re-despachadas com o feedback incluído no próximo prompt
+
+### Limites de Retry
+
+- Até 3 ciclos de revisão por tarefa
+- Após 3 rejeições, tarefa vai para `failed` com feedback acumulado
+- Todos os resultados de revisão ficam na tabela `quality_reviews`
+
+### Configurando Aegis
 
 ```bash
-curl -X PUT "$MC_URL/api/agents" \
-  -H "Authorization: Bearer $MC_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{"id": 1, "config": {"dispatchModel": "9router/cc/claude-opus-4-6"}}'
-```
-
-### Retry Handling
-
-- Failed dispatches increment `dispatch_attempts` and revert to `assigned`
-- After 5 failed attempts, task moves to `failed`
-- Each failure is logged as a comment on the task
-
-**When to use**: Fully autonomous operation with an gateway. Best for production agent fleets.
-
-## Pattern 4: Quality Review (Aegis)
-
-Aegis is MC's built-in quality gate. When a task reaches `review` status, the scheduler sends it to the Aegis reviewer agent for sign-off.
-
-### Flow
-
-```
-in_progress ──► review ──► Aegis reviews ──► APPROVED ──► done
-                                          └─► REJECTED ──► assigned (with feedback)
-```
-
-### How Aegis Reviews
-
-1. Scheduler's `runAegisReviews` job picks up tasks in `review` status
-2. Builds a review prompt with the task description and agent's resolution
-3. Sends to the Aegis agent (configurable via `MC_COORDINATOR_AGENT`)
-4. Parses the verdict:
-   - `VERDICT: APPROVED` → task moves to `done`
-   - `VERDICT: REJECTED` → feedback is attached as a comment, task reverts to `assigned`
-5. Rejected tasks are re-dispatched with the feedback included in the prompt
-
-### Retry Limits
-
-- Up to 3 Aegis review cycles per task
-- After 3 rejections, task moves to `failed` with accumulated feedback
-- All review results are stored in the `quality_reviews` table
-
-### Setting Up Aegis
-
-Aegis is just a regular agent with a reviewer SOUL. Create it:
-
-```bash
-# Register the Aegis agent
+# Registrar o agente Aegis
 curl -X POST "$MC_URL/api/agents/register" \
   -H "Authorization: Bearer $MC_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"name": "aegis", "role": "reviewer"}'
 
-# Set its SOUL
+# Definir o SOUL de revisor
 curl -X PUT "$MC_URL/api/agents/1/soul" \
   -H "Authorization: Bearer $MC_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{"template_name": "reviewer"}'
 ```
 
-**When to use**: When you want automated quality checks before tasks are marked complete.
+**Quando usar**: Quando quiser validação automática de qualidade antes de marcar tarefas como concluídas.
 
-## Pattern 5: Recurring Tasks (Cron)
+## Padrão 5: Tarefas Recorrentes (Cron)
 
-Schedule tasks to be created automatically on a recurring basis using natural language or cron expressions.
-
-### CLI
-
-```bash
-node scripts/mc-cli.cjs cron create --body '{
-  "name": "daily-standup-report",
-  "schedule": "0 9 * * 1-5",
-  "task_template": {
-    "title": "Generate daily standup report",
-    "description": "Summarize all completed tasks from the past 24 hours.",
-    "priority": "medium",
-    "assigned_to": "iris"
-  }
-}'
-```
+Agende criação automática de tarefas em base recorrente usando expressões cron.
 
 ### API
 
@@ -219,105 +188,81 @@ curl -X POST "$MC_URL/api/cron" \
   -H "Authorization: Bearer $MC_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "weekly-security-scan",
-    "schedule": "0 2 * * 0",
+    "name": "relatorio-diario",
+    "schedule": "0 9 * * 1-5",
     "task_template": {
-      "title": "Weekly security audit",
-      "priority": "high",
-      "assigned_to": "aegis"
+      "title": "Gerar relatório diário de progresso",
+      "description": "Resuma todas as tarefas concluídas nas últimas 24 horas.",
+      "priority": "medium",
+      "assigned_to": "iris"
     }
   }'
 ```
 
-The scheduler spawns dated child tasks from the template on each trigger. Manage cron jobs with `pause`, `resume`, and `remove` actions.
+O scheduler cria tarefas filhas com data a partir do template em cada disparo. Gerencie cron jobs com as ações `pause`, `resume` e `remove`.
 
-**When to use**: Reports, health checks, periodic audits, maintenance tasks.
+**Quando usar**: Relatórios, health checks, auditorias periódicas, tarefas de manutenção.
 
-## Pattern 6: Multi-Agent Handoff
+## Padrão 6: Handoff Multi-Agente
 
-Agent A completes a task, then creates a follow-up task assigned to Agent B. This chains agents into a pipeline.
+Agente A conclui uma tarefa e cria uma tarefa de acompanhamento atribuída ao Agente B. Isso encadeia agentes em um pipeline.
 
-### Example: Research → Implement → Review
+### Exemplo: Pesquisa → Implementação → Revisão
 
 ```bash
-# Step 1: Research task for iris
+# Passo 1: Tarefa de pesquisa para iris
 curl -X POST "$MC_URL/api/tasks" \
   -H "Authorization: Bearer $MC_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "title": "Research caching strategies for API layer",
+    "title": "Pesquisar estratégias de cache para a camada de API",
     "priority": "high",
     "assigned_to": "iris"
   }'
-```
 
-When iris completes the research, create the implementation task:
-
-```bash
-# Step 2: Implementation task for scout (after iris finishes)
+# Após iris concluir — Passo 2: Implementação para scout
 curl -X POST "$MC_URL/api/tasks" \
   -H "Authorization: Bearer $MC_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "title": "Implement Redis caching for /api/products",
-    "description": "Based on research in TASK-1: Use cache-aside pattern with 5min TTL...",
+    "title": "Implementar cache Redis para /api/products",
+    "description": "Com base na pesquisa da TASK-1: padrão cache-aside com TTL de 5min...",
     "priority": "high",
     "assigned_to": "scout"
   }'
 ```
 
-After scout finishes, Aegis reviews automatically (if auto-dispatch is active), or you create a review task:
+**Quando usar**: Workflows complexos onde agentes diferentes têm especializações distintas.
 
-```bash
-# Step 3: Review task for aegis
-curl -X POST "$MC_URL/api/tasks" \
-  -H "Authorization: Bearer $MC_API_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Review caching implementation in TASK-2",
-    "priority": "high",
-    "assigned_to": "aegis"
-  }'
-```
+## Padrão 7: Recuperação de Tarefas Presas
 
-**When to use**: Complex workflows where different agents have different specializations.
+O sistema recupera automaticamente agentes travados. O job `requeueStaleTasks` do scheduler:
 
-## Pattern 7: Stale Task Recovery
+1. Encontra tarefas presas em `in_progress` por 10+ minutos com agente offline
+2. Reverte para `assigned` com um comentário explicando o travamento
+3. Após 5 requeueamentos por travamento, move a tarefa para `failed`
 
-MC automatically recovers from stuck agents. The `requeueStaleTasks` scheduler job:
+Isso ocorre automaticamente — sem configuração necessária.
 
-1. Finds tasks stuck in `in_progress` for 10+ minutes with an offline agent
-2. Reverts them to `assigned` with a comment explaining the stall
-3. After 5 stale requeues, moves the task to `failed`
+## Combinando Padrões
 
-This happens automatically — no configuration needed.
+Em produção, você combinará esses padrões. Uma configuração típica:
 
-## Combining Patterns
-
-In practice, you'll combine these patterns. A typical production setup:
-
-1. **Cron** creates recurring tasks (Pattern 5)
-2. **Queue-based dispatch** distributes tasks to available agents (Pattern 2)
-3. **Model routing** picks the right model per task (Pattern 3)
-4. **Aegis** reviews all completed work (Pattern 4)
-5. **Stale recovery** handles agent failures (Pattern 7)
+1. **Pipeline Engine** detecta cards no JIRA/Azure DevOps (Padrão 3)
+2. **Cron** cria tarefas recorrentes de suporte (Padrão 5)
+3. **Dispatch por fila** distribui tarefas aos agentes disponíveis (Padrão 2)
+4. **Aegis** revisa todo trabalho concluído (Padrão 4)
+5. **Recuperação de presos** lida com falhas de agentes (Padrão 7)
 
 ```
- Cron ──► inbox ──► Queue assigns ──► Agent works ──► Aegis reviews ──► done
-                                          │                  │
-                                          └── timeout ───────┘── requeue
+Pipeline Engine ──► assigned ──► Agente executa ──► Aegis revisa ──► done
+     Cron ─────────────┘              │                    │
+                                      └── timeout ─────────┘── requeue
 ```
 
-## Event Streaming
+## Monitoramento em Tempo Real via SSE
 
-Monitor orchestration in real time with SSE:
-
-```bash
-# Watch all task and agent events
-node scripts/mc-cli.cjs events watch --types task,agent --json
-```
-
-Or via API:
+Monitore a orquestração em tempo real com Server-Sent Events:
 
 ```bash
 curl -N "$MC_URL/api/events" \
@@ -325,11 +270,10 @@ curl -N "$MC_URL/api/events" \
   -H "Accept: text/event-stream"
 ```
 
-Events include: `task.created`, `task.updated`, `task.completed`, `agent.created`, `agent.status_changed`, and more.
+Eventos incluem: `task.created`, `task.updated`, `task.completed`, `agent.created`, `agent.status_changed`, e mais.
 
-## Reference
+## Referência
 
-- **[Quickstart](quickstart.md)** — 5-minute first agent tutorial
-- **[Agent Setup](agent-setup.md)** — Registration, SOUL, configuration
-- **[CLI Reference](cli-agent-control.md)** — Full CLI command list
-- **[CLI Integration](cli-integration.md)** — Direct connections without a gateway
+- **[Primeiros Passos](quickstart.md)** — Tutorial do primeiro agente em 5 minutos
+- **[Configuração de Agentes](agent-setup.md)** — Registro, SOUL, configuração
+- **[Deploy](deployment.md)** — Standalone, Docker, AWS ECS
