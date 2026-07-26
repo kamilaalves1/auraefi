@@ -25,8 +25,8 @@ interface DispatchableTask {
 // ---------------------------------------------------------------------------
 
 /**
- * Classify a task's complexity and return the appropriate model ID to pass
- * to the gateway. Uses keyword signals on title + description.
+ * Classify a task's complexity and return the appropriate model ID.
+ * Uses keyword signals on title + description.
  *
  * Tiers:
  *   ROUTINE  → cheap model (Haiku)   — file ops, status checks, formatting
@@ -54,7 +54,7 @@ function classifyTaskModel(task: DispatchableTask): string | null {
     'refactor', 'migration', 'performance optim', 'why is',
   ]
   if (priority === 'critical' || complexSignals.some(s => text.includes(s))) {
-    return '9router/cc/claude-opus-4-6'
+    return 'claude-opus-4-8'
   }
 
   // Routine signals → Haiku
@@ -65,17 +65,17 @@ function classifyTaskModel(task: DispatchableTask): string | null {
     'quick ', 'simple ', 'routine ', 'minor ',
   ]
   if (priority === 'low' && routineSignals.some(s => text.includes(s))) {
-    return '9router/cc/claude-haiku-4-5-20251001'
+    return 'claude-haiku-4-5-20251001'
   }
   if (routineSignals.some(s => text.includes(s)) && priority !== 'high' && priority !== 'critical') {
-    return '9router/cc/claude-haiku-4-5-20251001'
+    return 'claude-haiku-4-5-20251001'
   }
 
   // Default: let the agent's own configured model handle it (no override)
   return null
 }
 
-/** Extract the gateway agent identifier from the agent's config JSON.
+/** Extract the agent identifier from the agent's config JSON.
  *  Falls back to agent_name (display name) if agent id is not set. */
 function resolveGatewayAgentId(task: DispatchableTask): string {
   if (task.agent_config) {
@@ -93,7 +93,7 @@ function buildTaskPrompt(task: DispatchableTask, rejectionFeedback?: string | nu
     : `TASK-${task.id}`
 
   const lines = [
-    'You have been assigned a task in Mission Control.',
+    'You have been assigned a task in Vertex Control Center.',
     '',
     `**[${ticket}] ${task.title}**`,
     `Priority: ${task.priority}`,

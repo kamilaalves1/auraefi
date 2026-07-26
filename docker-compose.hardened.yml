@@ -1,7 +1,7 @@
-# Production hardening overlay
-# Usage: docker compose -f docker-compose.yml -f docker-compose.hardened.yml up -d
+# Overlay de hardening para produção
+# Uso: docker compose -f docker-compose.yml -f docker-compose.hardened.yml up -d
 services:
-  mission-control:
+  vertex-control-center:
     logging:
       driver: json-file
       options:
@@ -13,9 +13,9 @@ services:
       - MC_COOKIE_SAMESITE=strict
       - MC_ENABLE_HSTS=1
     networks:
-      mc-internal:
+      vcc-internal:
 
 networks:
-  mc-internal:
+  vcc-internal:
     driver: bridge
     internal: true
