@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { config } from '@/lib/config'
 import { readdir, readFile, stat } from 'fs/promises'
 import { join } from 'path'
-import { heavyLimiter } from '@/lib/rate-limit'
+import { heavyLimiter, extractClientIp } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { validateBody, spawnAgentSchema } from '@/lib/validation'
 import { scanForInjection } from '@/lib/injection-guard'
@@ -101,7 +101,7 @@ export async function POST(request: NextRequest) {
         logger.warn({ status: apiRes.status, body: errBody.substring(0, 200) }, 'Claude API spawn error')
       }
 
-      const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+      const ipAddress = extractClientIp(request)
       logAuditEvent({
         action: 'agent_spawn',
         actor: auth.user.username,

@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { logAuditEvent, getDatabase } from '@/lib/db'
 import { existsSync } from 'fs'
 import os from 'os'
 import { execFileSync } from 'child_process'
 import { validateBody, integrationActionSchema } from '@/lib/validation'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { mutationLimiter, extractClientIp } from '@/lib/rate-limit'
 import { detectProviderSubscriptions } from '@/lib/provider-subscriptions'
 import { getPluginIntegrations, getPluginCategories } from '@/lib/plugins'
 import type { PluginIntegrationDef } from '@/lib/plugins'
@@ -383,7 +383,7 @@ export async function PUT(request: NextRequest) {
     updatedKeys.push(key)
   }
 
-  const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+  const ipAddress = extractClientIp(request)
   logAuditEvent({
     action: 'integrations_update',
     actor: auth.user.username,
@@ -426,7 +426,7 @@ export async function DELETE(request: NextRequest) {
     removed.push(key)
   }
 
-  const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+  const ipAddress = extractClientIp(request)
   logAuditEvent({
     action: 'integrations_remove',
     actor: auth.user.username,
@@ -627,7 +627,7 @@ async function handleTest(
       }
     }
 
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     logAuditEvent({
       action: 'integration_test',
       actor: user.username,
@@ -674,7 +674,7 @@ async function handlePull(
     const envVar = integration.envVars[0]
     writeIntegrationSetting(envVar, value)
 
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     logAuditEvent({
       action: 'integration_pull_1password',
       actor: user.username, actor_id: user.id,
@@ -731,7 +731,7 @@ async function handlePullAll(
   }
 
   const successCount = results.filter(r => r.ok).length
-  const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+  const ipAddress = extractClientIp(request)
   logAuditEvent({
     action: 'integration_pull_all_1password',
     actor: user.username, actor_id: user.id,

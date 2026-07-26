@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { getUserFromRequest, getAllUsers, createUser, updateUser, deleteUser, getUserById, requireRole } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/db'
 import { validateBody, createUserSchema } from '@/lib/validation'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { mutationLimiter, extractClientIp } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
 /**
@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       workspace_id: workspaceId,
     })
 
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     logAuditEvent({
       action: 'user_create', actor: currentUser.username, actor_id: currentUser.id,
       target_type: 'user', target_id: newUser.id,
@@ -119,7 +119,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 })
     }
 
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     logAuditEvent({
       action: 'user_update', actor: currentUser.username, actor_id: currentUser.id,
       target_type: 'user', target_id: userId,
@@ -181,7 +181,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 })
   }
 
-  const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+  const ipAddress = extractClientIp(request)
   logAuditEvent({
     action: 'user_delete', actor: currentUser.username, actor_id: currentUser.id,
     target_type: 'user', target_id: userId,

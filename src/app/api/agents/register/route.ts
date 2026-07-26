@@ -1,7 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { getDatabase, db_helpers } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
-import { selfRegisterLimiter } from '@/lib/rate-limit'
+import { selfRegisterLimiter, extractClientIp } from '@/lib/rate-limit'
 import { logAuditEvent } from '@/lib/db'
 import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
@@ -108,10 +108,10 @@ export async function POST(request: NextRequest) {
       target_type: 'agent',
       target_id: agentId,
       detail: { name, role, framework, self_registered: true },
-      ip_address: request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown',
+      ip_address: extractClientIp(request),
     })
 
-    eventBus.broadcast('agent.created', { id: agentId, name, role, status: 'idle' })
+    eventBus.broadcast('agent.created', { id: agentId, name, role, status: 'idle', workspace_id: workspaceId })
 
     return NextResponse.json({
       agent: {

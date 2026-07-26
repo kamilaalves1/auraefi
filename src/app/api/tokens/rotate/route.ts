@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { requireRole } from '@/lib/auth'
 import { getDatabase, logAuditEvent } from '@/lib/db'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { mutationLimiter, extractClientIp } from '@/lib/rate-limit'
 
 interface ApiKeyRow {
   value: string
@@ -99,7 +99,7 @@ export async function POST(request: NextRequest) {
   `).run(newKey, auth.user.username)
 
   // Audit log
-  const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+  const ipAddress = extractClientIp(request)
   logAuditEvent({
     action: 'api_key_rotated',
     actor: auth.user.username,

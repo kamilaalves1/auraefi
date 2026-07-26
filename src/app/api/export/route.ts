@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { getDatabase, logAuditEvent } from '@/lib/db'
-import { heavyLimiter } from '@/lib/rate-limit'
+import { heavyLimiter, extractClientIp } from '@/lib/rate-limit'
 
 /**
  * GET /api/export?type=audit|tasks|activities|pipelines&format=csv|json&since=UNIX&until=UNIX
@@ -53,8 +53,14 @@ export async function GET(request: NextRequest) {
 
   switch (type) {
     case 'audit': {
-      // audit_log is instance-global (no workspace_id column); export is admin-only so this is safe
-      rows = db.prepare(`SELECT * FROM audit_log ${where} ORDER BY created_at DESC LIMIT ?`).all(...params, limit)
+      // audit_log has no workspace_id column (instance-global table).
+      // Scope to actors who belong to this workspace by joining against the users table.
+      const auditConditions = [...conditions]
+      const auditParams = [...params]
+      auditConditions.unshift('(actor_id IS NULL OR actor_id IN (SELECT id FROM users WHERE workspace_id = ?))')
+      auditParams.unshift(workspaceId)
+      const auditWhere = `WHERE ${auditConditions.join(' AND ')}`
+      rows = db.prepare(`SELECT * FROM audit_log ${auditWhere} ORDER BY created_at DESC LIMIT ?`).all(...auditParams, limit)
       headers = ['id', 'action', 'actor', 'actor_id', 'target_type', 'target_id', 'detail', 'ip_address', 'user_agent', 'created_at']
       filename = 'audit-log'
       break
@@ -88,8 +94,8 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  // Log the export
-  const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+  // Log the export — use the validated IP extractor to prevent header forgery in audit logs
+  const ipAddress = extractClientIp(request)
   logAuditEvent({
     action: 'data_export',
     actor: auth.user.username,

@@ -4,6 +4,7 @@ import { requireRole } from '@/lib/auth'
 import { writeAgentToConfig, enrichAgentConfigFromWorkspace, removeAgentFromConfig } from '@/lib/agent-sync'
 import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
+import { extractClientIp } from '@/lib/rate-limit'
 
 /**
  * GET /api/agents/[id] - Get a single agent by ID or name
@@ -159,7 +160,7 @@ export async function PUT(
     }
 
     if (shouldWriteToGateway) {
-      const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+      const ipAddress = extractClientIp(request)
       logAuditEvent({
         action: 'agent_config_writeback',
         actor: auth.user.username,
@@ -188,6 +189,7 @@ export async function PUT(
       name: agent.name,
       config: newConfig,
       updated_at: now,
+      workspace_id: workspaceId,
     })
 
     const enrichedConfig = enrichAgentConfigFromWorkspace(newConfig)
@@ -266,7 +268,7 @@ export async function DELETE(
       workspaceId
     )
 
-    eventBus.broadcast('agent.deleted', { id: agent.id, name: agent.name })
+    eventBus.broadcast('agent.deleted', { id: agent.id, name: agent.name, workspace_id: workspaceId })
 
     return NextResponse.json({
       success: true,

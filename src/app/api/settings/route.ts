@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { config } from '@/lib/config'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { mutationLimiter, extractClientIp } from '@/lib/rate-limit'
 import { validateBody, updateSettingsSchema } from '@/lib/validation'
 
 interface SettingRow {
@@ -162,7 +162,7 @@ export async function PUT(request: NextRequest) {
   txn()
 
   // Audit log
-  const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+  const ipAddress = extractClientIp(request)
   logAuditEvent({
     action: 'settings_update',
     actor: auth.user.username,
@@ -201,7 +201,7 @@ export async function DELETE(request: NextRequest) {
 
   db.prepare('DELETE FROM settings WHERE key = ?').run(key)
 
-  const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+  const ipAddress = extractClientIp(request)
   logAuditEvent({
     action: 'settings_reset',
     actor: auth.user.username,

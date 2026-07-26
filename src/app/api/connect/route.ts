@@ -33,12 +33,12 @@ export async function POST(request: NextRequest) {
     agent = { id: result.lastInsertRowid, name: agent_name }
     db_helpers.logActivity('agent_created', 'agent', agent.id as number, 'system',
       `Auto-created agent "${agent_name}" via direct CLI connection`, undefined, workspaceId)
-    eventBus.broadcast('agent.created', { id: agent.id, name: agent_name })
+    eventBus.broadcast('agent.created', { id: agent.id, name: agent_name, workspace_id: workspaceId })
   } else {
     // Set agent online
     db.prepare('UPDATE agents SET status = ?, updated_at = ? WHERE id = ? AND workspace_id = ?')
       .run('online', now, agent.id, workspaceId)
-    eventBus.broadcast('agent.status_changed', { id: agent.id, name: agent.name, status: 'online' })
+    eventBus.broadcast('agent.status_changed', { id: agent.id, name: agent.name, status: 'online', workspace_id: workspaceId })
   }
 
   // Deactivate previous connections for this agent
@@ -61,6 +61,7 @@ export async function POST(request: NextRequest) {
     agent_id: agent.id,
     agent_name,
     tool_name,
+    workspace_id: workspaceId,
   })
 
   return NextResponse.json({
@@ -147,6 +148,7 @@ export async function DELETE(request: NextRequest) {
     connection_id,
     agent_id: conn.agent_id,
     agent_name: agent?.name,
+    workspace_id: workspaceId,
   })
 
   return NextResponse.json({ status: 'disconnected', connection_id })

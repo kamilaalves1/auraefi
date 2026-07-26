@@ -135,6 +135,8 @@ async function parseJson(res: Response) {
 
 // ── LLM complexity card ───────────────────────────────────────────────────────
 
+type FallbackMode = 'none' | 'fixed' | 'cascade'
+
 function LLMComplexityCard({
   pipelineId,
   config,
@@ -146,12 +148,15 @@ function LLMComplexityCard({
   llmOptions: LLMOption[]
   llmLoading: boolean
 }) {
-  const [simple,     setSimple]     = useState(config.llm_simple   ?? '')
-  const [medium,     setMedium]     = useState(config.llm_medium   ?? '')
-  const [complex,    setComplex]    = useState(config.llm_complex  ?? '')
-  const [botMention, setBotMention] = useState(config.botMention   ?? '@pipeline')
-  const [saving,     setSaving]     = useState(false)
-  const [msg,        setMsg]        = useState<{ ok: boolean; text: string } | null>(null)
+  const [simple,       setSimple]       = useState(config.llm_simple   ?? '')
+  const [medium,       setMedium]       = useState(config.llm_medium   ?? '')
+  const [complex,      setComplex]      = useState(config.llm_complex  ?? '')
+  const [botMention,   setBotMention]   = useState(config.botMention   ?? '@pipeline')
+  const [fallbackMode, setFallbackMode] = useState<FallbackMode>((config.llm_fallback_mode as FallbackMode) ?? 'none')
+  const [fallbackModel,setFallbackModel]= useState(config.llm_fallback_model ?? '')
+  const [maxAttempts,  setMaxAttempts]  = useState(Number(config.llm_fallback_max_attempts ?? 2))
+  const [saving,       setSaving]       = useState(false)
+  const [msg,          setMsg]          = useState<{ ok: boolean; text: string } | null>(null)
 
   const handleSave = async () => {
     setSaving(true)
@@ -159,7 +164,15 @@ function LLMComplexityCard({
       const res = await fetch(`/api/workspace/work-pipelines/${pipelineId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ config: { llm_simple: simple, llm_medium: medium, llm_complex: complex, botMention: botMention.trim() || '@pipeline' } }),
+        body: JSON.stringify({
+          config: {
+            llm_simple: simple, llm_medium: medium, llm_complex: complex,
+            botMention: botMention.trim() || '@pipeline',
+            llm_fallback_mode: fallbackMode,
+            llm_fallback_model: fallbackModel,
+            llm_fallback_max_attempts: String(maxAttempts),
+          },
+        }),
       })
       const data = await parseJson(res)
       if (!res.ok) throw new Error(data.error ?? 'Erro ao salvar')
@@ -177,6 +190,17 @@ function LLMComplexityCard({
     ;(acc[o.provider] ??= []).push(o)
     return acc
   }, {})
+
+  const ModelSelect = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
+    <select value={value} onChange={e => onChange(e.target.value)} className={`${sel} w-full`}>
+      <option value="">— Sem regra —</option>
+      {Object.entries(grouped).map(([provider, opts]) => (
+        <optgroup key={provider} label={provider}>
+          {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+        </optgroup>
+      ))}
+    </select>
+  )
 
   return (
     <div className="rounded-xl border border-border/60 bg-card p-4 space-y-4">
@@ -206,24 +230,80 @@ function LLMComplexityCard({
                 <span className="text-xs font-medium text-foreground">{label}</span>
                 <span className="text-[10px] text-muted-foreground/50">{hint}</span>
               </div>
-              <select
-                value={value}
-                onChange={e => (set as (v: string) => void)(e.target.value)}
-                className={`${sel} w-full`}
-              >
-                <option value="">— Sem regra —</option>
-                {Object.entries(grouped).map(([provider, opts]) => (
-                  <optgroup key={provider} label={provider}>
-                    {opts.map(o => (
-                      <option key={o.value} value={o.value}>{o.label}</option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
+              <ModelSelect value={value} onChange={set as (v: string) => void} />
             </div>
           ))}
         </div>
       )}
+
+      {/* ── Fallback section ── */}
+      <div className="pt-3 border-t border-border/40 space-y-3">
+        <div>
+          <h4 className="text-xs font-semibold text-foreground">Fallback se falhar</h4>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            O que fazer quando o modelo principal retorna erro ou resposta vazia.
+          </p>
+        </div>
+
+        <div className="space-y-1.5">
+          {([
+            { id: 'none',    label: 'Nenhum',         desc: 'Falha imediatamente' },
+            { id: 'fixed',   label: 'Modelo fixo',    desc: 'Tenta um modelo alternativo específico' },
+            { id: 'cascade', label: 'Cascata',         desc: 'Testa todos os modelos configurados em sequência' },
+          ] as const).map(opt => (
+            <label key={opt.id} className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors ${
+              fallbackMode === opt.id ? 'bg-primary/10 border border-primary/30' : 'border border-transparent hover:bg-secondary/40'
+            }`}>
+              <input
+                type="radio"
+                name={`fallback-${pipelineId}`}
+                value={opt.id}
+                checked={fallbackMode === opt.id}
+                onChange={() => setFallbackMode(opt.id)}
+                className="mt-0.5 accent-primary shrink-0"
+              />
+              <div className="min-w-0">
+                <span className="text-xs font-medium text-foreground">{opt.label}</span>
+                <span className="text-[10px] text-muted-foreground ml-1.5">{opt.desc}</span>
+              </div>
+            </label>
+          ))}
+        </div>
+
+        {fallbackMode !== 'none' && (
+          <div className="space-y-2.5 pl-1">
+            {fallbackMode === 'fixed' && llmOptions.length > 0 && (
+              <div className="space-y-1">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60">Modelo de fallback</span>
+                <ModelSelect value={fallbackModel} onChange={setFallbackModel} />
+              </div>
+            )}
+            {fallbackMode === 'cascade' && (
+              <div className="rounded-lg border border-border/50 bg-secondary/20 px-3 py-2 text-[11px] text-muted-foreground space-y-0.5">
+                <p className="font-medium text-foreground/70">Ordem da cascata:</p>
+                {[complex, medium, simple].filter(Boolean).map((m, i) => {
+                  const label = llmOptions.find(o => o.value === m)?.label ?? m
+                  return <p key={i} className="ml-2">→ {label}</p>
+                })}
+                {[complex, medium, simple].filter(Boolean).length === 0 && (
+                  <p className="italic">Configure os modelos por complexidade acima para definir a ordem.</p>
+                )}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 shrink-0">Máx. tentativas</span>
+              <input
+                type="number"
+                min={1}
+                max={10}
+                value={maxAttempts}
+                onChange={e => setMaxAttempts(Math.max(1, Math.min(10, Number(e.target.value))))}
+                className={`${inp} w-16 h-7 text-center`}
+              />
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="pt-3 border-t border-border/40 space-y-2">
         <div>

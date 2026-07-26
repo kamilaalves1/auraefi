@@ -53,76 +53,71 @@ export async function GET(request: NextRequest) {
     const cutoff = Math.floor(Date.now() / 1000) - days * 86400
     const providerSubscriptions = getProviderSubscriptionFlags()
 
-    // Query per-agent totals with per-model breakdown embedded as JSON
-    // Use agent_name column when set; fall back to session_id prefix for legacy rows
-    const rows = db.prepare(`
-      SELECT
-        COALESCE(
+    const agentExpr = `COALESCE(
           NULLIF(agent_name, ''),
           CASE
             WHEN INSTR(session_id, ':') > 0 THEN SUBSTR(session_id, 1, INSTR(session_id, ':') - 1)
             ELSE session_id
           END
-        ) AS agent_name,
-        SUM(input_tokens)  AS total_input_tokens,
-        SUM(output_tokens) AS total_output_tokens,
-        COUNT(DISTINCT session_id) AS session_count,
-        COUNT(*)           AS request_count,
-        MAX(created_at)    AS last_active,
-        GROUP_CONCAT(DISTINCT model) AS models_json
+        )`
+
+    // Query per-agent totals — prefer stored cost_usd; fall back to recalculating
+    const rows = db.prepare(`
+      SELECT
+        ${agentExpr} AS agent_name,
+        SUM(input_tokens)              AS total_input_tokens,
+        SUM(output_tokens)             AS total_output_tokens,
+        SUM(COALESCE(cost_usd, 0))     AS total_cost_stored,
+        COUNT(DISTINCT session_id)     AS session_count,
+        COUNT(*)                       AS request_count,
+        MAX(created_at)                AS last_active,
+        GROUP_CONCAT(DISTINCT model)   AS models_json
       FROM token_usage
       WHERE workspace_id = ?
         AND created_at >= ?
       GROUP BY agent_name
-      ORDER BY (SUM(input_tokens) + SUM(output_tokens)) DESC
-    `).all(workspaceId, cutoff) as AgentBreakdownRow[]
+      ORDER BY SUM(COALESCE(cost_usd, 0)) DESC, (SUM(input_tokens) + SUM(output_tokens)) DESC
+    `).all(workspaceId, cutoff) as (AgentBreakdownRow & { total_cost_stored: number })[]
 
-    // For accurate per-model cost we need a second pass grouping by agent+model
+    // Per-model breakdown with stored cost
     const modelRows = db.prepare(`
       SELECT
-        COALESCE(
-          NULLIF(agent_name, ''),
-          CASE
-            WHEN INSTR(session_id, ':') > 0 THEN SUBSTR(session_id, 1, INSTR(session_id, ':') - 1)
-            ELSE session_id
-          END
-        ) AS agent_name,
+        ${agentExpr} AS agent_name,
         model,
-        SUM(input_tokens)  AS input_tokens,
-        SUM(output_tokens) AS output_tokens,
-        COUNT(*)           AS request_count
+        SUM(input_tokens)          AS input_tokens,
+        SUM(output_tokens)         AS output_tokens,
+        SUM(COALESCE(cost_usd, 0)) AS cost_stored,
+        COUNT(*)                   AS request_count
       FROM token_usage
       WHERE workspace_id = ?
         AND created_at >= ?
       GROUP BY agent_name, model
-      ORDER BY agent_name, (SUM(input_tokens) + SUM(output_tokens)) DESC
+      ORDER BY agent_name, SUM(COALESCE(cost_usd, 0)) DESC
     `).all(workspaceId, cutoff) as Array<{
       agent_name: string
       model: string
       input_tokens: number
       output_tokens: number
+      cost_stored: number
       request_count: number
     }>
 
-    // Build model map keyed by agent name
     const modelsByAgent = new Map<string, ModelBreakdown[]>()
     for (const row of modelRows) {
-      const cost = calculateTokenCost(row.model, row.input_tokens, row.output_tokens, { providerSubscriptions })
+      // Use stored cost_usd if available; fall back to price-table calculation
+      const fallbackCost = calculateTokenCost(row.model, row.input_tokens, row.output_tokens, { providerSubscriptions })
+      const cost = row.cost_stored > 0 ? row.cost_stored : fallbackCost
       const list = modelsByAgent.get(row.agent_name) || []
-      list.push({
-        model: row.model,
-        input_tokens: row.input_tokens,
-        output_tokens: row.output_tokens,
-        request_count: row.request_count,
-        cost,
-      })
+      list.push({ model: row.model, input_tokens: row.input_tokens, output_tokens: row.output_tokens, request_count: row.request_count, cost })
       modelsByAgent.set(row.agent_name, list)
     }
 
-    // Assemble final response
     const agents: AgentBreakdown[] = rows.map((row) => {
       const models = modelsByAgent.get(row.agent_name) || []
-      const totalCost = models.reduce((sum, m) => sum + m.cost, 0)
+      // Prefer per-model sum; fall back to stored total; last resort: recalculate
+      const modelSum = models.reduce((s, m) => s + m.cost, 0)
+      const fallbackCost = calculateTokenCost('', row.total_input_tokens, row.total_output_tokens, { providerSubscriptions })
+      const totalCost = modelSum > 0 ? modelSum : row.total_cost_stored > 0 ? row.total_cost_stored : fallbackCost
       return {
         agent: row.agent_name,
         total_input_tokens: row.total_input_tokens,

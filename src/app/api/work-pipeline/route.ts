@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+﻿import { NextRequest, NextResponse } from 'next/server'
+import { getDatabase, logAuditEvent } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
+import { extractClientIp } from '@/lib/rate-limit'
 import {
   getWorkPipelineRow,
   toPublicPipelineDto,
@@ -9,7 +10,6 @@ import {
 } from '@/lib/work-pipeline-config'
 import type { WorkPipelineConfigJson, WorkPipelineProvider } from '@/lib/work-pipeline-types'
 import type { WorkPipelineSecrets } from '@/lib/work-pipeline-types'
-import { logAuditEvent } from '@/lib/db'
 
 function isProvider(v: unknown): v is WorkPipelineProvider {
   return v === 'none' || v === 'jira' || v === 'azure_devops'
@@ -77,7 +77,7 @@ export async function PUT(request: NextRequest) {
         Object.keys(secretsPatch).length > 0 ? secretsPatch : undefined,
     })
 
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     logAuditEvent({
       action: 'work_pipeline_update',
       actor: auth.user.username,

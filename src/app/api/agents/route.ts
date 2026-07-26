@@ -288,6 +288,7 @@ export async function PUT(request: NextRequest) {
         ...(last_activity !== undefined && { last_activity }),
         ...(role !== undefined && { role }),
         updated_at: now,
+        workspace_id: workspaceId,
       });
 
       return NextResponse.json({ success: true });

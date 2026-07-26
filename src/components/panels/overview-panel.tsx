@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, AreaChart, Area, CartesianGrid,
+  PieChart, Pie, Cell, AreaChart, Area, CartesianGrid, LabelList,
 } from 'recharts'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -321,13 +321,17 @@ const STATUS_PT: Record<string, string> = {
           </p>
           <div className="flex-1 min-h-0" style={{ minHeight: 160 }}>
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={runsPerDay} barCategoryGap="30%" margin={{ top: 4, right: 4, left: -24, bottom: 0 }}>
+              <BarChart data={runsPerDay} barCategoryGap="30%" margin={{ top: 20, right: 4, left: -24, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
-                <XAxis dataKey="day" tick={{ fontSize: 9, fill: '#6b7280' }} tickLine={false} axisLine={false} interval={1} />
+                <XAxis dataKey="day" tick={{ fontSize: 9, fill: '#6b7280' }} tickLine={false} axisLine={false} interval={0} />
                 <YAxis tick={{ fontSize: 9, fill: '#6b7280' }} tickLine={false} axisLine={false} allowDecimals={false} />
                 <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="concluídos" fill={CHART_COLORS.done}    radius={[3,3,0,0]} maxBarSize={20} />
-                <Bar dataKey="falhas"     fill={CHART_COLORS.failed}  radius={[3,3,0,0]} maxBarSize={20} />
+                <Bar dataKey="concluídos" fill={CHART_COLORS.done}    radius={[3,3,0,0]} maxBarSize={20}>
+                  <LabelList dataKey="concluídos" position="top" style={{ fontSize: 9, fill: '#9ca3af' }} formatter={(v: unknown) => { const n = Number(v); return n > 0 ? String(n) : '' }} />
+                </Bar>
+                <Bar dataKey="falhas"     fill={CHART_COLORS.failed}  radius={[3,3,0,0]} maxBarSize={20}>
+                  <LabelList dataKey="falhas" position="top" style={{ fontSize: 9, fill: '#9ca3af' }} formatter={(v: unknown) => { const n = Number(v); return n > 0 ? String(n) : '' }} />
+                </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -413,11 +417,13 @@ const STATUS_PT: Record<string, string> = {
           ) : (
             <div style={{ height: 110 }}>
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={runsByProvider} layout="vertical" margin={{ top: 0, right: 8, left: 0, bottom: 0 }}>
+                <BarChart data={runsByProvider} layout="vertical" margin={{ top: 0, right: 36, left: 0, bottom: 0 }}>
                   <XAxis type="number" tick={{ fontSize: 9, fill: '#6b7280' }} tickLine={false} axisLine={false} allowDecimals={false} />
                   <YAxis type="category" dataKey="provedor" tick={{ fontSize: 9, fill: '#6b7280' }} tickLine={false} axisLine={false} width={60} />
                   <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="cards" fill="#818cf8" radius={[0,3,3,0]} maxBarSize={12} />
+                  <Bar dataKey="cards" fill="#818cf8" radius={[0,3,3,0]} maxBarSize={12}>
+                    <LabelList dataKey="cards" position="right" style={{ fontSize: 9, fill: '#9ca3af' }} formatter={(v: unknown) => { const n = Number(v); return n > 0 ? String(n) : '' }} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>

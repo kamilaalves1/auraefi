@@ -52,8 +52,14 @@ export function extractClientIp(request: Request): string {
     }
   }
 
-  // Fallback: x-real-ip (set by nginx/caddy) or 'unknown'
-  return request.headers.get('x-real-ip')?.trim() || 'unknown'
+  // Fallback: x-real-ip only when MC_TRUSTED_PROXIES is configured (otherwise it is client-controlled).
+  // Without a trusted-proxy config, fall back to 'direct' so all un-proxied clients
+  // share one bucket (prevents IP-spoofing bypass) rather than getting unlimited buckets.
+  if (TRUSTED_PROXIES.size > 0) {
+    const realIp = request.headers.get('x-real-ip')?.trim()
+    if (realIp) return realIp
+  }
+  return 'direct'
 }
 
 export function createRateLimiter(options: RateLimiterOptions) {

@@ -125,12 +125,19 @@ function nextResponseWithNonce(request: NextRequest): { response: NextResponse; 
   return { response, nonce }
 }
 
-function addSecurityHeaders(response: NextResponse, _request: NextRequest, nonce?: string): NextResponse {
+function addSecurityHeaders(response: NextResponse, request: NextRequest, nonce?: string): NextResponse {
   const requestId = crypto.randomUUID()
   response.headers.set('X-Request-Id', requestId)
   response.headers.set('X-Content-Type-Options', 'nosniff')
   response.headers.set('X-Frame-Options', 'DENY')
   response.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin')
+  response.headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=()')
+
+  // HSTS: enforce HTTPS for 2 years when the request arrived over TLS or explicitly enabled.
+  const isHttps = request.headers.get('x-forwarded-proto') === 'https' || process.env.MC_ENABLE_HSTS === '1'
+  if (isHttps && process.env.MC_DISABLE_HSTS !== '1') {
+    response.headers.set('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload')
+  }
 
   const googleEnabled = !!(process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID)
   const effectiveNonce = nonce || crypto.randomBytes(16).toString('base64')

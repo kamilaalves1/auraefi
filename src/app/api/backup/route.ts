@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { config, ensureDirExists } from '@/lib/config'
 import { join, dirname } from 'path'
 import { readdirSync, statSync, unlinkSync } from 'fs'
-import { heavyLimiter } from '@/lib/rate-limit'
+import { heavyLimiter, extractClientIp } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
 const BACKUP_DIR = join(dirname(config.dbPath), 'backups')
@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
 
     const stat = statSync(backupPath)
 
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     logAuditEvent({
       action: 'backup_create',
       actor: auth.user.username,
@@ -115,7 +115,7 @@ export async function DELETE(request: NextRequest) {
     const fullPath = join(BACKUP_DIR, name)
     unlinkSync(fullPath)
 
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     logAuditEvent({
       action: 'backup_delete',
       actor: auth.user.username,

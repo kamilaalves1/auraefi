@@ -144,6 +144,287 @@ function parseAgentResponse(stdout: string): AgentResponseParsed {
 }
 
 // ---------------------------------------------------------------------------
+// Pipeline config reader
+// ---------------------------------------------------------------------------
+
+interface PipelineConfig {
+  llm_simple?: string
+  llm_medium?: string
+  llm_complex?: string
+  llm_fallback_mode?: 'none' | 'fixed' | 'cascade'
+  llm_fallback_model?: string
+  llm_fallback_max_attempts?: string
+  [key: string]: string | undefined
+}
+
+function getPipelineConfig(workspaceId: number): PipelineConfig {
+  try {
+    const db = getDatabase()
+    const row = db.prepare(
+      'SELECT config FROM work_pipelines WHERE workspace_id = ? ORDER BY id ASC LIMIT 1'
+    ).get(workspaceId) as { config: string | null } | undefined
+    if (!row?.config) return {}
+    const parsed = JSON.parse(row.config)
+    return typeof parsed === 'object' && parsed !== null ? parsed : {}
+  } catch { return {} }
+}
+
+// ---------------------------------------------------------------------------
+// Provider-agnostic model dispatch
+// ---------------------------------------------------------------------------
+// Model values follow the format "provider:model-id" (e.g. "anthropic:claude-sonnet-4-6").
+// Provider prefix is stripped before sending to the respective API.
+
+interface ProviderCallResult {
+  text: string | null
+  sessionId: string | null
+  model: string
+  provider: string
+}
+
+async function dispatchToModel(
+  providerModel: string,
+  prompt: string,
+  systemPrompt: string | null,
+  taskId: number,
+  workspaceId: number,
+): Promise<ProviderCallResult> {
+  const [rawProvider, ...modelParts] = providerModel.includes(':')
+    ? providerModel.split(':')
+    : ['anthropic', providerModel]
+  const provider = rawProvider.toLowerCase()
+  const modelId = modelParts.join(':') || rawProvider
+
+  switch (provider) {
+    case 'anthropic':
+      return dispatchToAnthropic(modelId, prompt, systemPrompt, taskId, workspaceId)
+
+    case 'openai':
+      return dispatchOpenAICompat(
+        'https://api.openai.com/v1/chat/completions',
+        process.env.OPENAI_API_KEY || '',
+        modelId, prompt, systemPrompt, provider,
+        taskId, workspaceId,
+      )
+
+    case 'groq':
+      return dispatchOpenAICompat(
+        'https://api.groq.com/openai/v1/chat/completions',
+        process.env.GROQ_API_KEY || '',
+        modelId, prompt, systemPrompt, provider,
+        taskId, workspaceId,
+      )
+
+    case 'openrouter':
+      return dispatchOpenAICompat(
+        'https://openrouter.ai/api/v1/chat/completions',
+        process.env.OPENROUTER_API_KEY || '',
+        modelId, prompt, systemPrompt, provider,
+        taskId, workspaceId,
+      )
+
+    case 'deepseek':
+      return dispatchOpenAICompat(
+        'https://api.deepseek.com/chat/completions',
+        process.env.DEEPSEEK_API_KEY || '',
+        modelId, prompt, systemPrompt, provider,
+        taskId, workspaceId,
+      )
+
+    case 'gemini':
+      return dispatchToGemini(modelId, prompt, systemPrompt, provider, taskId, workspaceId)
+
+    default:
+      // Unknown provider — try Anthropic as last resort with the raw model string
+      return dispatchToAnthropic(providerModel, prompt, systemPrompt, taskId, workspaceId)
+  }
+}
+
+async function dispatchToAnthropic(
+  model: string,
+  prompt: string,
+  systemPrompt: string | null,
+  taskId: number,
+  workspaceId: number,
+): Promise<ProviderCallResult> {
+  const apiKey = (process.env.ANTHROPIC_API_KEY || '').trim()
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured')
+
+  const body: Record<string, unknown> = {
+    model,
+    max_tokens: 4096,
+    messages: [{ role: 'user', content: prompt }],
+  }
+  if (systemPrompt) body.system = systemPrompt
+
+  logger.info({ taskId, model, provider: 'anthropic' }, 'Dispatching via Anthropic API')
+
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '')
+    throw new Error(`Anthropic API ${res.status}: ${errBody.substring(0, 300)}`)
+  }
+  const data = await res.json() as { content: Array<{ type: string; text?: string }>; usage?: { input_tokens?: number; output_tokens?: number } }
+  const text = data.content?.filter(b => b.type === 'text').map(b => b.text || '').join('\n') || null
+  recordTokenUsage(model, taskId, workspaceId, data.usage)
+  return { text, sessionId: null, model, provider: 'anthropic' }
+}
+
+async function dispatchOpenAICompat(
+  endpoint: string,
+  apiKey: string,
+  model: string,
+  prompt: string,
+  systemPrompt: string | null,
+  provider: string,
+  taskId: number,
+  workspaceId: number,
+): Promise<ProviderCallResult> {
+  const trimmedKey = apiKey.trim()
+  if (!trimmedKey) throw new Error(`${provider} API key not configured`)
+
+  const messages: Array<{ role: string; content: string }> = []
+  if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
+  messages.push({ role: 'user', content: prompt })
+
+  logger.info({ taskId, model, provider }, `Dispatching via ${provider} API`)
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${trimmedKey}` },
+    body: JSON.stringify({ model, max_tokens: 4096, messages }),
+  })
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '')
+    throw new Error(`${provider} API ${res.status}: ${errBody.substring(0, 300)}`)
+  }
+  const data = await res.json() as { choices: Array<{ message: { content: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }
+  const text = data.choices?.[0]?.message?.content || null
+  const usage = data.usage ? { input_tokens: data.usage.prompt_tokens, output_tokens: data.usage.completion_tokens } : undefined
+  recordTokenUsage(`${provider}:${model}`, taskId, workspaceId, usage)
+  return { text, sessionId: null, model, provider }
+}
+
+async function dispatchToGemini(
+  model: string,
+  prompt: string,
+  systemPrompt: string | null,
+  provider: string,
+  taskId: number,
+  workspaceId: number,
+): Promise<ProviderCallResult> {
+  const apiKey = (process.env.GEMINI_API_KEY || '').trim()
+  if (!apiKey) throw new Error('GEMINI_API_KEY not configured')
+
+  const body: Record<string, unknown> = {
+    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+  }
+  if (systemPrompt) {
+    body.systemInstruction = { parts: [{ text: systemPrompt }] }
+  }
+
+  logger.info({ taskId, model, provider }, 'Dispatching via Gemini API')
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const errBody = await res.text().catch(() => '')
+    throw new Error(`Gemini API ${res.status}: ${errBody.substring(0, 300)}`)
+  }
+  const data = await res.json() as { candidates: Array<{ content: { parts: Array<{ text: string }> } }> }
+  const text = data.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || null
+  return { text, sessionId: null, model, provider }
+}
+
+function recordTokenUsage(
+  model: string,
+  taskId: number,
+  workspaceId: number,
+  usage?: { input_tokens?: number; output_tokens?: number },
+) {
+  if (!usage) return
+  try {
+    const db = getDatabase()
+    const now = Math.floor(Date.now() / 1000)
+    db.prepare(`
+      INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, total_tokens, cost, created_at, workspace_id)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?)
+    `).run(
+      model, `task-${taskId}`,
+      usage.input_tokens || 0, usage.output_tokens || 0,
+      (usage.input_tokens || 0) + (usage.output_tokens || 0),
+      now, workspaceId,
+    )
+  } catch { /* non-fatal */ }
+}
+
+// ---------------------------------------------------------------------------
+// Fallback cascade engine
+// ---------------------------------------------------------------------------
+
+async function callWithFallback(
+  task: DispatchableTask,
+  prompt: string,
+  primaryModel: string,
+): Promise<AgentResponseParsed> {
+  const cfg = getPipelineConfig(task.workspace_id)
+  const mode = cfg.llm_fallback_mode ?? 'none'
+  const maxAttempts = Math.max(1, parseInt(cfg.llm_fallback_max_attempts ?? '2', 10))
+  const soul = getAgentSoulContent(task)
+
+  // Build ordered list of models to try
+  const candidates: string[] = [primaryModel]
+
+  if (mode === 'fixed' && cfg.llm_fallback_model && cfg.llm_fallback_model !== primaryModel) {
+    candidates.push(cfg.llm_fallback_model)
+  } else if (mode === 'cascade') {
+    // Add pipeline-configured models (exclude primary, dedupe)
+    for (const m of [cfg.llm_complex, cfg.llm_medium, cfg.llm_simple]) {
+      if (m && m !== primaryModel && !candidates.includes(m)) candidates.push(m)
+    }
+    // Add fixed fallback model too if set
+    if (cfg.llm_fallback_model && !candidates.includes(cfg.llm_fallback_model)) {
+      candidates.push(cfg.llm_fallback_model)
+    }
+  }
+
+  const limit = Math.min(candidates.length, maxAttempts)
+  const errors: string[] = []
+
+  for (let i = 0; i < limit; i++) {
+    const model = candidates[i]
+    const attempt = i + 1
+    try {
+      if (i > 0) {
+        logger.warn({ taskId: task.id, model, attempt, mode }, `Fallback attempt ${attempt}/${limit}`)
+      }
+      const result = await dispatchToModel(model, prompt, soul, task.id, task.workspace_id)
+      if (result.text) {
+        if (i > 0) {
+          logger.info({ taskId: task.id, model, attempt }, 'Fallback succeeded')
+        }
+        return { text: result.text, sessionId: result.sessionId }
+      }
+      errors.push(`${model}: empty response`)
+    } catch (err: any) {
+      const msg = err.message || String(err)
+      logger.warn({ taskId: task.id, model, attempt, err: msg }, `Model attempt ${attempt} failed`)
+      errors.push(`${model}: ${msg.substring(0, 120)}`)
+    }
+  }
+
+  throw new Error(`All ${limit} model attempt(s) failed:\n${errors.join('\n')}`)
+}
+
+// ---------------------------------------------------------------------------
 // Direct Claude API dispatch (gateway-free)
 // ---------------------------------------------------------------------------
 
@@ -161,13 +442,12 @@ function isGatewayAvailable(): boolean {
   }
 }
 
-function classifyDirectModel(task: DispatchableTask): string {
-  // Check per-agent config override first
+function classifyDirectModel(task: DispatchableTask, pipelineCfg?: PipelineConfig): string {
+  // 1. Per-agent config override
   if (task.agent_config) {
     try {
       const cfg = JSON.parse(task.agent_config)
       if (typeof cfg.dispatchModel === 'string' && cfg.dispatchModel) {
-        // Strip gateway prefixes like "9router/cc/" to get bare model ID
         return cfg.dispatchModel.replace(/^.*\//, '')
       }
     } catch { /* ignore */ }
@@ -176,25 +456,33 @@ function classifyDirectModel(task: DispatchableTask): string {
   const text = `${task.title} ${task.description ?? ''}`.toLowerCase()
   const priority = task.priority?.toLowerCase() ?? ''
 
-  // Complex → Opus
+  // 2. Classify complexity tier
   const complexSignals = [
     'debug', 'diagnos', 'architect', 'design system', 'security audit',
     'root cause', 'investigate', 'incident', 'refactor', 'migration',
   ]
-  if (priority === 'critical' || complexSignals.some(s => text.includes(s))) {
-    return 'claude-opus-4-6'
-  }
-
-  // Routine → Haiku
   const routineSignals = [
     'status check', 'health check', 'format', 'rename', 'summarize',
     'translate', 'quick ', 'simple ', 'routine ', 'minor ',
   ]
-  if (routineSignals.some(s => text.includes(s)) && priority !== 'high' && priority !== 'critical') {
-    return 'claude-haiku-4-5-20251001'
+
+  let tier: 'complex' | 'medium' | 'simple'
+  if (priority === 'critical' || complexSignals.some(s => text.includes(s))) {
+    tier = 'complex'
+  } else if (routineSignals.some(s => text.includes(s)) && priority !== 'high' && priority !== 'critical') {
+    tier = 'simple'
+  } else {
+    tier = 'medium'
   }
 
-  // Default → Sonnet
+  // 3. Pipeline config takes priority over hardcoded models
+  const cfg = pipelineCfg ?? getPipelineConfig(task.workspace_id)
+  const cfgModel = tier === 'complex' ? cfg.llm_complex : tier === 'simple' ? cfg.llm_simple : cfg.llm_medium
+  if (cfgModel) return cfgModel
+
+  // 4. Hardcoded fallbacks (bare Anthropic model IDs)
+  if (tier === 'complex') return 'claude-opus-4-6'
+  if (tier === 'simple')  return 'claude-haiku-4-5-20251001'
   return 'claude-sonnet-4-6'
 }
 
@@ -214,75 +502,10 @@ async function callClaudeDirectly(
   task: DispatchableTask,
   prompt: string,
 ): Promise<AgentResponseParsed> {
-  const apiKey = getAnthropicApiKey()
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set — cannot dispatch without gateway')
-
-  const model = classifyDirectModel(task)
-  const soul = getAgentSoulContent(task)
-
-  const messages: Array<{ role: string; content: string }> = [
-    { role: 'user', content: prompt },
-  ]
-
-  const body: Record<string, unknown> = {
-    model,
-    max_tokens: 4096,
-    messages,
-  }
-
-  if (soul) {
-    body.system = soul
-  }
-
-  logger.info({ taskId: task.id, model, agent: task.agent_name }, 'Dispatching task via direct Claude API')
-
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-    },
-    body: JSON.stringify(body),
-  })
-
-  if (!res.ok) {
-    const errorBody = await res.text().catch(() => '')
-    throw new Error(`Claude API ${res.status}: ${errorBody.substring(0, 500)}`)
-  }
-
-  const data = await res.json() as {
-    content: Array<{ type: string; text?: string }>
-    usage?: { input_tokens?: number; output_tokens?: number }
-  }
-
-  const text = data.content
-    ?.filter((b: { type: string }) => b.type === 'text')
-    .map((b: { text?: string }) => b.text || '')
-    .join('\n') || null
-
-  // Record token usage
-  if (data.usage) {
-    try {
-      const db = getDatabase()
-      const now = Math.floor(Date.now() / 1000)
-      db.prepare(`
-        INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, total_tokens, cost, created_at, workspace_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(
-        model,
-        `task-${task.id}`,
-        data.usage.input_tokens || 0,
-        data.usage.output_tokens || 0,
-        (data.usage.input_tokens || 0) + (data.usage.output_tokens || 0),
-        0, // cost calculated separately
-        now,
-        task.workspace_id,
-      )
-    } catch { /* non-fatal */ }
-  }
-
-  return { text, sessionId: null }
+  if (!getAnthropicApiKey()) throw new Error('ANTHROPIC_API_KEY not set — cannot dispatch without gateway')
+  const pipelineCfg = getPipelineConfig(task.workspace_id)
+  const model = classifyDirectModel(task, pipelineCfg)
+  return callWithFallback(task, prompt, model)
 }
 
 interface ReviewableTask {

@@ -1,9 +1,9 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { needsFirstTimeSetup } from '@/lib/db'
 import { createUser, createSession } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/db'
 import { getMcSessionCookieName, getMcSessionCookieOptions, isRequestSecure } from '@/lib/session-cookie'
-import { selfRegisterLimiter } from '@/lib/rate-limit'
+import { selfRegisterLimiter, extractClientIp } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
 const INSECURE_PASSWORDS = new Set([
@@ -77,7 +77,7 @@ export async function POST(request: Request) {
 
     const user = createUser(trimmedUsername, password, resolvedDisplayName, 'admin')
 
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     const userAgent = request.headers.get('user-agent') || undefined
 
     logAuditEvent({

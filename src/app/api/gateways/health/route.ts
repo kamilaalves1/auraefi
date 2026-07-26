@@ -107,18 +107,17 @@ function isBlockedUrl(urlStr: string, userConfiguredHosts: Set<string>): boolean
     const url = new URL(urlStr)
     const hostname = url.hostname
 
-    // Allow user-configured gateway hosts (operators intentionally target their own infra)
-    if (userConfiguredHosts.has(hostname)) return false
-
-    // Block well-known cloud metadata hostnames
+    // Cloud-metadata and private CIDR blocks are unconditional — no allowlist can override them.
     if (BLOCKED_HOSTNAMES.has(hostname)) return true
 
-    // Block private/reserved IPv4 ranges
     if (/^\d{1,3}(\.\d{1,3}){3}$/.test(hostname)) {
       for (const cidr of BLOCKED_PRIVATE_CIDRS) {
         if (ipv4InCidr(hostname, cidr)) return true
       }
     }
+
+    // Only after the hard blocks: allow user-configured gateway hosts.
+    if (userConfiguredHosts.has(hostname)) return false
 
     return false
   } catch {

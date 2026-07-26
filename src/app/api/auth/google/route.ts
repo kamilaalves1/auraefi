@@ -1,10 +1,10 @@
-import { randomBytes } from 'crypto'
+﻿import { randomBytes } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createSession } from '@/lib/auth'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { verifyGoogleIdToken } from '@/lib/google-auth'
 import { getMcSessionCookieName, getMcSessionCookieOptions, isRequestSecure } from '@/lib/session-cookie'
-import { loginLimiter } from '@/lib/rate-limit'
+import { loginLimiter, extractClientIp } from '@/lib/rate-limit'
 
 function upsertAccessRequest(input: {
   email: string
@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
       LIMIT 1
     `).get(sub, email) as any
 
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     const userAgent = request.headers.get('user-agent') || undefined
 
     if (!row || Number(row.is_approved ?? 1) !== 1) {

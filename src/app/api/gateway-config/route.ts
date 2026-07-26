@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { createHash } from 'node:crypto'
 import { requireRole } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/db'
 import { config } from '@/lib/config'
 import { validateBody, gatewayConfigUpdateSchema } from '@/lib/validation'
-import { mutationLimiter } from '@/lib/rate-limit'
+import { mutationLimiter, extractClientIp } from '@/lib/rate-limit'
 import { getDetectedGatewayToken } from '@/lib/gateway-runtime'
 
 function getConfigPath(): string | null {
@@ -174,7 +174,7 @@ export async function PUT(request: NextRequest) {
     const newRaw = JSON.stringify(parsed, null, 2) + '\n'
     await writeFile(configPath, newRaw)
 
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     logAuditEvent({
       action: 'gateway_config_update',
       actor: auth.user.username,
@@ -204,7 +204,7 @@ async function applyConfig(request: NextRequest, auth: any): Promise<NextRespons
     })
     clearTimeout(timeout)
 
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     logAuditEvent({
       action: 'gateway_config_apply',
       actor: auth.user.username,
@@ -242,7 +242,7 @@ async function updateSystem(request: NextRequest, auth: any): Promise<NextRespon
     })
     clearTimeout(timeout)
 
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     logAuditEvent({
       action: 'gateway_config_system_update',
       actor: auth.user.username,

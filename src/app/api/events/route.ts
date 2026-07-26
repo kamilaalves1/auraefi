@@ -28,7 +28,8 @@ export async function GET(request: NextRequest) {
       // Forward workspace-scoped server events to this SSE client
       const userWorkspaceId = auth.user.workspace_id ?? 1
       const handler = (event: ServerEvent) => {
-        // Skip events from other workspaces (if event carries workspace_id)
+        // Block events that explicitly belong to a different workspace.
+        // Events without workspace_id pass through (broadcast to all connected clients).
         if (event.data?.workspace_id && event.data.workspace_id !== userWorkspaceId) return
         try {
           controller.enqueue(

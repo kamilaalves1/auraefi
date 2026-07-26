@@ -1,7 +1,8 @@
-import { NextResponse } from 'next/server'
+﻿import { NextResponse } from 'next/server'
 import { destroySession, getUserFromRequest } from '@/lib/auth'
 import { logAuditEvent } from '@/lib/db'
 import { getMcSessionCookieName, getMcSessionCookieOptions, isRequestSecure, parseMcSessionCookieHeader } from '@/lib/session-cookie'
+import { extractClientIp } from '@/lib/rate-limit'
 
 export async function POST(request: Request) {
   const user = getUserFromRequest(request)
@@ -13,7 +14,7 @@ export async function POST(request: Request) {
   }
 
   if (user) {
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     logAuditEvent({ action: 'logout', actor: user.username, actor_id: user.id, ip_address: ipAddress })
   }
 

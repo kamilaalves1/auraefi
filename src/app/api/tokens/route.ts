@@ -310,10 +310,21 @@ export async function GET(request: NextRequest) {
     const action = (searchParams.get('action') || 'list').trim().toLowerCase()
     const timeframe = searchParams.get('timeframe') || 'all'
     const format = searchParams.get('format') || 'json'
+    const fromParam = searchParams.get('from')   // ISO date string or unix ms
+    const toParam   = searchParams.get('to')     // ISO date string or unix ms
 
     const workspaceId = auth.user.workspace_id ?? 1
     const tokenData = await loadTokenData(workspaceId)
-    const filteredData = filterByTimeframe(tokenData, timeframe)
+
+    // Support explicit date range (takes priority over timeframe)
+    let filteredData: TokenUsageRecord[]
+    if (fromParam && toParam) {
+      const fromMs = isNaN(Number(fromParam)) ? new Date(fromParam).getTime() : Number(fromParam)
+      const toMs   = isNaN(Number(toParam))   ? new Date(toParam).getTime() + 86_399_999 : Number(toParam)
+      filteredData = tokenData.filter(r => r.timestamp >= fromMs && r.timestamp <= toMs)
+    } else {
+      filteredData = filterByTimeframe(tokenData, timeframe)
+    }
 
     if (action === 'list') {
       return NextResponse.json({
@@ -505,18 +516,24 @@ export async function GET(request: NextRequest) {
           ].join(','))
         })
 
+        const periodSlug = fromParam && toParam
+          ? `${fromParam.slice(0,10)}_${toParam.slice(0,10)}`
+          : `${timeframe}-${new Date().toISOString().split('T')[0]}`
         return new NextResponse(csvRows.join('\n'), {
           headers: {
             'Content-Type': 'text/csv',
-            'Content-Disposition': `attachment; filename=token-usage-${timeframe}-${new Date().toISOString().split('T')[0]}.csv`,
+            'Content-Disposition': `attachment; filename=token-usage-${periodSlug}.csv`,
           },
         })
       }
 
+      const periodSlug = fromParam && toParam
+        ? `${fromParam.slice(0,10)}_${toParam.slice(0,10)}`
+        : `${timeframe}-${new Date().toISOString().split('T')[0]}`
       return NextResponse.json(exportData, {
         headers: {
           'Content-Type': 'application/json',
-          'Content-Disposition': `attachment; filename=token-usage-${timeframe}-${new Date().toISOString().split('T')[0]}.json`,
+          'Content-Disposition': `attachment; filename=token-usage-${periodSlug}.json`,
         },
       })
     }

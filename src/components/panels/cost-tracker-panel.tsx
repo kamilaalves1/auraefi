@@ -8,7 +8,7 @@ import { useMissionControl } from '@/store'
 import { createClientLogger } from '@/lib/client-logger'
 import {
   PieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid,
-  Tooltip, Legend, ResponsiveContainer, BarChart, Bar,
+  Tooltip, Legend, ResponsiveContainer, BarChart, Bar, LabelList,
 } from 'recharts'
 
 const log = createClientLogger('CostTracker')
@@ -111,10 +111,11 @@ export function CostTrackerPanel() {
   const { sessions } = useMissionControl()
 
   const [view, setView] = useState<View>('overview')
-  const [timeframe, setTimeframe] = useState<Timeframe>('day')
+  const [timeframe, setTimeframe] = useState<Timeframe>('week')
   const [chartMode, setChartMode] = useState<'incremental' | 'cumulative'>('incremental')
   const [isLoading, setIsLoading] = useState(false)
   const [isExporting, setIsExporting] = useState(false)
+  const [showReport, setShowReport] = useState(false)
 
   // Data
   const [usageStats, setUsageStats] = useState<UsageStats | null>(null)
@@ -217,6 +218,25 @@ export function CostTrackerPanel() {
   const agentList = byAgentData?.agents || []
   const maxAgentCost = Math.max(...agentList.map(a => a.total_cost), 0.0001)
 
+  const modelData = (() => {
+    const fromStats = Object.entries(usageStats?.models ?? {})
+      .map(([model, s]) => ({ name: getModelDisplayName(model), fullName: model, tokens: s.totalTokens, cost: s.totalCost, requests: s.requestCount }))
+      .sort((a, b) => b.cost - a.cost)
+    if (fromStats.length > 0) return fromStats
+    const map: Record<string, { cost: number; tokens: number; requests: number }> = {}
+    for (const agent of agentList) {
+      for (const m of agent.models) {
+        if (!map[m.model]) map[m.model] = { cost: 0, tokens: 0, requests: 0 }
+        map[m.model].cost += m.cost
+        map[m.model].tokens += m.input_tokens + m.output_tokens
+        map[m.model].requests += m.request_count
+      }
+    }
+    return Object.entries(map)
+      .map(([model, s]) => ({ name: getModelDisplayName(model), fullName: model, tokens: s.tokens, cost: s.cost, requests: s.requests }))
+      .sort((a, b) => b.cost - a.cost)
+  })()
+
   const getAgentTasks = (agentName: string): TaskCostEntry[] => {
     if (!taskData) return []
     const entry = taskData.agents[agentName]
@@ -233,7 +253,7 @@ export function CostTrackerPanel() {
             <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
             <p className="text-muted-foreground mt-1">{t('subtitle')}</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-3 flex-wrap">
             {/* View tabs */}
             <div className="flex rounded-lg border border-border overflow-hidden">
               {(['overview', 'agents', 'sessions', 'tasks'] as const).map(v => (
@@ -256,9 +276,27 @@ export function CostTrackerPanel() {
                 </Button>
               ))}
             </div>
+            {/* Report download toggle */}
+            <Button
+              variant={showReport ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowReport(v => !v)}
+              className="gap-1.5"
+            >
+              {showReport ? '✕ Fechar' : '↓ Relatório'}
+            </Button>
           </div>
         </div>
       </div>
+
+      {/* ── Inline report panel (shown when toggled) ── */}
+      {showReport && (
+        <ReportDownloadCard
+          cardRuns={cardRuns}
+          agentList={agentList}
+          modelData={modelData}
+        />
+      )}
 
       {isLoading && !usageStats ? (
         <Loader variant="panel" label={t('loadingCostData')} />
@@ -267,6 +305,7 @@ export function CostTrackerPanel() {
           stats={usageStats} trendData={trendData} monthTrend={monthTrend}
           agentSummary={agentSummary} agentList={agentList}
           taskData={taskData} cardRuns={cardRuns}
+          modelData={modelData}
           timeframe={timeframe} chartMode={chartMode}
           setChartMode={setChartMode} exportData={exportData} isExporting={isExporting}
           onRefresh={loadData}
@@ -293,11 +332,12 @@ export function CostTrackerPanel() {
 
 function OverviewView({
   stats, trendData, monthTrend, agentSummary, agentList, taskData, cardRuns,
-  timeframe, chartMode, setChartMode, exportData, isExporting, onRefresh,
+  modelData, timeframe, chartMode, setChartMode, exportData, isExporting, onRefresh,
 }: {
   stats: UsageStats | null; trendData: TrendData | null; monthTrend: TrendData | null
   agentSummary: ByAgentResponse['summary'] | undefined; agentList: ByAgentEntry[]
   taskData: TaskCostsResponse | null; cardRuns: CardRunRaw[]
+  modelData: Array<{ name: string; fullName: string; tokens: number; cost: number; requests: number }>
   timeframe: Timeframe; chartMode: 'incremental' | 'cumulative'
   setChartMode: (m: 'incremental' | 'cumulative') => void
   exportData: (f: 'json' | 'csv') => void; isExporting: boolean
@@ -305,10 +345,6 @@ function OverviewView({
 }) {
   const t = useTranslations('costTracker')
 
-  // ── Custo por modelo ────────────────────────────────────────────────────────
-  const modelData = Object.entries(stats?.models ?? {})
-    .map(([model, s]) => ({ name: getModelDisplayName(model), fullName: model, tokens: s.totalTokens, cost: s.totalCost, requests: s.requestCount }))
-    .sort((a, b) => b.cost - a.cost)
   const pieData = modelData.slice(0, 7).map(m => ({ name: m.name, value: Number(m.cost.toFixed(6)) }))
 
   // ── Custo mensal (últimos 5 dias) — usa cardRuns como fonte autoritativa ──
@@ -318,7 +354,7 @@ function OverviewView({
     if (cardRuns.length > 0) {
       const cutoff = Date.now() - CHART_DAYS * 24 * 60 * 60 * 1000
       for (const r of cardRuns) {
-        const ts = r.updated_at * 1000
+        const ts = (r.created_at ?? r.updated_at) * 1000
         if (ts < cutoff) continue
         const d = new Date(ts)
         const iso = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
@@ -373,7 +409,7 @@ function OverviewView({
         default: cutoff = now - 30 * 24 * 60 * 60 * 1000
       }
       for (const r of cardRuns) {
-        const ts = r.updated_at * 1000
+        const ts = (r.created_at ?? r.updated_at) * 1000
         if (ts < cutoff) continue
         const d = new Date(ts)
         const key = useHour
@@ -530,12 +566,14 @@ function OverviewView({
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Sem dados de custo mensal</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={monthlyCostData} barCategoryGap="20%" margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <BarChart data={monthlyCostData} barCategoryGap="20%" margin={{ top: 20, right: 4, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
                   <XAxis dataKey="dia" tick={{ fontSize: 9, fill: '#6b7280' }} tickLine={false} axisLine={false} interval={0} />
                   <YAxis tick={{ fontSize: 9, fill: '#6b7280' }} tickLine={false} axisLine={false} tickFormatter={v => formatCost(Number(v))} />
                   <Tooltip formatter={(v) => [formatCost(Number(v)), 'Custo']} labelFormatter={(label) => `${label}`} />
-                  <Bar dataKey="custo" fill="#38bdf8" radius={[3,3,0,0]} maxBarSize={18} />
+                  <Bar dataKey="custo" fill="#38bdf8" radius={[3,3,0,0]} maxBarSize={18}>
+                    <LabelList dataKey="custo" position="top" style={{ fontSize: 9, fill: '#9ca3af' }} formatter={(v: unknown) => { const n = Number(v); return n > 0 ? formatCost(n) : '' }} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -585,13 +623,15 @@ function OverviewView({
               <div className="h-full flex items-center justify-center text-muted-foreground text-sm">Sem dados no período</div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={dailyCostData} barCategoryGap="20%" margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                <BarChart data={dailyCostData} barCategoryGap="20%" margin={{ top: 20, right: 4, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" />
                   <XAxis dataKey="label" tick={{ fontSize: 9, fill: '#6b7280' }} tickLine={false} axisLine={false}
-                    interval={timeframe === 'day' ? 3 : timeframe === 'hour' ? 9 : timeframe === 'week' ? 0 : 4} />
+                    interval={timeframe === 'hour' ? 9 : timeframe === 'month' ? 4 : 0} />
                   <YAxis tick={{ fontSize: 9, fill: '#6b7280' }} tickLine={false} axisLine={false} tickFormatter={v => formatCost(Number(v))} />
                   <Tooltip formatter={(v) => [formatCost(Number(v)), 'Custo']} labelFormatter={(label) => `${label}`} />
-                  <Bar dataKey="custo" fill="#a78bfa" radius={[3,3,0,0]} maxBarSize={20} />
+                  <Bar dataKey="custo" fill="#a78bfa" radius={[3,3,0,0]} maxBarSize={20}>
+                    <LabelList dataKey="custo" position="top" style={{ fontSize: 9, fill: '#9ca3af' }} formatter={(v: unknown) => { const n = Number(v); return n > 0 ? formatCost(n) : '' }} />
+                  </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -661,19 +701,350 @@ function OverviewView({
         )}
       </div>
 
-      {/* ── Export ── */}
-      <div className="bg-card border border-border rounded-xl p-5">
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-semibold">{t('exportData')}</h2>
-            <p className="text-xs text-muted-foreground">{t('exportDataDesc')}</p>
+    </div>
+  )
+}
+
+// ── Report Download Card ──────────────────────────
+
+type ReportPreset = 'this_month' | 'last_month' | 'last_7' | 'last_30' | 'custom'
+
+interface ReportRange { from: Date; to: Date; label: string }
+
+function getPresetRange(preset: ReportPreset, customFrom: string, customTo: string): ReportRange {
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999)
+  switch (preset) {
+    case 'this_month': {
+      const from = new Date(now.getFullYear(), now.getMonth(), 1)
+      return { from, to: today, label: `${now.toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}` }
+    }
+    case 'last_month': {
+      const from = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+      const to   = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999)
+      return { from, to, label: `${from.toLocaleString('pt-BR', { month: 'long', year: 'numeric' })}` }
+    }
+    case 'last_7': {
+      const from = new Date(now.getTime() - 6 * 86_400_000)
+      from.setHours(0, 0, 0, 0)
+      return { from, to: today, label: 'Últimos 7 dias' }
+    }
+    case 'last_30': {
+      const from = new Date(now.getTime() - 29 * 86_400_000)
+      from.setHours(0, 0, 0, 0)
+      return { from, to: today, label: 'Últimos 30 dias' }
+    }
+    case 'custom': {
+      const from = customFrom ? new Date(customFrom + 'T00:00:00') : new Date(now.getFullYear(), now.getMonth(), 1)
+      const to   = customTo   ? new Date(customTo   + 'T23:59:59') : today
+      return { from, to, label: `${from.toLocaleDateString('pt-BR')} – ${to.toLocaleDateString('pt-BR')}` }
+    }
+  }
+}
+
+function generateCSV(
+  range: ReportRange,
+  cardRuns: CardRunRaw[],
+  agentList: ByAgentEntry[],
+  modelData: Array<{ name: string; fullName: string; tokens: number; cost: number; requests: number }>,
+): string {
+  const fromMs = range.from.getTime()
+  const toMs   = range.to.getTime()
+
+  const runs = cardRuns.filter(r => {
+    const ts = (r.created_at ?? r.updated_at) * 1000
+    return ts >= fromMs && ts <= toMs
+  })
+
+  const esc = (v: string | number) => {
+    const s = String(v)
+    return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s
+  }
+
+  const lines: string[] = []
+
+  // ── Cabeçalho ──
+  lines.push(`Relatório de Custo`)
+  lines.push(`Período:,${esc(range.label)}`)
+  lines.push(`Gerado em:,${esc(new Date().toLocaleString('pt-BR'))}`)
+  lines.push(`Total de execuções:,${runs.length}`)
+  const totalCost = runs.reduce((s, r) => s + (r.cost_usd ?? 0), 0)
+  lines.push(`Custo total (USD):,$${totalCost.toFixed(4)}`)
+  lines.push('')
+
+  // ── Por história ──
+  lines.push('=== CUSTO POR HISTÓRIA ===')
+  lines.push(['Card', 'Título', 'Provider', 'Execuções', 'Custo (USD)', 'Último run'].map(esc).join(','))
+  const byStory: Record<string, { title: string; provider: string; runs: number; cost: number; last: number }> = {}
+  for (const r of runs) {
+    if (!byStory[r.card_key]) byStory[r.card_key] = { title: r.card_title, provider: r.provider, runs: 0, cost: 0, last: 0 }
+    byStory[r.card_key].runs++
+    byStory[r.card_key].cost += r.cost_usd ?? 0
+    if (r.updated_at > byStory[r.card_key].last) byStory[r.card_key].last = r.updated_at
+  }
+  Object.entries(byStory)
+    .sort((a, b) => b[1].cost - a[1].cost)
+    .forEach(([key, s]) => {
+      const lastDate = s.last > 0 ? new Date(s.last * 1000).toLocaleDateString('pt-BR') : ''
+      lines.push([key, s.title, s.provider, s.runs, `$${s.cost.toFixed(4)}`, lastDate].map(esc).join(','))
+    })
+  lines.push('')
+
+  // ── Por dia ──
+  lines.push('=== CUSTO POR DIA ===')
+  lines.push(['Data', 'Execuções', 'Custo (USD)'].map(esc).join(','))
+  const byDay: Record<string, { runs: number; cost: number }> = {}
+  for (const r of runs) {
+    const d = new Date((r.created_at ?? r.updated_at) * 1000)
+    const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    if (!byDay[key]) byDay[key] = { runs: 0, cost: 0 }
+    byDay[key].runs++
+    byDay[key].cost += r.cost_usd ?? 0
+  }
+  Object.entries(byDay).sort().forEach(([k, v]) => {
+    lines.push([k, v.runs, `$${v.cost.toFixed(4)}`].map(esc).join(','))
+  })
+  lines.push('')
+
+  // ── Por modelo ──
+  if (modelData.length > 0) {
+    lines.push('=== CUSTO POR MODELO ===')
+    lines.push(['Modelo', 'Tokens', 'Custo (USD)', 'Requisições'].map(esc).join(','))
+    modelData.forEach(m => {
+      lines.push([m.name, m.tokens, `$${m.cost.toFixed(4)}`, m.requests].map(esc).join(','))
+    })
+    lines.push('')
+  }
+
+  // ── Por agente ──
+  if (agentList.length > 0) {
+    lines.push('=== CUSTO POR AGENTE ===')
+    lines.push(['Agente', 'Tokens', 'Custo (USD)', 'Requisições', 'Sessões', 'Última atividade'].map(esc).join(','))
+    agentList
+      .filter(a => a.total_cost > 0)
+      .sort((a, b) => b.total_cost - a.total_cost)
+      .forEach(a => {
+        lines.push([
+          a.agent, a.total_tokens, `$${a.total_cost.toFixed(4)}`,
+          a.request_count, a.session_count,
+          a.last_active ? new Date(a.last_active).toLocaleDateString('pt-BR') : '',
+        ].map(esc).join(','))
+      })
+    lines.push('')
+  }
+
+  // ── Detalhe de execuções ──
+  lines.push('=== DETALHE DE EXECUÇÕES ===')
+  lines.push(['ID', 'Card', 'Título', 'Provider', 'Status', 'Custo (USD)', 'Data'].map(esc).join(','))
+  runs.forEach(r => {
+    const d = new Date((r.created_at ?? r.updated_at) * 1000).toLocaleDateString('pt-BR')
+    lines.push([r.id, r.card_key, r.card_title, r.provider, r.status, `$${(r.cost_usd ?? 0).toFixed(4)}`, d].map(esc).join(','))
+  })
+
+  return lines.join('\n')
+}
+
+function generateJSON(
+  range: ReportRange,
+  cardRuns: CardRunRaw[],
+  agentList: ByAgentEntry[],
+  modelData: Array<{ name: string; fullName: string; tokens: number; cost: number; requests: number }>,
+) {
+  const fromMs = range.from.getTime()
+  const toMs   = range.to.getTime()
+  const runs = cardRuns.filter(r => {
+    const ts = (r.created_at ?? r.updated_at) * 1000
+    return ts >= fromMs && ts <= toMs
+  })
+  const totalCost = runs.reduce((s, r) => s + (r.cost_usd ?? 0), 0)
+
+  return {
+    report: {
+      period: range.label,
+      from: range.from.toISOString(),
+      to: range.to.toISOString(),
+      generated_at: new Date().toISOString(),
+    },
+    summary: {
+      total_runs: runs.length,
+      total_cost_usd: totalCost,
+    },
+    by_story: (() => {
+      const map: Record<string, { title: string; provider: string; runs: number; cost_usd: number; last_run: string }> = {}
+      for (const r of runs) {
+        if (!map[r.card_key]) map[r.card_key] = { title: r.card_title, provider: r.provider, runs: 0, cost_usd: 0, last_run: '' }
+        map[r.card_key].runs++
+        map[r.card_key].cost_usd += r.cost_usd ?? 0
+        const d = new Date((r.updated_at) * 1000).toISOString()
+        if (d > map[r.card_key].last_run) map[r.card_key].last_run = d
+      }
+      return Object.entries(map).sort((a,b) => b[1].cost_usd - a[1].cost_usd).map(([key, v]) => ({ card_key: key, ...v }))
+    })(),
+    by_model: modelData.map(m => ({ model: m.fullName, display_name: m.name, tokens: m.tokens, cost_usd: m.cost, requests: m.requests })),
+    by_agent: agentList.filter(a => a.total_cost > 0).map(a => ({
+      agent: a.agent, total_cost_usd: a.total_cost, total_tokens: a.total_tokens,
+      requests: a.request_count, sessions: a.session_count, last_active: a.last_active,
+    })),
+    runs: runs.map(r => ({
+      id: r.id, card_key: r.card_key, title: r.card_title, provider: r.provider,
+      status: r.status, cost_usd: r.cost_usd ?? 0,
+      created_at: new Date((r.created_at ?? r.updated_at) * 1000).toISOString(),
+    })),
+  }
+}
+
+function ReportDownloadCard({
+  cardRuns,
+  agentList,
+  modelData,
+}: {
+  cardRuns: CardRunRaw[]
+  agentList: ByAgentEntry[]
+  modelData: Array<{ name: string; fullName: string; tokens: number; cost: number; requests: number }>
+}) {
+  const [preset, setPreset]       = useState<ReportPreset>('this_month')
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo,   setCustomTo]   = useState('')
+  const [format, setFormat]         = useState<'csv' | 'json'>('csv')
+  const [busy, setBusy]             = useState(false)
+
+  const presets: Array<{ id: ReportPreset; label: string }> = [
+    { id: 'this_month', label: 'Este mês' },
+    { id: 'last_month', label: 'Mês passado' },
+    { id: 'last_7',     label: 'Últimos 7 dias' },
+    { id: 'last_30',    label: 'Últimos 30 dias' },
+    { id: 'custom',     label: 'Personalizado' },
+  ]
+
+  const download = () => {
+    setBusy(true)
+    try {
+      const range = getPresetRange(preset, customFrom, customTo)
+      const slug  = range.label.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+      const date  = new Date().toISOString().split('T')[0]
+
+      if (format === 'csv') {
+        const csv  = generateCSV(range, cardRuns, agentList, modelData)
+        const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' })
+        const url  = URL.createObjectURL(blob)
+        const a    = Object.assign(document.createElement('a'), { href: url, download: `relatorio-custo-${slug}-${date}.csv` })
+        document.body.appendChild(a); a.click()
+        URL.revokeObjectURL(url); document.body.removeChild(a)
+      } else {
+        const obj  = generateJSON(range, cardRuns, agentList, modelData)
+        const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' })
+        const url  = URL.createObjectURL(blob)
+        const a    = Object.assign(document.createElement('a'), { href: url, download: `relatorio-custo-${slug}-${date}.json` })
+        document.body.appendChild(a); a.click()
+        URL.revokeObjectURL(url); document.body.removeChild(a)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const range     = getPresetRange(preset, customFrom, customTo)
+  const fromMs    = range.from.getTime()
+  const toMs      = range.to.getTime()
+  const runsInRange = cardRuns.filter(r => {
+    const ts = (r.created_at ?? r.updated_at) * 1000
+    return ts >= fromMs && ts <= toMs
+  })
+  const costInRange = runsInRange.reduce((s, r) => s + (r.cost_usd ?? 0), 0)
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+      <div>
+        <h2 className="text-sm font-semibold text-foreground">Baixar Relatório de Custo</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Exporta histórias, agentes, modelos e execuções do período selecionado.
+        </p>
+      </div>
+
+      {/* Period presets */}
+      <div className="space-y-2">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Período</p>
+        <div className="flex flex-wrap gap-1.5">
+          {presets.map(p => (
+            <button
+              key={p.id}
+              onClick={() => setPreset(p.id)}
+              className={`px-3 py-1.5 text-xs rounded-lg border transition-colors ${
+                preset === p.id
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-secondary/40 text-muted-foreground border-border hover:text-foreground hover:border-border/80'
+              }`}
+            >
+              {p.label}
+            </button>
+          ))}
+        </div>
+
+        {preset === 'custom' && (
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="date"
+              value={customFrom}
+              onChange={e => setCustomFrom(e.target.value)}
+              className="h-8 px-2 rounded-md bg-secondary/40 border border-border/70 text-xs text-foreground focus:outline-none focus:border-primary/50"
+            />
+            <span className="text-xs text-muted-foreground">até</span>
+            <input
+              type="date"
+              value={customTo}
+              onChange={e => setCustomTo(e.target.value)}
+              className="h-8 px-2 rounded-md bg-secondary/40 border border-border/70 text-xs text-foreground focus:outline-none focus:border-primary/50"
+            />
           </div>
-          <div className="flex gap-2">
-            <Button onClick={() => exportData('csv')} disabled={isExporting} size="sm" variant="secondary">{isExporting ? t('exporting') : 'CSV'}</Button>
-            <Button onClick={() => exportData('json')} disabled={isExporting} size="sm" variant="secondary">{isExporting ? t('exporting') : 'JSON'}</Button>
-          </div>
+        )}
+      </div>
+
+      {/* Preview strip */}
+      <div className="flex items-center gap-4 px-3 py-2.5 rounded-lg bg-secondary/30 border border-border/40 text-xs">
+        <div>
+          <span className="text-muted-foreground">Período: </span>
+          <span className="font-medium text-foreground">{range.label}</span>
+        </div>
+        <div className="h-3 w-px bg-border" />
+        <div>
+          <span className="text-muted-foreground">Execuções: </span>
+          <span className="font-semibold text-foreground">{runsInRange.length}</span>
+        </div>
+        <div className="h-3 w-px bg-border" />
+        <div>
+          <span className="text-muted-foreground">Custo: </span>
+          <span className="font-semibold text-sky-400">{formatCost(costInRange)}</span>
         </div>
       </div>
+
+      {/* Format + download */}
+      <div className="flex items-center gap-3">
+        <div className="flex rounded-lg border border-border overflow-hidden">
+          {(['csv', 'json'] as const).map(f => (
+            <button
+              key={f}
+              onClick={() => setFormat(f)}
+              className={`px-3 py-1.5 text-xs font-medium uppercase tracking-wide transition-colors ${
+                format === f ? 'bg-primary text-primary-foreground' : 'bg-card text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+        <Button
+          onClick={download}
+          disabled={busy || (preset === 'custom' && (!customFrom || !customTo))}
+          size="sm"
+          className="flex-1"
+        >
+          {busy ? 'Gerando...' : `Baixar ${format.toUpperCase()}`}
+        </Button>
+      </div>
+
+      <p className="text-[10px] text-muted-foreground/50">
+        Inclui: histórias por custo · custo por dia · custo por modelo · custo por agente · detalhe de execuções
+      </p>
     </div>
   )
 }

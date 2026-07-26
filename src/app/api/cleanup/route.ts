@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { getDatabase, logAuditEvent } from '@/lib/db'
 import { config } from '@/lib/config'
-import { heavyLimiter } from '@/lib/rate-limit'
+import { heavyLimiter, extractClientIp } from '@/lib/rate-limit'
 import { countStaleGatewaySessions, pruneGatewaySessionsOlderThan } from '@/lib/sessions'
 
 interface CleanupResult {
@@ -169,7 +169,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (!dryRun && totalDeleted > 0) {
-    const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
+    const ipAddress = extractClientIp(request)
     logAuditEvent({
       action: 'data_cleanup',
       actor: auth.user.username,
