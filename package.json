@@ -7,8 +7,6 @@
     "api:parity": "node scripts/check-api-contract-parity.mjs --root . --openapi openapi.json --ignore-file scripts/api-contract-parity.ignore",
     "api:parity:json": "node scripts/check-api-contract-parity.mjs --root . --openapi openapi.json --ignore-file scripts/api-contract-parity.ignore --json",
     "mc": "node scripts/mc-cli.cjs",
-    "mc:mcp": "node scripts/mc-mcp-server.cjs",
-    "mc:tui": "node scripts/mc-tui.cjs",
     "dev": "npm run verify:node && next dev --hostname 127.0.0.1 --port 3000",
     "build": "npm run verify:node && next build",
     "start": "npm run verify:node && next start --hostname 0.0.0.0 --port 3000",
@@ -20,9 +18,6 @@
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
     "test:e2e": "npm run verify:node && playwright test",
-    "test:e2e:gateway:local": "npm run verify:node && cross-env E2E_GATEWAY_EXPECTED=0 playwright test -c playwright.gateway.local.config.ts",
-    "test:e2e:gateway:gateway": "npm run verify:node && cross-env E2E_GATEWAY_EXPECTED=1 playwright test -c playwright.gateway.gateway.config.ts",
-    "test:e2e:gateway": "npm run test:e2e:gateway:local && npm run test:e2e:gateway:gateway",
     "test:all": "npm run lint && npm run typecheck && npm run test && npm run build && npm run test:e2e",
     "quality:gate": "npm run test:all",
     "postinstall": "node -e \"try{require('better-sqlite3')}catch(e){if(e.code==='ERR_DLOPEN_FAILED'||/NODE_MODULE_VERSION/.test(e.message)){console.error('\\n⚠  better-sqlite3 compiled for wrong Node version. Run: npm rebuild better-sqlite3\\n');process.exit(1)}}\""
