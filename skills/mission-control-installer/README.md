@@ -8,7 +8,7 @@ Install and configure Mission Control on any Linux or macOS system.
 2. Clones or updates the Mission Control repository
 3. Generates a secure `.env` with random credentials
 4. Starts the dashboard via Docker Compose or local Node.js
-5. Runs an OpenClaw fleet health check (cleans stale PIDs, old logs, validates gateway)
+5. Runs an gateway fleet health check (cleans stale PIDs, old logs, validates gateway)
 6. Prints the access URL and admin credentials
 
 ## Usage
@@ -28,8 +28,8 @@ bash install.sh --local
 # Custom port
 bash install.sh --port 8080
 
-# Skip OpenClaw fleet check
-bash install.sh --skip-openclaw
+# Skip gateway fleet check
+bash install.sh --skip-gateway
 ```
 
 Or as a one-liner:
@@ -50,7 +50,7 @@ After installation:
 
 1. Open `http://localhost:3000` (or your configured port)
 2. Log in with the credentials printed by the installer (also in `.env`)
-3. Configure your OpenClaw gateway connection in Settings
+3. Configure your gateway gateway connection in Settings
 4. Register agents via the Agents panel
 
 ## Environment Configuration

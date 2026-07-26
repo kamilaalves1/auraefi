@@ -69,8 +69,8 @@ node scripts/mc-cli.cjs sessions control --id <session-id> --action terminate
 ### sessions
 - list
 - control --id --action monitor|pause|terminate
-- continue --kind claude-code|codex-cli --id --prompt "..."
-- transcript --kind claude-code|codex-cli|hermes --id [--limit 40] [--source]
+- continue --kind claude-code|external-cli --id --prompt "..."
+- transcript --kind claude-code|external-cli|gateway --id [--limit 40] [--source]
 
 ### connect
 - register --tool-name --agent-name [--body '{}']

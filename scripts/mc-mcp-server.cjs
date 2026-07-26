@@ -431,7 +431,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        kind: { type: 'string', description: 'Session kind: claude-code, codex-cli, hermes' },
+        kind: { type: 'string', description: 'Session kind: claude-code, external-cli, gateway' },
         id: { type: 'string', description: 'Session ID' },
         prompt: { type: 'string', description: 'Follow-up prompt to send' },
       },
@@ -446,7 +446,7 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: {
-        kind: { type: 'string', description: 'Session kind: claude-code, codex-cli, hermes' },
+        kind: { type: 'string', description: 'Session kind: claude-code, external-cli, gateway' },
         id: { type: 'string', description: 'Session ID' },
         limit: { type: 'number', description: 'Max messages to return (default 40, max 200)' },
       },

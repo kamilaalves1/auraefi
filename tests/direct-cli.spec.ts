@@ -62,7 +62,7 @@ test.describe('Direct CLI Integration', () => {
     const postRes = await request.post('/api/connect', {
       headers: API_KEY_HEADER,
       data: {
-        tool_name: 'codex',
+        tool_name: 'external',
         agent_name: agentName,
       },
     })
@@ -77,7 +77,7 @@ test.describe('Direct CLI Integration', () => {
     const found = body.connections.find((c: any) => c.connection_id === postBody.connection_id)
     expect(found).toBeDefined()
     expect(found.agent_name).toBe(agentName)
-    expect(found.tool_name).toBe('codex')
+    expect(found.tool_name).toBe('external')
   })
 
   test('POST heartbeat with inline token_usage', async ({ request }) => {

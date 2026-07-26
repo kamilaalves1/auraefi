@@ -7,13 +7,13 @@ const path = require('path')
 
 const SOCKET_PATH = process.env.MC_PROVISIONER_SOCKET || '/run/mc-provisioner.sock'
 const TOKEN = String(process.env.MC_PROVISIONER_TOKEN || '')
-const SOCKET_GROUP = process.env.MC_PROVISIONER_GROUP || 'openclaw'
+const SOCKET_GROUP = process.env.MC_PROVISIONER_GROUP || 'gateway'
 const REPO_ROOT = process.env.MISSION_CONTROL_REPO_ROOT || path.resolve(__dirname, '..')
 const DATA_DIR = process.env.MISSION_CONTROL_DATA_DIR || path.join(REPO_ROOT, '.data')
 const TENANT_HOME_ROOT = String(process.env.MC_TENANT_HOME_ROOT || '/home').trim() || '/home'
 const TENANT_WORKSPACE_DIRNAME = String(process.env.MC_TENANT_WORKSPACE_DIRNAME || 'workspace').trim() || 'workspace'
-const TEMPLATE_OPENCLAW_JSON = process.env.MC_SUPER_TEMPLATE_OPENCLAW_JSON || (process.env.OPENCLAW_HOME ? path.join(process.env.OPENCLAW_HOME, 'openclaw.json') : '')
-const GATEWAY_SYSTEMD_TEMPLATE = path.join(REPO_ROOT, 'ops', 'templates', 'openclaw-gateway@.service')
+const TEMPLATE_AGENT_JSON = process.env.MC_SUPER_TEMPLATE_AGENT_JSON || (process.env.AGENT_HOME ? path.join(process.env.AGENT_HOME, 'agents.json') : '')
+const GATEWAY_SYSTEMD_TEMPLATE = path.join(REPO_ROOT, 'ops', 'templates', 'agent-gateway@.service')
 
 if (!TOKEN) {
   console.error('MC_PROVISIONER_TOKEN is required')
@@ -58,10 +58,10 @@ function validateCommand(command, args) {
     const isRootOwned = userA === 'root' && userB === 'root'
     const isTenantOwned = isSafeUser(userA) && isSafeUser(userB) && userA === userB
     if (!isRootOwned && !isTenantOwned) return 'install ownership not allowed'
-    const openclawPath = pathJoinPosix(TENANT_HOME_ROOT, userA, '.openclaw')
+    const agentPath = pathJoinPosix(TENANT_HOME_ROOT, userA, '.agents')
     const workspacePath = pathJoinPosix(TENANT_HOME_ROOT, userA, TENANT_WORKSPACE_DIRNAME)
-    if (isRootOwned && target === '/etc/openclaw-tenants') return null
-    if (![openclawPath, workspacePath].includes(target)) return 'install path not allowed'
+    if (isRootOwned && target === '/etc/agent-tenants') return null
+    if (![agentPath, workspacePath].includes(target)) return 'install path not allowed'
     return null
   }
 
@@ -69,22 +69,22 @@ function validateCommand(command, args) {
     if (args.length !== 3) return 'cp argument mismatch'
     const [flag, source, target] = args
     if (!['-n', '-f'].includes(flag)) return 'cp flag not allowed'
-    if (TEMPLATE_OPENCLAW_JSON && source === TEMPLATE_OPENCLAW_JSON) {
-      if (flag !== '-n') return 'openclaw config copy must use -n'
+    if (TEMPLATE_AGENT_JSON && source === TEMPLATE_AGENT_JSON) {
+      if (flag !== '-n') return 'agent config copy must use -n'
       const homeRootRe = escapeRegExp(pathJoinPosix(TENANT_HOME_ROOT))
-      const match = new RegExp(`^${homeRootRe}\\/([a-z_][a-z0-9_-]{1,30})\\/\\.openclaw\\/openclaw\\.json$`).exec(target)
+      const match = new RegExp(`^${homeRootRe}\\/([a-z_][a-z0-9_-]{1,30})\\/\\.agents\\/agents\\.json$`).exec(target)
       if (!match) return 'cp target not allowed'
       return null
     }
     if (source === GATEWAY_SYSTEMD_TEMPLATE) {
       if (flag !== '-n') return 'template copy must use -n'
-      if (target !== '/etc/systemd/system/openclaw-gateway@.service') return 'gateway template target not allowed'
+      if (target !== '/etc/systemd/system/agent-gateway@.service') return 'gateway template target not allowed'
       return null
     }
-    const provisionerEnvRe = new RegExp(`^${escapeRegExp(path.join(DATA_DIR, 'provisioner'))}\\/([a-z0-9-]{3,32})\\/openclaw-gateway\\.env$`)
+    const provisionerEnvRe = new RegExp(`^${escapeRegExp(path.join(DATA_DIR, 'provisioner'))}\\/([a-z0-9-]{3,32})\\/agent-gateway\\.env$`)
     if (provisionerEnvRe.test(source)) {
       if (flag !== '-f') return 'tenant env copy must use -f'
-      if (!/^\/etc\/openclaw-tenants\/[a-z_][a-z0-9_-]{1,30}\.env$/.test(target)) return 'tenant env target not allowed'
+      if (!/^\/etc\/agent-tenants\/[a-z_][a-z0-9_-]{1,30}\.env$/.test(target)) return 'tenant env target not allowed'
       return null
     }
     return 'cp source not allowed'
@@ -105,7 +105,7 @@ function validateCommand(command, args) {
     const [flag, target] = args
 
     if (flag === '-f') {
-      if (!/^\/etc\/openclaw-tenants\/[a-z_][a-z0-9_-]{1,30}\.env$/.test(target)) {
+      if (!/^\/etc\/agent-tenants\/[a-z_][a-z0-9_-]{1,30}\.env$/.test(target)) {
         return 'rm -f target not allowed'
       }
       return null
@@ -114,7 +114,7 @@ function validateCommand(command, args) {
     if (flag === '-rf') {
       const homeRootRe = escapeRegExp(pathJoinPosix(TENANT_HOME_ROOT))
       const ws = escapeRegExp(TENANT_WORKSPACE_DIRNAME)
-      const match = new RegExp(`^${homeRootRe}\\/([a-z_][a-z0-9_-]{1,30})\\/(\\.openclaw|${ws})$`).exec(target)
+      const match = new RegExp(`^${homeRootRe}\\/([a-z_][a-z0-9_-]{1,30})\\/(\\.agents|${ws})$`).exec(target)
       if (!match) return 'rm -rf target not allowed'
       return null
     }
@@ -137,11 +137,11 @@ function validateCommand(command, args) {
   if (cmd === 'systemctl') {
     if (args.length === 1 && args[0] === 'daemon-reload') return null
     if (args.length === 3 && args[0] === 'enable' && args[1] === '--now') {
-      if (/^openclaw-gateway@[a-z_][a-z0-9_-]{1,30}\.service$/.test(args[2])) return null
+      if (/^agent-gateway@[a-z_][a-z0-9_-]{1,30}\.service$/.test(args[2])) return null
       return 'systemctl service name not allowed'
     }
     if (args.length === 3 && args[0] === 'disable' && args[1] === '--now') {
-      if (/^openclaw-gateway@[a-z_][a-z0-9_-]{1,30}\.service$/.test(args[2])) return null
+      if (/^agent-gateway@[a-z_][a-z0-9_-]{1,30}\.service$/.test(args[2])) return null
       return 'systemctl service name not allowed'
     }
     return 'systemctl args not allowed'

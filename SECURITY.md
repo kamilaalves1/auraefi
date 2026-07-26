@@ -55,9 +55,9 @@ Run `bash scripts/security-audit.sh` to check your deployment automatically.
 - [ ] `no-new-privileges` security option enabled
 - [ ] Log rotation configured (max-size, max-file)
 
-### OpenClaw Gateway
-- [ ] Gateway bound to localhost (`OPENCLAW_GATEWAY_HOST=127.0.0.1`)
-- [ ] Gateway token configured (`OPENCLAW_GATEWAY_TOKEN`)
+
+- [ ] Gateway bound to localhost (``)
+- [ ] Gateway token configured (``)
 - [ ] Gateway token NOT exposed via `NEXT_PUBLIC_*` variables
 
 ### Monitoring

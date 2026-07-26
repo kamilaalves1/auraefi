@@ -1,4 +1,4 @@
-﻿{
+{
     "openapi":  "3.1.0",
     "info":  {
                  "title":  "Mission Control API",
@@ -284,9 +284,9 @@
                                                                                                                                                           "runtime":  {
                                                                                                                                                                           "type":  "string",
                                                                                                                                                                           "enum":  [
-                                                                                                                                                                                       "hermes",
+                                                                                                                                                                                       "gateway",
                                                                                                                                                                                        "claude",
-                                                                                                                                                                                       "codex"
+                                                                                                                                                                                       "external"
                                                                                                                                                                                    ]
                                                                                                                                                                       },
                                                                                                                                                           "mode":  {
@@ -10821,16 +10821,16 @@
                                                                }
                                              }
                                 },
-                  "/api/hermes":  {
+                  "/api/gateway-status":  {
                                       "get":  {
                                                   "tags":  [
                                                                "Admin"
                                                            ],
-                                                  "summary":  "Get Hermes agent status",
-                                                  "operationId":  "getHermesStatus",
+                                                  "summary":  "Get agent status",
+                                                  "operationId":  "getAgentStatus",
                                                   "responses":  {
                                                                     "200":  {
-                                                                                "description":  "Hermes status",
+                                                                                "description":  "Agent status",
                                                                                 "content":  {
                                                                                                 "application/json":  {
                                                                                                                          "schema":  {
@@ -10868,8 +10868,8 @@
                                                    "tags":  [
                                                                 "Admin"
                                                             ],
-                                                   "summary":  "Manage Hermes hook (install, uninstall)",
-                                                   "operationId":  "hermesHookAction",
+                                                   "summary":  "Manage agent hook (install, uninstall)",
+                                                   "operationId":  "agentHookAction",
                                                    "requestBody":  {
                                                                        "required":  true,
                                                                        "content":  {
@@ -10915,16 +10915,16 @@
                                                                  }
                                                }
                                   },
-                  "/api/hermes/memory":  {
+                  "/api/gateway-status/memory":  {
                                              "get":  {
                                                          "tags":  [
                                                                       "Admin"
                                                                   ],
-                                                         "summary":  "Get Hermes memory file contents",
-                                                         "operationId":  "getHermesMemory",
+                                                         "summary":  "Get agent memory file contents",
+                                                         "operationId":  "getAgentMemory",
                                                          "responses":  {
                                                                            "200":  {
-                                                                                       "description":  "Hermes memory data",
+                                                                                       "description":  "Agent memory data",
                                                                                        "content":  {
                                                                                                        "application/json":  {
                                                                                                                                 "schema":  {
@@ -10939,13 +10939,13 @@
                                                                        }
                                                      }
                                          },
-                  "/api/hermes/tasks":  {
+                  "/api/gateway-status/tasks":  {
                                             "get":  {
                                                         "tags":  [
                                                                      "Admin"
                                                                  ],
-                                                        "summary":  "Get Hermes cron jobs",
-                                                        "operationId":  "getHermesTasks",
+                                                        "summary":  "Get agent cron jobs",
+                                                        "operationId":  "getAgentTasks",
                                                         "parameters":  [
                                                                            {
                                                                                "name":  "force",
@@ -10961,7 +10961,7 @@
                                                                        ],
                                                         "responses":  {
                                                                           "200":  {
-                                                                                      "description":  "Hermes tasks",
+                                                                                      "description":  "Agent tasks",
                                                                                       "content":  {
                                                                                                       "application/json":  {
                                                                                                                                "schema":  {
@@ -12050,13 +12050,13 @@
                                                                                                                                                           "gateway_mode":  {
                                                                                                                                                                                "type":  "boolean"
                                                                                                                                                                            },
-                                                                                                                                                          "install_openclaw":  {
+                                                                                                                                                          "install_gateway":  {
                                                                                                                                                                                    "type":  "boolean"
                                                                                                                                                                                },
                                                                                                                                                           "install_claude":  {
                                                                                                                                                                                  "type":  "boolean"
                                                                                                                                                                              },
-                                                                                                                                                          "install_codex":  {
+                                                                                                                                                          "install_external":  {
                                                                                                                                                                                 "type":  "boolean"
                                                                                                                                                                             }
                                                                                                                                                       }

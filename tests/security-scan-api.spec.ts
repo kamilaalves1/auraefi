@@ -41,7 +41,7 @@ test.describe('Security Scan API', () => {
     const cats = body.categories
     expect(cats).toHaveProperty('credentials')
     expect(cats).toHaveProperty('network')
-    expect(cats).toHaveProperty('openclaw')
+    expect(cats).toHaveProperty('gateway')
     expect(cats).toHaveProperty('runtime')
     expect(cats).toHaveProperty('os')
   })

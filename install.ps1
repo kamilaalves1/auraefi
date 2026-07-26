@@ -2,7 +2,7 @@
 <#
 .SYNOPSIS
     Mission Control — Windows Installer
-    The mothership for your OpenClaw fleet.
+    The mothership for your gateway fleet.
 
 .DESCRIPTION
     Installs Mission Control on Windows via local Node.js deployment.
@@ -20,8 +20,8 @@
 .PARAMETER InstallDir
     Target directory when cloning from GitHub (default: .\mission-control).
 
-.PARAMETER SkipOpenClaw
-    Skip OpenClaw fleet checks.
+.PARAMETER Skipgateway
+    Skip gateway fleet checks.
 
 .EXAMPLE
     .\install.ps1
@@ -44,7 +44,7 @@ param(
 
     [string]$InstallDir = "",
 
-    [switch]$SkipOpenClaw
+    [switch]$Skipgateway
 )
 
 Set-StrictMode -Version Latest
@@ -302,56 +302,56 @@ function Deploy-Local {
     }
 }
 
-# ── OpenClaw fleet check ─────────────────────────────────────────────────────
-function Test-OpenClaw {
-    if ($SkipOpenClaw) {
-        Write-MC "Skipping OpenClaw checks (-SkipOpenClaw)"
+# ── gateway fleet check ─────────────────────────────────────────────────────
+function Test-gateway {
+    if ($Skipgateway) {
+        Write-MC "Skipping gateway checks (-Skipgateway)"
         return
     }
 
     Write-Host ""
-    Write-MC "=== OpenClaw Fleet Check ==="
+    Write-MC "=== gateway Fleet Check ==="
 
-    if (Test-Command "openclaw") {
-        $ocVersion = try { openclaw --version 2>$null } catch { "unknown" }
-        Write-Ok "OpenClaw binary found: $ocVersion"
+    if (Test-Command "gateway") {
+        $ocVersion = try { gateway --version 2>$null } catch { "unknown" }
+        Write-Ok "gateway binary found: $ocVersion"
     } elseif (Test-Command "clawdbot") {
         $cbVersion = try { clawdbot --version 2>$null } catch { "unknown" }
         Write-Ok "ClawdBot binary found: $cbVersion (legacy)"
-        Write-Warn "Consider upgrading to openclaw CLI"
+        Write-Warn "Consider upgrading to gateway CLI"
     } else {
-        Write-MC "OpenClaw CLI not found - install it to enable agent orchestration"
-        Write-MC "  See: https://github.com/builderz-labs/openclaw"
+        Write-MC "gateway CLI not found - install it to enable agent orchestration"
+        Write-MC "  See: https://github.com/builderz-labs/gateway"
         return
     }
 
-    # Check OpenClaw home directory
-    $ocHome = if ($env:OPENCLAW_HOME) { $env:OPENCLAW_HOME } else { Join-Path $HOME ".openclaw" }
+    # Check gateway home directory
+    $ocHome = if ($env:gateway_HOME) { $env:gateway_HOME } else { Join-Path $HOME ".gateway" }
     if (Test-Path $ocHome) {
-        Write-Ok "OpenClaw home: $ocHome"
+        Write-Ok "gateway home: $ocHome"
 
-        $ocConfig = Join-Path $ocHome "openclaw.json"
+        $ocConfig = Join-Path $ocHome "gateway.json"
         if (Test-Path $ocConfig) {
             Write-Ok "Config found: $ocConfig"
         } else {
-            Write-Warn "No openclaw.json found at $ocConfig"
+            Write-Warn "No gateway.json found at $ocConfig"
             Write-MC "Mission Control will create a default config on first gateway connection"
         }
     } else {
-        Write-MC "OpenClaw home not found at $ocHome"
-        Write-MC "Set OPENCLAW_HOME in .env to point to your OpenClaw state directory"
+        Write-MC "gateway home not found at $ocHome"
+        Write-MC "Set gateway_HOME in .env to point to your gateway state directory"
     }
 
     # Check gateway port
-    $gwHost = if ($env:OPENCLAW_GATEWAY_HOST) { $env:OPENCLAW_GATEWAY_HOST } else { "127.0.0.1" }
-    $gwPort = if ($env:OPENCLAW_GATEWAY_PORT) { [int]$env:OPENCLAW_GATEWAY_PORT } else { 18789 }
+    $gwHost = if ($env:gateway_GATEWAY_HOST) { $env:gateway_GATEWAY_HOST } else { "127.0.0.1" }
+    $gwPort = if ($env:gateway_GATEWAY_PORT) { [int]$env:gateway_GATEWAY_PORT } else { 18789 }
     try {
         $tcp = New-Object System.Net.Sockets.TcpClient
         $tcp.Connect($gwHost, $gwPort)
         $tcp.Close()
         Write-Ok "Gateway reachable at ${gwHost}:${gwPort}"
     } catch {
-        Write-MC "Gateway not reachable at ${gwHost}:${gwPort} (start it with: openclaw gateway start)"
+        Write-MC "Gateway not reachable at ${gwHost}:${gwPort} (start it with: gateway gateway start)"
     }
 }
 
@@ -392,7 +392,7 @@ function Main {
         default  { Stop-WithError "Unknown deploy mode: $Mode" }
     }
 
-    Test-OpenClaw
+    Test-gateway
 
     # ── Print summary ──
     Write-Host ""

@@ -1,4 +1,4 @@
-﻿# Agent Setup Guide
+# Agent Setup Guide
 
 This guide covers everything you need to configure agents in Mission Control: registration methods, SOUL personalities, working files, configuration, and liveness monitoring.
 
@@ -76,9 +76,9 @@ curl -X POST http://localhost:3000/api/agents/sync \
 
 Scanned directories:
 - `~/.agents/` — Top-level agent directories or `.md` files
-- `~/.codex/agents/` — Codex agent definitions
+- `~/.external/agents/` — External agent definitions
 - `~/.claude/agents/` — Claude Code agent definitions
-- `~/.hermes/skills/` — Hermes skill definitions
+- `~/.gateway/skills/` — Gateway skill definitions
 
 Agent directories are detected by the presence of marker files: `soul.md`, `AGENT.md`, `identity.md`, `config.json`, or `agent.json`.
 

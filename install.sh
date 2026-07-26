@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Mission Control — One-Command Installer
-# The mothership for your OpenClaw fleet.
+# The mothership for your gateway fleet.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/builderz-labs/mission-control/main/install.sh | bash
 #   # or
 #   bash install.sh [--docker|--local] [--port PORT] [--data-dir DIR]
 #
-# Installs Mission Control and optionally repairs/configures OpenClaw.
+# Installs Mission Control and optionally repairs/configures gateway.
 
 set -euo pipefail
 
@@ -15,7 +15,7 @@ set -euo pipefail
 MC_PORT="${MC_PORT:-3000}"
 MC_DATA_DIR=""
 DEPLOY_MODE=""
-SKIP_OPENCLAW=false
+SKIP_gateway=false
 REPO_URL="https://github.com/builderz-labs/mission-control.git"
 INSTALL_DIR="${MC_INSTALL_DIR:-$(pwd)/mission-control}"
 
@@ -26,10 +26,10 @@ while [[ $# -gt 0 ]]; do
     --local)        DEPLOY_MODE="local"; shift ;;
     --port)         MC_PORT="$2"; shift 2 ;;
     --data-dir)     MC_DATA_DIR="$2"; shift 2 ;;
-    --skip-openclaw) SKIP_OPENCLAW=true; shift ;;
+    --skip-gateway) SKIP_gateway=true; shift ;;
     --dir)          INSTALL_DIR="$2"; shift 2 ;;
     -h|--help)
-      echo "Usage: install.sh [--docker|--local] [--port PORT] [--data-dir DIR] [--dir INSTALL_DIR] [--skip-openclaw]"
+      echo "Usage: install.sh [--docker|--local] [--port PORT] [--data-dir DIR] [--dir INSTALL_DIR] [--skip-gateway]"
       exit 0 ;;
     *) echo "Unknown option: $1"; exit 1 ;;
   esac
@@ -158,23 +158,23 @@ setup_env() {
     fi
   fi
 
-  # Auto-detect and write OpenClaw home directory into .env
-  local oc_home="${OPENCLAW_HOME:-$HOME/.openclaw}"
+  # Auto-detect and write gateway home directory into .env
+  local oc_home="${gateway_HOME:-$HOME/.gateway}"
   if [[ -d "$oc_home" ]]; then
     if [[ "$(uname)" == "Darwin" ]]; then
-      sed -i '' "s|^OPENCLAW_HOME=.*|OPENCLAW_HOME=$oc_home|" "$INSTALL_DIR/.env"
+      sed -i '' "s|^gateway_HOME=.*|gateway_HOME=$oc_home|" "$INSTALL_DIR/.env"
     else
-      sed -i "s|^OPENCLAW_HOME=.*|OPENCLAW_HOME=$oc_home|" "$INSTALL_DIR/.env"
+      sed -i "s|^gateway_HOME=.*|gateway_HOME=$oc_home|" "$INSTALL_DIR/.env"
     fi
-    info "Set OPENCLAW_HOME=$oc_home in .env"
+    info "Set gateway_HOME=$oc_home in .env"
   fi
 
   # In Docker mode, the gateway runs on the host, not inside the container.
-  # Set OPENCLAW_GATEWAY_HOST to the Docker host gateway IP so the container
+  # Set gateway_GATEWAY_HOST to the Docker host gateway IP so the container
   # can reach the gateway. Users may override this with the gateway container
-  # name if running OpenClaw in a container on the same network.
+  # name if running gateway in a container on the same network.
   if [[ "$DEPLOY_MODE" == "docker" ]]; then
-    local gw_host="${OPENCLAW_GATEWAY_HOST:-}"
+    local gw_host="${gateway_GATEWAY_HOST:-}"
     if [[ -z "$gw_host" ]]; then
       # Detect Docker host IP (host-gateway alias or default bridge)
       if getent hosts host-gateway &>/dev/null 2>&1; then
@@ -186,12 +186,12 @@ setup_env() {
     fi
     if [[ -n "$gw_host" && "$gw_host" != "127.0.0.1" ]]; then
       if [[ "$(uname)" == "Darwin" ]]; then
-        sed -i '' "s|^OPENCLAW_GATEWAY_HOST=.*|OPENCLAW_GATEWAY_HOST=$gw_host|" "$INSTALL_DIR/.env"
+        sed -i '' "s|^gateway_GATEWAY_HOST=.*|gateway_GATEWAY_HOST=$gw_host|" "$INSTALL_DIR/.env"
       else
-        sed -i "s|^OPENCLAW_GATEWAY_HOST=.*|OPENCLAW_GATEWAY_HOST=$gw_host|" "$INSTALL_DIR/.env"
+        sed -i "s|^gateway_GATEWAY_HOST=.*|gateway_GATEWAY_HOST=$gw_host|" "$INSTALL_DIR/.env"
       fi
-      info "Set OPENCLAW_GATEWAY_HOST=$gw_host in .env (Docker host IP)"
-      info "  If your gateway runs in a Docker container, update OPENCLAW_GATEWAY_HOST"
+      info "Set gateway_GATEWAY_HOST=$gw_host in .env (Docker host IP)"
+      info "  If your gateway runs in a Docker container, update gateway_GATEWAY_HOST"
       info "  to the container name and add it to the mc-net network."
     fi
   fi
@@ -277,7 +277,7 @@ setup_systemd() {
 
   cat > /tmp/mission-control.service <<UNIT
 [Unit]
-Description=Mission Control - OpenClaw Agent Dashboard
+Description=Mission Control - gateway Agent Dashboard
 After=network.target
 
 [Service]
@@ -307,43 +307,43 @@ UNIT
   fi
 }
 
-# ── OpenClaw fleet check ─────────────────────────────────────────────────────
-check_openclaw() {
-  if $SKIP_OPENCLAW; then
-    info "Skipping OpenClaw checks (--skip-openclaw)"
+# ── gateway fleet check ─────────────────────────────────────────────────────
+check_gateway() {
+  if $SKIP_gateway; then
+    info "Skipping gateway checks (--skip-gateway)"
     return
   fi
 
   echo ""
-  info "=== OpenClaw Fleet Check ==="
+  info "=== gateway Fleet Check ==="
 
-  # Check if openclaw binary exists
-  if command_exists openclaw; then
+  # Check if gateway binary exists
+  if command_exists gateway; then
     local oc_version
-    oc_version="$(openclaw --version 2>/dev/null || echo 'unknown')"
-    ok "OpenClaw binary found: $oc_version"
+    oc_version="$(gateway --version 2>/dev/null || echo 'unknown')"
+    ok "gateway binary found: $oc_version"
   elif command_exists clawdbot; then
     local cb_version
     cb_version="$(clawdbot --version 2>/dev/null || echo 'unknown')"
     ok "ClawdBot binary found: $cb_version (legacy)"
-    warn "Consider upgrading to openclaw CLI"
+    warn "Consider upgrading to gateway CLI"
   else
-    info "OpenClaw CLI not found — install it to enable agent orchestration"
-    info "  See: https://github.com/builderz-labs/openclaw"
+    info "gateway CLI not found — install it to enable agent orchestration"
+    info "  See: https://github.com/builderz-labs/gateway"
     return
   fi
 
-  # Check OpenClaw home directory
-  local oc_home="${OPENCLAW_HOME:-$HOME/.openclaw}"
+  # Check gateway home directory
+  local oc_home="${gateway_HOME:-$HOME/.gateway}"
   if [[ -d "$oc_home" ]]; then
-    ok "OpenClaw home: $oc_home"
+    ok "gateway home: $oc_home"
 
     # Check config
-    local oc_config="$oc_home/openclaw.json"
+    local oc_config="$oc_home/gateway.json"
     if [[ -f "$oc_config" ]]; then
       ok "Config found: $oc_config"
     else
-      warn "No openclaw.json found at $oc_config"
+      warn "No gateway.json found at $oc_config"
       info "Mission Control will create a default config on first gateway connection"
     fi
 
@@ -391,17 +391,17 @@ check_openclaw() {
       info "Workspace: $agent_count agent workspace(s) in $workspace"
     fi
   else
-    info "OpenClaw home not found at $oc_home"
-    info "Set OPENCLAW_HOME in .env to point to your OpenClaw state directory"
+    info "gateway home not found at $oc_home"
+    info "Set gateway_HOME in .env to point to your gateway state directory"
   fi
 
   # Check gateway port
-  local gw_host="${OPENCLAW_GATEWAY_HOST:-127.0.0.1}"
-  local gw_port="${OPENCLAW_GATEWAY_PORT:-18789}"
+  local gw_host="${gateway_GATEWAY_HOST:-127.0.0.1}"
+  local gw_port="${gateway_GATEWAY_PORT:-18789}"
   if nc -z "$gw_host" "$gw_port" 2>/dev/null || (echo > "/dev/tcp/$gw_host/$gw_port") 2>/dev/null; then
     ok "Gateway reachable at $gw_host:$gw_port"
   else
-    info "Gateway not reachable at $gw_host:$gw_port (start it with: openclaw gateway start)"
+    info "Gateway not reachable at $gw_host:$gw_port (start it with: gateway gateway start)"
   fi
 }
 
@@ -436,7 +436,7 @@ main() {
     *)      die "Unknown deploy mode: $DEPLOY_MODE" ;;
   esac
 
-  check_openclaw
+  check_gateway
 
   # ── Print summary ──
   echo ""

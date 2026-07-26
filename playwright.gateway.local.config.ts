@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
   testDir: 'tests',
-  testMatch: /openclaw-harness\.spec\.ts/,
+  testMatch: /gateway-harness\.spec\.ts/,
   timeout: 60_000,
   expect: {
     timeout: 10_000,
@@ -18,7 +18,7 @@ export default defineConfig({
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
   ],
   webServer: {
-    command: 'node scripts/e2e-openclaw/start-e2e-server.mjs --mode=gateway',
+    command: 'node scripts/e2e-gateway/start-e2e-server.mjs --mode=local',
     url: 'http://127.0.0.1:3005',
     reuseExistingServer: false,
     timeout: 120_000,

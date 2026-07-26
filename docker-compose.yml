@@ -10,25 +10,25 @@ services:
       # host.docker.internal resolves to the Docker host on Docker Desktop (macOS/Windows).
       # On Linux, the extra_hosts entry below makes this work.
       # If your gateway runs in another container, set this to the container name instead.
-      - OPENCLAW_GATEWAY_HOST=${OPENCLAW_GATEWAY_HOST:-host.docker.internal}
-      - OPENCLAW_GATEWAY_PORT=${OPENCLAW_GATEWAY_PORT:-18789}
+      - gateway_GATEWAY_HOST=${gateway_GATEWAY_HOST:-host.docker.internal}
+      - gateway_GATEWAY_PORT=${gateway_GATEWAY_PORT:-18789}
       # ── Browser-side gateway connection (user's browser → gateway) ──
       # NEXT_PUBLIC_GATEWAY_HOST must be reachable from the user's browser, NOT from
       # inside the container. For local Docker: leave empty (auto-detected from browser).
       # For remote/VPS: set to the public hostname or IP where the gateway is reachable.
       # - NEXT_PUBLIC_GATEWAY_HOST=${NEXT_PUBLIC_GATEWAY_HOST:-}
       # - NEXT_PUBLIC_GATEWAY_PORT=${NEXT_PUBLIC_GATEWAY_PORT:-18789}
-      # Set to true if running without an OpenClaw gateway (standalone dashboard mode).
+      # Set to true if running without an gateway gateway (standalone dashboard mode).
       # - NEXT_PUBLIC_GATEWAY_OPTIONAL=true
     env_file:
       - path: .env
         required: false
     volumes:
       - mc-data:/app/.data
-      # Optional: mount your OpenClaw state directory read-only so Mission Control
+      # Optional: mount your gateway state directory read-only so Mission Control
       # can read agent configs and memory. Uncomment and adjust the host path:
-      # - ${OPENCLAW_HOME:-~/.openclaw}:/run/openclaw:ro
-    # Allow the container to reach an OpenClaw gateway running on the Docker host.
+      # - ${gateway_HOME:-~/.gateway}:/run/agents:ro
+    # Allow the container to reach an gateway gateway running on the Docker host.
     # Docker Desktop (macOS/Windows): host.docker.internal works out of the box.
     # Linux: this extra_hosts entry maps host.docker.internal to the host IP.
     extra_hosts:

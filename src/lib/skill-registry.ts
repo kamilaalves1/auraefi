@@ -189,8 +189,8 @@ export function checkSkillSecurity(content: string): SecurityReport {
 
 const CLAWHUB_API = 'https://clawhub.ai/api'
 const SKILLS_SH_API = 'https://skills.sh/api'
-const AWESOME_GATEWAY_README = 'https://raw.githubusercontent.com/VoltAgent/awesome-openclaw-skills/main/README.md'
-const AWESOME_GATEWAY_RAW_BASE = 'https://raw.githubusercontent.com/openclaw/skills/main/skills'
+const AWESOME_GATEWAY_README = 'https://raw.githubusercontent.com/VoltAgent/awesome-gateway-skills/main/README.md'
+const AWESOME_GATEWAY_RAW_BASE = 'https://raw.githubusercontent.com/gateway/skills/main/skills'
 const FETCH_TIMEOUT = 10_000
 
 // ---------------------------------------------------------------------------
@@ -200,7 +200,7 @@ const FETCH_TIMEOUT = 10_000
 const AWESOME_CACHE_TTL = 15 * 60 * 1000 // 15 minutes
 let awesomeCache: { skills: RegistrySkill[]; fetchedAt: number } | null = null
 
-const AWESOME_ENTRY_RE = /^- \[([^\]]+)\]\(https:\/\/github\.com\/openclaw\/skills\/tree\/main\/skills\/([^/]+)\/([^/]+)\/SKILL\.md\)\s*-\s*(.+)$/gm
+const AWESOME_ENTRY_RE = /^- \[([^\]]+)\]\(https:\/\/github\.com\/gateway\/skills\/tree\/main\/skills\/([^/]+)\/([^/]+)\/SKILL\.md\)\s*-\s*(.+)$/gm
 
 function parseAwesomeReadme(markdown: string): RegistrySkill[] {
   const skills: RegistrySkill[] = []

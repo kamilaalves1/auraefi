@@ -6,7 +6,7 @@
  *      but the endpoint only exposes POST (#334)
  *   2. EROFS / busy-init write errors — db.ts eager init at build time
  *      caused "read-only filesystem" failures in Docker (#337)
- *   3. Missing OPENCLAW_HOME env — gateway-config path resolution relied
+ *   3. Missing gateway_HOME env — gateway-config path resolution relied
  *      on env vars that may not be set in a minimal Docker environment
  *
  * All tests run against the live server and require no Docker daemon.
@@ -81,11 +81,11 @@ test.describe('Docker mode – lazy DB init on first request', () => {
   })
 })
 
-// ─── 3. Gateway connect resolves without OPENCLAW_HOME in environment ────────
+// ─── 3. Gateway connect resolves without gateway_HOME in environment ────────
 //
 // The connect endpoint resolves ws_url from the stored gateway record,
-// not from env vars. It must work when OPENCLAW_HOME / OPENCLAW_STATE_DIR
-// are absent (plain Docker with no mounted .openclaw volume).
+// not from env vars. It must work when gateway_HOME / gateway_STATE_DIR
+// are absent (plain Docker with no mounted .gateway volume).
 
 test.describe('Docker mode – gateway connect works without home env vars', () => {
   const cleanup: number[] = []
@@ -105,7 +105,7 @@ test.describe('Docker mode – gateway connect works without home env vars', () 
       headers: API_KEY_HEADER,
       data: {
         name: `docker-mode-connect-${Date.now()}`,
-        host: 'https://openclaw-gateway:4443/sessions',
+        host: 'https://gateway-gateway:4443/sessions',
         port: 18789,
         token: 'docker-internal-token',
       },
@@ -123,7 +123,7 @@ test.describe('Docker mode – gateway connect works without home env vars', () 
     const connectBody = await connectRes.json()
 
     // ws_url is derived purely from stored host — no env vars needed
-    expect(connectBody.ws_url).toBe('wss://openclaw-gateway:4443')
+    expect(connectBody.ws_url).toBe('wss://gateway-gateway:4443')
     expect(connectBody.token).toBe('docker-internal-token')
     expect(connectBody.token_set).toBe(true)
   })

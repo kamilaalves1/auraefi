@@ -1,6 +1,6 @@
 # Mission Control Platform Hardening + Full Agent CLI/TUI PRD
 
-> For Hermes: execute this plan in iterative vertical slices (contract parity -> CLI core -> TUI -> hardening), with tests at each slice.
+> For Gateway: execute this plan in iterative vertical slices (contract parity -> CLI core -> TUI -> hardening), with tests at each slice.
 
 Goal
 Build a production-grade Mission Control operator surface for autonomous agents via a first-party CLI (and optional lightweight TUI), while fixing platform inconsistencies discovered in audit: API contract drift, uneven reliability controls, and incomplete automation ergonomics.
@@ -128,7 +128,7 @@ mc tasks
 mc sessions
 - list
 - control --id --action monitor|pause|terminate
-- continue --kind claude-code|codex-cli --id --prompt
+- continue --kind claude-code|external-cli --id --prompt
 - transcript --id [--source]
 
 mc connect

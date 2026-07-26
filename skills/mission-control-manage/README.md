@@ -69,7 +69,7 @@ curl -H "x-api-key: $API_KEY" http://localhost:3000/api/agents
 # Register an agent
 curl -X POST -H "x-api-key: $API_KEY" \
   -H "Content-Type: application/json" \
-  -d '{"name": "my-agent", "type": "openclaw"}' \
+  -d '{"name": "my-agent", "type": "gateway"}' \
   http://localhost:3000/api/agents
 ```
 

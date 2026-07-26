@@ -1,4 +1,4 @@
-﻿# Mission Control — Landing Page Handoff
+# Mission Control — Landing Page Handoff
 
 > Last updated: 2026-03-07 | Version: 1.3.0 | Branch: `fix/refactor` (bb5029e)
 
@@ -50,7 +50,7 @@ Manage agent fleets, track tasks, monitor costs, and orchestrate workflows — a
 Six-column kanban (Inbox > Assigned > In Progress > Review > Quality Review > Done) with drag-and-drop, priority levels, assignments, threaded comments, and inline sub-agent spawning. Multi-project support with per-project ticket prefixes (e.g. `PA-001`).
 
 ### 2. Agent Management
-Full lifecycle — register, heartbeat, wake, retire. Redesigned agent detail modal with compact overview, inline model selector, editable sub-agent configuration, and SOUL personality system. Local agent discovery from `~/.agents/`, `~/.codex/agents/`, `~/.claude/agents/`.
+Full lifecycle — register, heartbeat, wake, retire. Redesigned agent detail modal with compact overview, inline model selector, editable sub-agent configuration, and SOUL personality system. Local agent discovery from `~/.agents/`, `~/.external/agents/`, `~/.claude/agents/`.
 
 ### 3. Real-Time Monitoring
 Live activity feed, session inspector, and log viewer with filtering. WebSocket + SSE push updates with smart polling that pauses when you're away. Gateway connection state with live dot indicators.
@@ -73,7 +73,7 @@ Browse, install, and manage agent skills from local directories and external reg
 ### 9. Claude Code Integration
 - **Session tracking** — auto-discovers sessions from `~/.claude/projects/`, extracts tokens, model info, costs
 - **Task bridge** — read-only integration surfaces Claude Code team tasks and configs
-- **Direct CLI** — connect Claude Code, Codex, or any CLI directly without a gateway
+- **Direct CLI** — connect Claude Code, External, or any CLI directly without a gateway
 
 ### 10. Memory Knowledge Graph
 Visual knowledge graph for agent memory in gateway mode. Interactive node-edge visualization of agent memory relationships.
@@ -236,7 +236,7 @@ Initial login seeded from `AUTH_USER` / `AUTH_PASS` on first run.
 15. **Agent self-registration** — autonomous onboarding endpoint
 16. **Framework adapters** — Vertex, CrewAI, LangGraph, AutoGen, Claude SDK, generic
 17. **Self-update mechanism** — one-click update with audit logging
-18. **Local agent discovery** — auto-detect from ~/.agents, ~/.codex, ~/.claude
+18. **Local agent discovery** — auto-detect from ~/.agents, ~/.external, ~/.claude
 19. **Chat workspace** — embedded chat with local session continuation
 20. **Ed25519 device identity** — secure gateway challenge-response handshake
 

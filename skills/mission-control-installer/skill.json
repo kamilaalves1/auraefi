@@ -1,7 +1,7 @@
 {
   "name": "mission-control-installer",
   "version": "1.0.0",
-  "description": "Install and configure Mission Control — the OpenClaw agent orchestration dashboard",
+  "description": "Install and configure Mission Control — the gateway agent orchestration dashboard",
   "author": "Builderz Labs",
   "license": "MIT",
   "tools": ["exec", "fs"],

@@ -42,7 +42,7 @@ export const FRAMEWORK_REGISTRY: Record<string, FrameworkInfo> = {
     id: 'gateway',
     label: 'Gateway',
     description: 'Native gateway-managed agents with full lifecycle control',
-    docsUrl: 'https://github.com/openclaw/openclaw',
+    docsUrl: 'https://github.com/anthropics/claude-code',
     connection: {
       connectionMode: 'websocket',
       heartbeatInterval: 30,

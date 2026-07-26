@@ -7,7 +7,7 @@ function uid() {
 
 test.describe('Chat Session Preferences API', () => {
   test('PATCH + GET roundtrip for local session rename and color tag', async ({ request }) => {
-    const key = `codex-cli:e2e-${uid()}`
+    const key = `external-cli:e2e-${uid()}`
 
     const patchRes = await request.patch('/api/chat/session-prefs', {
       headers: API_KEY_HEADER,

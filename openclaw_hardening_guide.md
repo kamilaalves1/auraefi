@@ -1,10 +1,10 @@
-# OpenClaw Gateway Security and Hardening Best Practices
+# gateway Gateway Security and Hardening Best Practices
 
-This document consolidates security and hardening best practices for the OpenClaw Gateway, drawing from official documentation and recent security advisories.
+This document consolidates security and hardening best practices for the gateway Gateway, drawing from official documentation and recent security advisories.
 
 ## 1. Core Security Model & Deployment Considerations
 
-OpenClaw is designed primarily for a **personal assistant deployment model**, assuming one trusted operator per gateway. It is **not intended for multi-tenant environments** with untrusted or adversarial users. For such scenarios, run separate gateway instances for each trust boundary.
+gateway is designed primarily for a **personal assistant deployment model**, assuming one trusted operator per gateway. It is **not intended for multi-tenant environments** with untrusted or adversarial users. For such scenarios, run separate gateway instances for each trust boundary.
 
 ## 2. Hardened Baseline Configuration
 
@@ -54,15 +54,15 @@ For a secure starting point, consider the following configuration, which keeps t
 
 ### 3.1. Network Security
 
-*   **Do Not Expose Publicly:** Never expose the OpenClaw gateway directly to the public internet. It typically runs on port 18789. Publicly exposed gateways are easily discoverable.
-*   **Bind to Localhost:** Configure the gateway to listen only for connections from the local machine by binding it to `127.0.0.1` (localhost) or `loopback` in your `openclaw.json`.
+*   **Do Not Expose Publicly:** Never expose the gateway gateway directly to the public internet. It typically runs on port 18789. Publicly exposed gateways are easily discoverable.
+*   **Bind to Localhost:** Configure the gateway to listen only for connections from the local machine by binding it to `127.0.0.1` (localhost) or `loopback` in your `gateway.json`.
 *   **Firewall Rules:** Implement strict firewall rules to block all unnecessary inbound and outbound connections, allowing only essential traffic.
 *   **Secure Remote Access:** For remote access, use secure methods like SSH tunneling or a VPN (e.g., Tailscale) instead of direct exposure.
 *   **Docker Considerations:** If using Docker, be aware that it can bypass UFW rules. Configure rules in the `DOCKER-USER` chain to control exposure.
 
 ### 3.2. Authentication and Access Control
 
-*   **Enable Gateway Authentication:** Always enable gateway authentication and use a strong, randomly generated authentication token. Generate a token with `openclaw doctor --generate-gateway-token`.
+*   **Enable Gateway Authentication:** Always enable gateway authentication and use a strong, randomly generated authentication token. Generate a token with `gateway doctor --generate-gateway-token`.
 *   **Manage Access Tokens:** Treat your gateway authentication token like a password. Rotate it regularly and store it securely (e.g., as an environment variable, not in plaintext config files).
 *   **Restrict Chat and Messaging:** If integrating with chat platforms, use allowlists to specify which user IDs can interact with your agent.
 *   **Direct Messages (DMs) and Groups:**
@@ -72,13 +72,13 @@ For a secure starting point, consider the following configuration, which keeps t
 
 ### 3.3. Isolation and Sandboxing
 
-*   **Run in a Docker Container:** The recommended approach is to run OpenClaw within a Docker container for process isolation, filesystem restrictions, and network controls.
+*   **Run in a Docker Container:** The recommended approach is to run gateway within a Docker container for process isolation, filesystem restrictions, and network controls.
 *   **Harden Docker Configuration:**
     *   Do not mount your home directory or the Docker socket.
     *   Use read-only filesystems where possible.
     *   Drop unnecessary Linux capabilities.
     *   Run the container as a non-root user.
-*   **Enable Sandbox Mode:** For tasks that execute code, enable OpenClaw's sandbox mode to prevent malicious or compromised prompts from accessing your system or network. Configure this in `agents.defaults.sandbox`.
+*   **Enable Sandbox Mode:** For tasks that execute code, enable gateway's sandbox mode to prevent malicious or compromised prompts from accessing your system or network. Configure this in `agents.defaults.sandbox`.
 
 ### 3.4. Credential and Secret Management
 
@@ -88,9 +88,9 @@ For a secure starting point, consider the following configuration, which keeps t
 ### 3.5. File System Permissions
 
 *   Ensure your configuration and state files are private.
-*   `~/.openclaw/openclaw.json` should have permissions `600` (user read/write only).
-*   The `~/.openclaw` directory should have permissions `700` (user access only).
-*   `~/.openclaw/credentials/` and its contents should also be `600`.
+*   `~/.gateway/gateway.json` should have permissions `600` (user read/write only).
+*   The `~/.gateway` directory should have permissions `700` (user access only).
+*   `~/.gateway/credentials/` and its contents should also be `600`.
 
 ### 3.6. Tool and Skill Security
 
@@ -112,13 +112,13 @@ For a secure starting point, consider the following configuration, which keeps t
 
 ## 4. Staying Updated and Aware of Vulnerabilities
 
-The OpenClaw project is under active development, and new vulnerabilities are discovered.
+The gateway project is under active development, and new vulnerabilities are discovered.
 
-*   **Keep Software Updated:** Regularly update OpenClaw and its dependencies to ensure you have the latest security patches.
+*   **Keep Software Updated:** Regularly update gateway and its dependencies to ensure you have the latest security patches.
 *   **Be Aware of Recent Threats:** Stay informed about new vulnerabilities. Notable past vulnerabilities include:
-    *   **ClawJacked (High Severity):** Allowed malicious websites to hijack locally running OpenClaw instances via WebSocket connections and brute-force password. Patched in v2026.2.25.
+    *   **ClawJacked (High Severity):** Allowed malicious websites to hijack locally running gateway instances via WebSocket connections and brute-force password. Patched in v2026.2.25.
     *   **Remote Code Execution (Critical - CVE-2026-25253):** A malicious link could trick the Control UI into sending an auth token to an attacker-controlled server, leading to RCE. Patched in v2026.1.29.
     *   **Authentication Bypass (High Severity - CVE-2026-26327):** Allowed attackers on the same local network to intercept credentials by spoofing a legitimate gateway.
     *   **Other Vulnerabilities:** Server-Side Request Forgery (SSRF - CVE-2026-26322), missing webhook authentication (CVE-2026-26319), and path traversal (CVE-2026-26329).
 
-By diligently applying these practices, you can significantly enhance the security posture of your OpenClaw Gateway deployment.
+By diligently applying these practices, you can significantly enhance the security posture of your gateway Gateway deployment.

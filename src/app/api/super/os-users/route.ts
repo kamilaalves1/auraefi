@@ -78,7 +78,7 @@ function installToolForUser(
       }
       // Install latest agent runtime from npm
       try {
-        execFileSync('/usr/bin/sudo', ['-n', '-u', username, 'npm', 'install', '-g', 'openclaw/openclaw'], {
+        execFileSync('/usr/bin/sudo', ['-n', '-u', username, 'npm', 'install', '-g', 'anthropics/claude-code'], {
           timeout: 120000,
           stdio: 'pipe',
           env: { ...process.env, HOME: homeDir },

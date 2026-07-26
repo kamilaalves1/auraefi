@@ -29,7 +29,7 @@ test.describe('Sessions Continue API', () => {
     const res = await request.post('/api/sessions/continue', {
       headers: API_KEY_HEADER,
       data: {
-        kind: 'codex-cli',
+        kind: 'external-cli',
         id: 'abc/../bad',
         prompt: 'ping',
       },
@@ -53,7 +53,7 @@ test.describe('Sessions Continue API', () => {
     const res = await request.post('/api/sessions/continue', {
       headers: API_KEY_HEADER,
       data: {
-        kind: 'codex-cli',
+        kind: 'external-cli',
         id: 'abc123',
         prompt: 'x'.repeat(6001),
       },
