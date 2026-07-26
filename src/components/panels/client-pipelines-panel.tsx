@@ -124,9 +124,9 @@ function useGitRepos() {
 
 // ── Shared styles ──────────────────────────────────────────────────────────────
 
-const lbl = 'block text-xs font-semibold text-foreground/70 mb-1'
-const inp = 'w-full h-9 px-3 rounded-lg bg-secondary/50 border border-border text-sm text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 transition-colors'
-const sel = 'h-7 px-2 rounded-md bg-secondary/50 border border-border/70 text-xs text-foreground focus:outline-none focus:border-primary/50'
+const lbl = 'block text-xs font-semibold text-foreground/60 mb-1 uppercase tracking-wide'
+const inp = 'w-full h-9 px-3 rounded-lg bg-secondary/40 border border-border text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 transition-colors'
+const sel = 'h-8 px-2 rounded-md bg-secondary/40 border border-border/70 text-xs text-foreground focus:outline-none focus:border-primary/50'
 
 async function parseJson(res: Response) {
   const text = await res.text()
@@ -179,7 +179,7 @@ function LLMComplexityCard({
   }, {})
 
   return (
-    <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
+    <div className="rounded-xl border border-border/60 bg-card p-4 space-y-4">
       <div>
         <h4 className="text-sm font-semibold text-foreground">Modelo por complexidade</h4>
         <p className="text-[11px] text-muted-foreground mt-0.5">
@@ -190,26 +190,26 @@ function LLMComplexityCard({
       {llmLoading ? (
         <p className="text-xs text-muted-foreground">Carregando integrações...</p>
       ) : llmOptions.length === 0 ? (
-        <p className="text-xs text-amber-400">
+        <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-400">
           Nenhum provider de IA configurado.{' '}
-          <a href="/integrations" className="underline hover:text-amber-300">Configurar em Integrações →</a>
-        </p>
+          <a href="/integrations" className="underline font-medium hover:text-amber-300">Configurar em Integrações →</a>
+        </div>
       ) : (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           {([
-            { label: 'Simples', hint: 'bugs, textos, ajustes', value: simple,  set: setSimple  },
-            { label: 'Média',   hint: 'funcionalidades, refatorações',   value: medium,  set: setMedium  },
-            { label: 'Complexa',hint: 'arquitetura, análise',  value: complex, set: setComplex },
+            { label: 'Simples',  hint: 'bugs, textos, ajustes',          value: simple,  set: setSimple  },
+            { label: 'Média',    hint: 'funcionalidades, refatorações',   value: medium,  set: setMedium  },
+            { label: 'Complexa', hint: 'arquitetura, análise',            value: complex, set: setComplex },
           ] as const).map(({ label, hint, value, set }) => (
-            <div key={label} className="flex items-center gap-3">
-              <div className="w-28 shrink-0">
-                <p className="text-xs font-medium text-foreground">{label}</p>
-                <p className="text-[10px] text-muted-foreground/60">{hint}</p>
+            <div key={label} className="space-y-1">
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-xs font-medium text-foreground">{label}</span>
+                <span className="text-[10px] text-muted-foreground/50">{hint}</span>
               </div>
               <select
                 value={value}
                 onChange={e => (set as (v: string) => void)(e.target.value)}
-                className={`${sel} flex-1`}
+                className={`${sel} w-full`}
               >
                 <option value="">— Sem regra —</option>
                 {Object.entries(grouped).map(([provider, opts]) => (
@@ -225,24 +225,26 @@ function LLMComplexityCard({
         </div>
       )}
 
-      <div className="pt-2 border-t border-border/40">
-        <h4 className="text-sm font-semibold text-foreground mb-1">Menção do bot</h4>
-        <p className="text-[11px] text-muted-foreground mb-2">
-          Mencione esse nome em um comentário do JIRA para dar instruções ao pipeline (ex: <code className="bg-muted px-1 rounded">@pipeline reprocesse focando em segurança</code>).
-        </p>
+      <div className="pt-3 border-t border-border/40 space-y-2">
+        <div>
+          <h4 className="text-xs font-semibold text-foreground">Menção do bot</h4>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Use em comentários do JIRA para instruir o pipeline.
+          </p>
+        </div>
         <input
           type="text"
           value={botMention}
           onChange={e => setBotMention(e.target.value)}
           placeholder="@pipeline"
-          className={`${inp} w-full`}
+          className={`${inp} font-mono`}
         />
       </div>
 
       {msg && <p className={`text-xs font-medium ${msg.ok ? 'text-green-400' : 'text-red-400'}`}>{msg.text}</p>}
 
       <Button size="sm" onClick={handleSave} disabled={saving} className="w-full h-8">
-        {saving ? 'Salvando...' : 'Salvar'}
+        {saving ? 'Salvando...' : 'Salvar configuração'}
       </Button>
     </div>
   )
@@ -1071,137 +1073,177 @@ function ColumnConfigurator({
   const triggerCol = columns.find(c => c.is_trigger)
 
   return (
-    <div className="space-y-3">
-      {/* Toolbar */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          {msg && (
-            <span className={`text-xs font-medium ${msg.ok ? 'text-green-400' : 'text-red-400'}`}>{msg.text}</span>
-          )}
-          {!msg && triggerCol && (
-            <span className="text-xs text-muted-foreground">
-              Gatilho: <span className="text-primary font-medium">{triggerCol.column_name}</span>
+    <div className="flex flex-col gap-4">
+
+      {/* ── Toolbar ── */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2.5">
+          {msg ? (
+            <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${
+              msg.ok
+                ? 'text-green-400 bg-green-500/10 border-green-500/20'
+                : 'text-red-400 bg-red-500/10 border-red-500/20'
+            }`}>{msg.text}</span>
+          ) : triggerCol ? (
+            <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="text-primary">⚡</span>
+              Gatilho:{' '}
+              <span className="font-semibold text-foreground">{triggerCol.column_name}</span>
             </span>
-          )}
-          {!msg && !triggerCol && (
-            <span className="text-xs text-amber-400">⚡ Nenhum gatilho definido — clique em ⚡ em uma coluna</span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-xs text-amber-400 font-medium">
+              ⚡ Nenhum gatilho — clique em ⚡ para definir
+            </span>
           )}
         </div>
         <div className="flex items-center gap-2">
           <button onClick={handleReimport} disabled={discovering}
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-secondary">
-            ⟳ {discovering ? 'Importando...' : 'Re-importar'}
+            className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-40">
+            <span className={discovering ? 'animate-spin inline-block' : ''}>⟳</span>
+            {discovering ? 'Importando...' : 'Re-importar'}
           </button>
-          <Button size="sm" onClick={handleSave} disabled={saving} className="h-7 text-xs">
+          <Button size="sm" onClick={handleSave} disabled={saving} className="h-8 px-4">
             {saving ? 'Salvando...' : 'Salvar colunas'}
           </Button>
         </div>
       </div>
 
-      {/* Flow preview */}
-      <div className="overflow-x-auto pb-1">
-        <div className="flex items-center gap-1 min-w-max">
+      {/* ── Flow visualization ── */}
+      <div className="rounded-xl border border-border/50 bg-secondary/20 px-4 py-3 overflow-x-auto">
+        <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 mb-2.5">
+          Fluxo do board
+        </p>
+        <div className="flex items-center gap-0 min-w-max">
           {columns.map((col, i) => (
-            <div key={i} className="flex items-center gap-1">
-              <div className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-medium border whitespace-nowrap cursor-pointer transition-all ${
-                col.is_trigger
-                  ? 'border-primary/50 bg-primary/10 text-primary'
-                  : 'border-border/50 bg-secondary/40 text-muted-foreground hover:border-border'
-              }`} onClick={() => updateCol(i, { is_trigger: !col.is_trigger })}>
-                {col.is_trigger && <span>⚡</span>}
-                {col.column_name}
-                {col.assignments.length > 0 && (
-                  <span className="ml-1 opacity-60">{col.assignments.length}×</span>
+            <div key={i} className="flex items-center">
+              <button
+                type="button"
+                onClick={() => updateCol(i, { is_trigger: !col.is_trigger })}
+                title={col.is_trigger ? 'Gatilho ativo — clique para remover' : 'Definir como gatilho desta esteira'}
+                className={`group relative flex flex-col items-start gap-0.5 px-3 py-2 rounded-xl border text-left transition-all hover:shadow-sm ${
+                  col.is_trigger
+                    ? 'border-primary bg-primary/10 shadow-[0_0_0_1px_var(--color-primary,theme(colors.violet.500))/20]'
+                    : 'border-border/50 bg-card hover:border-border hover:bg-secondary/40'
+                }`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className={`text-sm transition-opacity ${col.is_trigger ? 'opacity-100' : 'opacity-20 group-hover:opacity-50'}`}>⚡</span>
+                  <span className={`text-xs font-semibold whitespace-nowrap ${col.is_trigger ? 'text-primary' : 'text-foreground'}`}>
+                    {col.column_name}
+                  </span>
+                </div>
+                {col.assignments.length > 0 ? (
+                  <span className="text-[10px] text-muted-foreground/60 ml-5">
+                    {col.assignments.length} agente{col.assignments.length > 1 ? 's' : ''}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-muted-foreground/30 ml-5">sem agentes</span>
                 )}
-              </div>
-              {i < columns.length - 1 && <span className="text-muted-foreground/25 text-[10px]">→</span>}
+              </button>
+              {i < columns.length - 1 && (
+                <div className="flex items-center px-1.5 shrink-0">
+                  <div className="w-4 h-px bg-border/50" />
+                  <span className="text-muted-foreground/40 text-[10px] -ml-0.5">›</span>
+                </div>
+              )}
             </div>
           ))}
         </div>
       </div>
 
-      {/* Columns */}
+      {/* ── Column list ── */}
       <div className="space-y-2">
         {columns.map((col, colIdx) => {
           const isOpen = expanded.has(colIdx)
           return (
-            <div key={colIdx} className={`rounded-xl border transition-all ${
-              col.is_trigger ? 'border-primary/30 bg-primary/5' : 'border-border/50 bg-card'
+            <div key={colIdx} className={`rounded-xl border transition-all duration-150 overflow-hidden ${
+              col.is_trigger
+                ? 'border-primary/40 bg-gradient-to-r from-primary/5 to-transparent'
+                : 'border-border/50 bg-card'
             }`}>
               {/* Column header row */}
-              <div className="flex items-center gap-2.5 px-3 py-2.5">
+              <div className="flex items-center gap-3 px-4 py-3">
+
+                {/* Trigger toggle */}
                 <button
                   type="button"
                   onClick={() => updateCol(colIdx, { is_trigger: !col.is_trigger })}
                   title={col.is_trigger ? 'Gatilho ativo — clique para remover' : 'Definir como gatilho'}
-                  className={`w-6 h-6 rounded-md border transition-all flex items-center justify-center text-xs shrink-0 ${
+                  className={`w-7 h-7 rounded-lg border transition-all flex items-center justify-center text-sm shrink-0 ${
                     col.is_trigger
-                      ? 'border-primary bg-primary text-primary-foreground'
-                      : 'border-border/50 text-muted-foreground/30 hover:border-primary/40 hover:text-primary/50'
+                      ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                      : 'border-border/40 text-muted-foreground/25 hover:border-primary/50 hover:text-primary/60 hover:bg-primary/5'
                   }`}>
                   ⚡
                 </button>
-                <div className="flex-1 min-w-0 flex items-center gap-2">
-                  <span className="text-xs font-medium text-foreground truncate">{col.column_name}</span>
+
+                {/* Name + badges */}
+                <div className="flex-1 min-w-0 flex items-center gap-2 flex-wrap">
+                  <span className="text-sm font-semibold text-foreground truncate">{col.column_name}</span>
                   {col.is_trigger && (
-                    <span className="text-[10px] text-primary/60 bg-primary/8 px-1.5 py-0.5 rounded shrink-0">gatilho</span>
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-primary/15 text-primary border border-primary/20 shrink-0">
+                      gatilho
+                    </span>
                   )}
                   {col.assignments.length > 0 && (
-                    <span className="text-[10px] text-muted-foreground/50 shrink-0">
+                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground border border-border/50 shrink-0">
                       {col.assignments.length} agente{col.assignments.length > 1 ? 's' : ''}
                     </span>
                   )}
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
                   {col.instructions && (
-                    <span className="text-[10px] text-amber-400/60" title="Tem instruções">📝</span>
+                    <span className="text-[10px] text-amber-400/70 shrink-0" title="Tem instruções">📝</span>
                   )}
-                  <button
-                    onClick={() => toggleExpand(colIdx)}
-                    className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
-                      isOpen
-                        ? 'border-border text-foreground bg-secondary'
-                        : 'border-border/40 text-muted-foreground/50 hover:text-foreground hover:border-border'
-                    }`}>
-                    {isOpen ? '▲ Fechar' : `▼ ${col.assignments.length ? 'Editar' : '+ Agentes'}`}
-                  </button>
                 </div>
+
+                {/* Expand toggle */}
+                <button
+                  onClick={() => toggleExpand(colIdx)}
+                  className={`text-xs px-3 py-1.5 rounded-lg border font-medium transition-colors shrink-0 ${
+                    isOpen
+                      ? 'border-border bg-secondary text-foreground'
+                      : 'border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
+                  }`}>
+                  {isOpen ? '▲ Fechar' : col.assignments.length ? '▼ Editar' : '▼ + Agentes'}
+                </button>
               </div>
 
               {/* Expanded: assignments + instructions */}
               {isOpen && (
-                <div className="px-3 pb-3 pt-1 border-t border-border/20 space-y-3">
+                <div className="px-4 pb-4 pt-3 border-t border-border/20 space-y-4 bg-secondary/10">
+
                   {/* Instructions */}
                   <div>
-                    <label className="block text-xs font-semibold text-foreground/70 mb-1.5">
-                      📝 Instruções para o agente
+                    <label className="block text-xs font-semibold text-foreground/60 uppercase tracking-wide mb-1.5">
+                      Instruções para o agente
                     </label>
                     <textarea
                       value={col.instructions ?? ''}
                       onChange={e => updateCol(colIdx, { instructions: e.target.value || null })}
-                      placeholder="Ex: Quando um card chegar, analise os requisitos e crie um plano de implementação..."
+                      placeholder="Ex: Quando um card chegar, analise os requisitos e crie um plano de implementação detalhado..."
                       rows={2}
-                      className="w-full px-3 py-2 rounded-lg bg-secondary/50 border border-border text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-primary/50 resize-none"
+                      className="w-full px-3 py-2.5 rounded-lg bg-background border border-border text-xs text-foreground placeholder:text-muted-foreground/35 focus:outline-none focus:border-primary/50 resize-none leading-relaxed"
                     />
                   </div>
 
                   {/* Assignments */}
                   {col.assignments.length > 0 && (
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-semibold text-foreground/70">Agentes atribuídos</label>
+                    <div className="space-y-2">
+                      <label className="block text-xs font-semibold text-foreground/60 uppercase tracking-wide">
+                        Agentes atribuídos
+                      </label>
                       {col.assignments.map((a, aIdx) => {
                         const filteredAgents = a.role ? agents.filter(ag => ag.role === a.role) : agents
                         return (
-                          <div key={aIdx} className="flex items-center gap-1.5">
+                          <div key={aIdx} className="flex items-center gap-2 p-2 rounded-lg bg-background border border-border/40">
                             <select value={a.role}
                               onChange={e => updateAssign(colIdx, aIdx, { role: e.target.value, agent_id: null })}
-                              className={`${sel} flex-1`}>
+                              className={`${sel} flex-1 min-w-0`}>
                               <option value="">— Função —</option>
                               {uniqueRoles.map(r => <option key={r} value={r}>{r}</option>)}
                             </select>
                             <select value={a.agent_id != null ? String(a.agent_id) : ''}
                               onChange={e => updateAssign(colIdx, aIdx, { agent_id: e.target.value ? Number(e.target.value) : null })}
-                              className={`${sel} flex-1`}>
+                              className={`${sel} flex-1 min-w-0`}>
                               <option value="">— Agente —</option>
                               {filteredAgents.map(ag => <option key={ag.id} value={String(ag.id)}>{ag.name}</option>)}
                             </select>
@@ -1209,9 +1251,9 @@ function ColumnConfigurator({
                               <select
                                 value={a.repo_id != null ? String(a.repo_id) : ''}
                                 onChange={e => updateAssign(colIdx, aIdx, { repo_id: e.target.value ? Number(e.target.value) : null })}
-                                className={`${sel} w-36`}
-                                title="Repositório para este agente nesta coluna">
-                                <option value="">— Repo padrão —</option>
+                                className={`${sel} w-32`}
+                                title="Repositório para este agente">
+                                <option value="">— Repo —</option>
                                 {repos.map(r => (
                                   <option key={r.id} value={String(r.id)}>{PROVIDER_ICON[r.provider] ?? '📦'} {r.name}</option>
                                 ))}
@@ -1221,23 +1263,24 @@ function ColumnConfigurator({
                               <select
                                 value={a.llm_model ?? ''}
                                 onChange={e => updateAssign(colIdx, aIdx, { llm_model: e.target.value })}
-                                className={`${sel} w-36`}
-                                title="LLM para este agente nesta coluna">
-                                <option value="">— LLM padrão —</option>
+                                className={`${sel} w-32`}
+                                title="Modelo de IA para este agente">
+                                <option value="">— Modelo —</option>
                                 {llmOptions.map(o => (
                                   <option key={o.value} value={o.value}>{o.provider !== o.label ? `${o.provider} / ${o.label}` : o.label}</option>
                                 ))}
                               </select>
                             )}
                             <button onClick={() => removeAssign(colIdx, aIdx)}
-                              className="w-5 h-5 flex items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 transition-colors text-[10px] shrink-0">✕</button>
+                              className="w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/10 transition-colors text-xs shrink-0">✕</button>
                           </div>
                         )
                       })}
                     </div>
                   )}
+
                   <button onClick={() => addAssignment(colIdx)}
-                    className="text-xs text-primary/60 hover:text-primary transition-colors flex items-center gap-1">
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-primary/60 hover:text-primary transition-colors px-2 py-1 rounded-lg hover:bg-primary/5">
                     + Associar agente
                   </button>
                 </div>
@@ -1313,10 +1356,10 @@ export function ClientPipelinesPanel() {
   }
 
   return (
-    <div className="p-5 space-y-5 max-w-[1400px]">
+    <div className="flex flex-col min-h-full">
 
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between gap-4">
+      {/* ── Page header ── */}
+      <div className="px-6 py-4 border-b border-border/50 flex items-center justify-between gap-4 shrink-0">
         <div>
           <h2 className="text-base font-semibold text-foreground">Fluxo de desenvolvimento</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
@@ -1324,7 +1367,7 @@ export function ClientPipelinesPanel() {
           </p>
         </div>
         {!pipeline && (
-          <Button size="sm" onClick={() => setCreating(true)} className="shrink-0 h-8">
+          <Button size="sm" onClick={() => setCreating(true)} className="shrink-0">
             + Conectar backlog
           </Button>
         )}
@@ -1332,67 +1375,87 @@ export function ClientPipelinesPanel() {
 
       {/* ── Empty state ── */}
       {!pipeline && (
-        <div className="rounded-xl border border-dashed border-border/60 bg-card px-4 py-16 flex flex-col items-center gap-3 text-center">
-          <div className="flex items-center gap-3 text-2xl">
-            <span>🎯</span>
-            <span className="text-muted-foreground/30 text-base">ou</span>
-            <span>🔷</span>
+        <div className="flex-1 flex items-center justify-center p-8">
+          <div className="rounded-2xl border border-dashed border-border/60 bg-card/50 px-8 py-16 flex flex-col items-center gap-4 text-center max-w-sm w-full">
+            <div className="flex items-center gap-4 text-3xl">
+              <span>🎯</span>
+              <span className="text-muted-foreground/20 text-lg">ou</span>
+              <span>🔷</span>
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-foreground">Nenhum backlog conectado</p>
+              <p className="text-xs text-muted-foreground mt-1">Conecte ao Jira ou Azure DevOps para começar.</p>
+            </div>
+            <Button size="sm" onClick={() => setCreating(true)} className="h-9 px-6 mt-1">
+              + Conectar backlog
+            </Button>
           </div>
-          <p className="text-sm font-semibold text-foreground">Nenhum backlog conectado</p>
-          <p className="text-xs text-muted-foreground">Conecte ao Jira ou Azure DevOps para começar.</p>
-          <Button size="sm" onClick={() => setCreating(true)} className="h-8 mt-1">+ Conectar</Button>
         </div>
       )}
 
-      {/* ── Two-column body (only when pipeline exists) ── */}
+      {/* ── Two-column body ── */}
       {pipeline && (
-      <div className="grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-5 items-start">
+        <div className="flex flex-col lg:flex-row flex-1 min-h-0 overflow-hidden">
 
-        {/* LEFT: connection + config */}
-        <div className="flex flex-col gap-3">
+          {/* LEFT: settings sidebar — scrolls independently */}
+          <div className="lg:w-[420px] shrink-0 border-b lg:border-b-0 lg:border-r border-border/50 overflow-y-auto">
+            <div className="p-4 space-y-3">
 
-          <ConnectedBacklogCard
-            pipeline={pipeline}
-            onUpdated={updated => setPipelines([updated])}
-            onDeleted={() => { setPipelines([]); setInitCols({}) }}
-          />
+              <ConnectedBacklogCard
+                pipeline={pipeline}
+                onUpdated={updated => setPipelines([updated])}
+                onDeleted={() => { setPipelines([]); setInitCols({}) }}
+              />
 
-          <LinkedReposCard
-            pipelineId={pipeline.id}
-            config={pipeline.config}
-            allRepos={allRepos}
-            onUpdated={newConfig => setPipelines([{ ...pipeline, config: newConfig }])}
-          />
+              <LinkedReposCard
+                pipelineId={pipeline.id}
+                config={pipeline.config}
+                allRepos={allRepos}
+                onUpdated={newConfig => setPipelines([{ ...pipeline, config: newConfig }])}
+              />
 
-          <LLMComplexityCard
-            pipelineId={pipeline.id}
-            config={pipeline.config as Record<string, string>}
-            llmOptions={llmOptions}
-            llmLoading={llmLoading}
-          />
+              <LLMComplexityCard
+                pipelineId={pipeline.id}
+                config={pipeline.config as Record<string, string>}
+                llmOptions={llmOptions}
+                llmLoading={llmLoading}
+              />
 
-          <div className="rounded-xl border border-border/40 bg-secondary/20 px-3 py-3 space-y-1 text-xs text-muted-foreground">
-            <p className="font-semibold text-foreground text-xs mb-1.5">Prioridade do modelo</p>
-            <div className="flex items-start gap-1.5"><span className="text-primary shrink-0">1</span><span>Modelo definido no agente (coluna → atribuição)</span></div>
-            <div className="flex items-start gap-1.5"><span className="text-primary shrink-0">2</span><span>Regra por complexidade da tarefa</span></div>
-            <div className="flex items-start gap-1.5"><span className="text-primary shrink-0">3</span><span>Padrão do provider configurado em Integrações</span></div>
+              {/* Model priority legend */}
+              <div className="rounded-xl border border-border/40 bg-secondary/20 px-3 py-3 space-y-1.5 text-xs">
+                <p className="font-semibold text-foreground text-xs">Prioridade do modelo</p>
+                {[
+                  'Modelo definido no agente (coluna → atribuição)',
+                  'Regra por complexidade da tarefa',
+                  'Padrão do provider em Integrações',
+                ].map((text, i) => (
+                  <div key={i} className="flex items-start gap-2 text-muted-foreground">
+                    <span className="text-primary font-semibold shrink-0 w-3 text-center">{i + 1}</span>
+                    <span>{text}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* RIGHT: column configurator — main workspace */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-5">
+              <ColumnConfigurator
+                pipelineId={pipeline.id}
+                initialColumns={initCols[pipeline.id] ?? []}
+                agents={agents}
+                llmOptions={llmOptions}
+                repos={allRepos.filter(r => {
+                  const ids = Array.isArray(pipeline.config.linkedRepoIds)
+                    ? (pipeline.config.linkedRepoIds as number[])
+                    : []
+                  return ids.length === 0 || ids.includes(r.id)
+                })}
+              />
+            </div>
           </div>
         </div>
-
-        {/* RIGHT: column configurator */}
-        <div>
-          <ColumnConfigurator
-            pipelineId={pipeline.id}
-            initialColumns={initCols[pipeline.id] ?? []}
-            agents={agents}
-            llmOptions={llmOptions}
-            repos={allRepos.filter(r => {
-              const ids = Array.isArray(pipeline.config.linkedRepoIds) ? (pipeline.config.linkedRepoIds as number[]) : []
-              return ids.length === 0 || ids.includes(r.id)
-            })}
-          />
-        </div>
-      </div>
       )}
     </div>
   )
