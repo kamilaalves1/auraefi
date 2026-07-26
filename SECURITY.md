@@ -1,68 +1,42 @@
-# Security Policy
+# Política de Segurança
 
-## Reporting a Vulnerability
+## Reportar uma Vulnerabilidade
 
-If you discover a security vulnerability in Mission Control, please report it responsibly.
+Se você encontrar uma vulnerabilidade de segurança, **não abra uma issue pública**. Entre em contato diretamente com a mantenedora do projeto via [GitHub Issues privado](https://github.com/kamilaalves1/vertex-control-center/security/advisories/new).
 
-**Do not open a public issue.** Instead, email security@builderz.dev with:
+Inclua:
+- Descrição da vulnerabilidade
+- Passos para reproduzir
+- Impacto potencial
+- Sugestão de correção (se houver)
 
-- Description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Suggested fix (if any)
+## Checklist de Hardening
 
-We will acknowledge receipt within 48 hours and aim to provide a fix or mitigation within 7 days for critical issues.
+### Credenciais
+- [ ] `AUTH_PASS` é uma senha forte e única (mín. 12 caracteres)
+- [ ] `API_KEY` é uma string aleatória (não o padrão gerado em dev)
+- [ ] `AUTH_SECRET` é uma string aleatória longa
+- [ ] Arquivo `.env` tem permissões `600` (somente leitura pelo dono)
 
-## Supported Versions
-
-| Version | Supported |
-|---------|-----------|
-| latest `main` | Yes |
-| older releases | Best effort |
-
-## Security Considerations
-
-Mission Control handles authentication credentials and API keys. When deploying:
-
-- Always set strong values for `AUTH_PASS` and `API_KEY`.
-- Use `MC_ALLOWED_HOSTS` to restrict network access in production.
-- Keep `.env` files out of version control (already in `.gitignore`).
-- Enable `MC_COOKIE_SECURE=1` when serving over HTTPS.
-- Review the [Environment Variables](README.md#environment-variables) section for all security-relevant configuration.
-
-## Hardening Checklist
-
-Run `bash scripts/security-audit.sh` to check your deployment automatically.
-
-### Credentials
-- [ ] `AUTH_PASS` is a strong, unique password (12+ characters)
-- [ ] `API_KEY` is a random hex string (not the default)
-- [ ] `AUTH_SECRET` is a random string
-- [ ] `.env` file permissions are `600` (owner read/write only)
-
-### Network
-- [ ] `MC_ALLOWED_HOSTS` is configured (not `MC_ALLOW_ANY_HOST=1`)
-- [ ] Dashboard is behind a reverse proxy with TLS (Caddy, nginx, Tailscale)
-- [ ] `MC_ENABLE_HSTS=1` is set for HTTPS deployments
-- [ ] `MC_COOKIE_SECURE=1` is set for HTTPS deployments
+### Rede
+- [ ] `MC_ALLOWED_HOSTS` configurado com os hostnames permitidos
+- [ ] Dashboard atrás de reverse proxy com TLS (nginx, Caddy, Traefik)
+- [ ] `MC_ENABLE_HSTS=1` configurado para deployments HTTPS
+- [ ] `MC_COOKIE_SECURE=1` configurado para deployments HTTPS
 - [ ] `MC_COOKIE_SAMESITE=strict`
+- [ ] `MC_TRUSTED_PROXIES` configurado com o IP do reverse proxy
 
-### Docker (if applicable)
-- [ ] Use the hardened compose overlay: `docker compose -f docker-compose.yml -f docker-compose.hardened.yml up`
-- [ ] Container runs as non-root user (default: `nextjs`, UID 1001)
-- [ ] Read-only filesystem with tmpfs for temp dirs
-- [ ] All Linux capabilities dropped except `NET_BIND_SERVICE`
-- [ ] `no-new-privileges` security option enabled
-- [ ] Log rotation configured (max-size, max-file)
+### Docker
+- [ ] Usar o overlay de hardening: `docker compose -f docker-compose.yml -f docker-compose.hardened.yml up`
+- [ ] Container roda como usuário não-root (`nextjs`, UID 1001)
+- [ ] Filesystem read-only com tmpfs para diretórios temporários
+- [ ] Todas as capabilities Linux removidas exceto `NET_BIND_SERVICE`
+- [ ] Opção de segurança `no-new-privileges` habilitada
+- [ ] Rotação de logs configurada (max-size, max-file)
 
+### Monitoramento
+- [ ] Rate limiting ativo (`MC_DISABLE_RATE_LIMIT` NÃO definido)
+- [ ] Audit logging habilitado com retenção adequada
+- [ ] Backups regulares do banco de dados configurados
 
-- [ ] Gateway bound to localhost (``)
-- [ ] Gateway token configured (``)
-- [ ] Gateway token NOT exposed via `NEXT_PUBLIC_*` variables
-
-### Monitoring
-- [ ] Rate limiting is active (`MC_DISABLE_RATE_LIMIT` is NOT set)
-- [ ] Audit logging is enabled with appropriate retention
-- [ ] Regular database backups configured
-
-See [docs/SECURITY-HARDENING.md](docs/SECURITY-HARDENING.md) for the full hardening guide.
+Consulte a seção [Segurança](README.md#segurança) do README para detalhes de cada controle implementado.
