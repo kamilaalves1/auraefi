@@ -577,6 +577,183 @@ Configure `MC_TRUSTED_PROXIES=127.0.0.1` e `MC_ENABLE_HSTS=1` no seu ambiente.
 
 ---
 
+## Arquitetura AWS — Modelo C4
+
+### Nível 1 — Contexto do Sistema
+
+Visão de alto nível de quem usa o sistema e quais sistemas externos ele precisa acessar.
+
+```mermaid
+C4Context
+    title Contexto do Sistema — Vertex Control Center
+
+    Person(operador, "Operador / Admin", "Acessa o dashboard via browser para configurar pipelines, monitorar agentes e analisar custos")
+    Person(agente, "Processo Agente", "Agente autônomo que se registra, recebe tarefas e reporta resultados via REST API")
+
+    System(vcc, "Vertex Control Center", "Dashboard de orquestração de agentes de IA. Gerencia frota, pipelines, custos e eventos em tempo real.")
+
+    System_Ext(jira, "JIRA / Azure DevOps", "Backlog de projetos. O VCC lê cards, posta comentários e transiciona status automaticamente.")
+    System_Ext(github, "GitHub", "Repositórios de código. O VCC cria PRs, posta comentários e atualiza status de CI.")
+    System_Ext(llm, "LLM Provider", "API de modelos de linguagem (Anthropic, Ollama, etc). O VCC envia prompts e recebe completions.")
+
+    Rel(operador, vcc, "Acessa via HTTPS", "Browser")
+    Rel(agente, vcc, "Registra, heartbeat, reporta tarefas", "HTTPS REST")
+    Rel(vcc, jira, "Lê cards, posta comentários, transiciona status", "HTTPS REST API")
+    Rel(vcc, github, "Lê/cria PRs, branches e comentários", "HTTPS REST API")
+    Rel(vcc, llm, "Envia tarefas, recebe completions", "HTTPS")
+```
+
+---
+
+### Nível 2 — Containers (Deploy AWS)
+
+Detalhamento dos componentes dentro do sistema e como se conectam na infraestrutura AWS.
+
+```mermaid
+C4Container
+    title Containers — Deploy AWS
+
+    Person(operador, "Operador", "Acessa via browser")
+    Person(agente, "Processo Agente", "Integração via REST")
+
+    Boundary(aws, "AWS — Conta de Produção") {
+
+        Boundary(vpc, "VPC (10.0.0.0/16)") {
+
+            Boundary(pub, "Subnet Pública") {
+                Container(alb, "Application Load Balancer", "AWS ALB", "Termina TLS (ACM), roteia tráfego para ECS. Expõe porta 443.")
+            }
+
+            Boundary(priv, "Subnet Privada") {
+                Container(ecs, "ECS Fargate Task", "Docker · Next.js 16 · Node 22", "Aplicação principal. Stateless — persiste dados no EFS. Porta 3000.")
+                ContainerDb(efs, "EFS (SQLite)", "AWS Elastic File System", "Armazena mission-control.db com acesso persistente montado em /app/.data")
+                Container(nat, "NAT Gateway", "AWS NAT Gateway", "Permite saída à internet (JIRA, GitHub, LLM API) sem expor IP privado")
+            }
+        }
+
+        Container(secrets, "Secrets Manager", "AWS Secrets Manager", "Armazena AUTH_SECRET, API_KEY, JIRA token, GitHub token, LLM API key")
+        Container(ecr, "ECR", "AWS Elastic Container Registry", "Repositório privado da imagem Docker da aplicação")
+        Container(cw, "CloudWatch", "AWS CloudWatch", "Logs de container, métricas de CPU/memória e alarmes")
+        Container(r53, "Route 53", "AWS Route 53", "DNS: control.suaempresa.com → ALB")
+        Container(acm, "ACM", "AWS Certificate Manager", "Certificado TLS para o domínio — renovação automática")
+    }
+
+    System_Ext(jira, "JIRA / Azure DevOps", "Backlog externo")
+    System_Ext(github, "GitHub", "Repositórios de código")
+    System_Ext(llm, "LLM Provider API", "Modelos de linguagem")
+
+    Rel(operador, r53, "HTTPS", "Browser")
+    Rel(agente, alb, "HTTPS REST", "Bearer token")
+    Rel(r53, alb, "Resolve DNS", "A record")
+    Rel(alb, ecs, "HTTP :3000", "Target Group")
+    Rel(ecs, efs, "Mount /app/.data", "NFS")
+    Rel(ecs, secrets, "GetSecretValue", "IAM + TLS")
+    Rel(ecs, cw, "PutLogEvents", "IAM + TLS")
+    Rel(ecs, nat, "Saída internet", "TCP")
+    Rel(nat, jira, "HTTPS REST API", "Porta 443")
+    Rel(nat, github, "HTTPS REST API", "Porta 443")
+    Rel(nat, llm, "HTTPS", "Porta 443")
+    Rel(ecr, ecs, "Pull imagem", "IAM + TLS")
+```
+
+---
+
+### Permissões Necessárias
+
+#### IAM — Task Role do ECS
+
+A IAM Role atribuída à task precisa das seguintes permissões mínimas:
+
+```json
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "SecretsRead",
+      "Effect": "Allow",
+      "Action": ["secretsmanager:GetSecretValue"],
+      "Resource": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:vertex-control-center/*"
+    },
+    {
+      "Sid": "EFSAccess",
+      "Effect": "Allow",
+      "Action": [
+        "elasticfilesystem:ClientMount",
+        "elasticfilesystem:ClientWrite",
+        "elasticfilesystem:ClientRootAccess"
+      ],
+      "Resource": "arn:aws:elasticfilesystem:REGION:ACCOUNT_ID:file-system/EFS_ID"
+    },
+    {
+      "Sid": "Logs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents"
+      ],
+      "Resource": "arn:aws:logs:REGION:ACCOUNT_ID:log-group:/ecs/vertex-control-center:*"
+    },
+    {
+      "Sid": "ECRPull",
+      "Effect": "Allow",
+      "Action": [
+        "ecr:GetAuthorizationToken",
+        "ecr:BatchCheckLayerAvailability",
+        "ecr:GetDownloadUrlForLayer",
+        "ecr:BatchGetImage"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
+```
+
+#### GitHub — Permissões do GitHub App
+
+Crie um **GitHub App** (recomendado sobre PAT para produção) com as seguintes permissões de repositório:
+
+| Permissão | Nível | Para que serve |
+|---|---|---|
+| `Contents` | Read & Write | Ler código, criar/commitar arquivos, criar branches |
+| `Pull requests` | Read & Write | Criar, revisar e mergear PRs |
+| `Issues` | Read & Write | Criar issues, postar comentários |
+| `Commit statuses` | Read & Write | Atualizar status de CI/CD em commits |
+| `Actions` | Read | Ler resultados de workflows |
+| `Metadata` | Read | Obrigatório pelo GitHub |
+| `Checks` | Read & Write | Criar check runs com resultados de agentes |
+
+> Instale o GitHub App nos repositórios que o pipeline precisa acessar. Armazene o **App ID**, **Installation ID** e **Private Key** no Secrets Manager.
+
+#### JIRA — Permissões da API Token
+
+Use uma conta de serviço dedicada (não uma conta pessoal) com as seguintes permissões no projeto:
+
+| Permissão | Para que serve |
+|---|---|
+| Browse Projects | Ler cards e estrutura do board |
+| Create Issues | Criar cards quando necessário |
+| Edit Issues | Atualizar campos dos cards |
+| Transition Issues | Mover cards entre colunas do pipeline |
+| Add Comments | Postar resultados dos agentes nos cards |
+| View Read-only Workflow | Ler a configuração de colunas do board |
+| Assign Issues | Atribuir cards a membros da equipe |
+
+> Gere o token em **Atlassian Account Settings → Security → API tokens** e armazene no Secrets Manager.
+
+#### Secrets Manager — O que armazenar
+
+Crie um secret por grupo com o prefixo `vertex-control-center/`:
+
+| Secret | Chaves | Descrição |
+|---|---|---|
+| `vertex-control-center/app` | `AUTH_SECRET`, `API_KEY`, `AUTH_PASS` | Credenciais internas da aplicação |
+| `vertex-control-center/jira` | `JIRA_API_TOKEN`, `JIRA_EMAIL`, `JIRA_HOST` | Acesso ao JIRA |
+| `vertex-control-center/github` | `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID`, `GITHUB_PRIVATE_KEY` | Acesso ao GitHub |
+| `vertex-control-center/llm` | `LLM_API_KEY`, `LLM_BASE_URL` | Acesso ao provedor de LLM |
+
+---
+
 ## Licença
 
 MIT — veja [LICENSE](LICENSE).
