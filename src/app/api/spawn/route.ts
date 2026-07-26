@@ -58,20 +58,48 @@ export async function POST(request: NextRequest) {
     // Generate spawn ID
     const spawnId = `spawn-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
-    const spawnPayload = {
-      task: resolvedTask,
-      label: resolvedLabel,
-      ...(model ? { model } : {}),
-      runTimeoutSeconds: timeout,
-      tools: {
-        profile: getPreferredToolsProfile(),
-      },
-    }
-
     try {
       const compatibilityFallbackUsed = false
-      const result: any = null
       const sessionInfo: string | null = null
+
+      // Dispatch via internalized Anthropic API — no external binary required
+      const apiKey = (process.env.ANTHROPIC_API_KEY || '').trim()
+      if (!apiKey) {
+        return NextResponse.json(
+          { error: 'ANTHROPIC_API_KEY is not configured — cannot dispatch agent task' },
+          { status: 503 }
+        )
+      }
+
+      const selectedModel = model || 'claude-sonnet-4-6'
+      const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-api-key': apiKey,
+          'anthropic-version': '2023-06-01',
+        },
+        body: JSON.stringify({
+          model: selectedModel,
+          max_tokens: 4096,
+          messages: [{ role: 'user', content: resolvedTask }],
+        }),
+        signal: timeoutSeconds ? AbortSignal.timeout(timeoutSeconds * 1000) : undefined,
+      })
+
+      let agentResult: string | null = null
+      if (apiRes.ok) {
+        const data = await apiRes.json() as {
+          content: Array<{ type: string; text?: string }>
+        }
+        agentResult = data.content
+          ?.filter((b: { type: string }) => b.type === 'text')
+          .map((b: { text?: string }) => b.text || '')
+          .join('\n') || null
+      } else {
+        const errBody = await apiRes.text().catch(() => '')
+        logger.warn({ status: apiRes.status, body: errBody.substring(0, 200) }, 'Claude API spawn error')
+      }
 
       const ipAddress = request.headers.get('x-forwarded-for') || request.headers.get('x-real-ip') || 'unknown'
       logAuditEvent({
@@ -80,7 +108,7 @@ export async function POST(request: NextRequest) {
         actor_id: auth.user.id,
         detail: {
           spawnId,
-          model: model ?? null,
+          model: selectedModel,
           label: resolvedLabel,
           task_summary: resolvedTask.length > 120 ? resolvedTask.slice(0, 120) + '...' : resolvedTask,
           toolsProfile: getPreferredToolsProfile(),
@@ -94,11 +122,11 @@ export async function POST(request: NextRequest) {
         spawnId,
         sessionInfo,
         task: resolvedTask,
-        model: model ?? null,
+        model: selectedModel,
         label: resolvedLabel,
         timeoutSeconds: timeout,
         createdAt: Date.now(),
-        result,
+        result: agentResult,
         compatibility: {
           toolsProfile: getPreferredToolsProfile(),
           fallbackUsed: compatibilityFallbackUsed,
