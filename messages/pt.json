@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "save": "Salvar",
     "cancel": "Cancelar",
@@ -30,7 +30,7 @@
     "moreIssues": "+ {count} {count, plural, one {problema a mais} other {problemas a mais}}"
   },
   "auth": {
-    "missionControl": "Mission Control",
+    "missionControl": "Vertex Control Center",
     "signInToContinue": "Entre para continuar",
     "username": "Nome de usuário",
     "password": "Senha",
@@ -48,10 +48,10 @@
     "accessRequestDescription": "Sua solicitação foi enviada a um administrador para análise. Você poderá entrar após a aprovação.",
     "tryAgain": "Tentar novamente",
     "noAdminAccount": "Nenhuma conta de administrador criada ainda",
-    "noAdminDescription": "Configure sua conta de administrador para começar a usar o Mission Control.",
+    "noAdminDescription": "Configure sua conta de administrador para começar a usar o Vertex Control Center.",
     "createAdminAccount": "Criar conta de administrador",
-    "welcomeToMC": "Bem-vindo ao Mission Control",
-    "settingUpMC": "Configurando o Mission Control",
+    "welcomeToMC": "Bem-vindo ao Vertex Control Center",
+    "settingUpMC": "Configurando o Vertex Control Center",
     "createAdminToStart": "Crie sua conta de administrador para começar",
     "creatingAdmin": "Criando sua conta de administrador...",
     "displayName": "Nome de exibição",
@@ -119,7 +119,7 @@
     "chatSettings": "Chat",
     "gatewaySettings": "gateway",
     "title": "Configurações",
-    "description": "Configure o comportamento do Mission Control e as políticas de retenção",
+    "description": "Configure o comportamento do Vertex Control Center e as políticas de retenção",
     "discard": "Descartar",
     "save": "Salvar",
     "saving": "Salvando...",
@@ -142,7 +142,7 @@
     "resetting": "Redefinindo..."
   },
   "boot": {
-    "missionControl": "Mission Control",
+    "missionControl": "Vertex Control Center",
     "agentOrchestration": "Orquestração de agentes",
     "authenticatingOperator": "Autenticando operador",
     "detectingStationMode": "Detectando modo da estação",
@@ -233,7 +233,7 @@
     "updating": "Atualizando...",
     "restartingServer": "Reiniciando servidor...",
     "updateAvailable": "Atualização disponível: v{version}",
-    "newerVersionAvailable": " — uma versão mais recente do Mission Control está disponível.",
+    "newerVersionAvailable": " — uma versão mais recente do Vertex Control Center está disponível.",
     "updateFailed": "Falha na atualização",
     "networkError": "Erro de rede — não foi possível conectar ao servidor."
   },
@@ -292,7 +292,7 @@
     "stationOnline": "Estação online",
     "stationReady": "Sua estação está pronta para os agentes.",
     "welcome": {
-      "title": "Bem-vindo ao Mission Control",
+      "title": "Bem-vindo ao Vertex Control Center",
       "description": "Sua estação para agentes de IA. Quando os agentes se conectam aqui, eles ganham memória persistente, gerenciamento de tarefas, fluxos de trabalho coordenados e observabilidade completa. Escaneamos sua configuração — aqui está o que está online.",
       "availableModes": "Modos disponíveis",
       "localMode": "Modo local",
@@ -311,7 +311,7 @@
       "localModeNoGateway": "Modo local — sem gateway",
       "agentsRegistered": "{count} {count, plural, one {agente registrado} other {agentes registrados}}",
       "noAgentsYet": "Nenhum agente ainda",
-      "gatewayRegistered": "gateway: Mission Control registrado",
+      "gatewayRegistered": "gateway: Vertex Control Center registrado",
       "gatewayRegistrationPending": "Registro do gateway pendente",
       "skipSetup": "Pular configuração",
       "getStarted": "Começar"
@@ -332,9 +332,9 @@
     },
     "gatewayLink": {
       "title": "Link do Gateway",
-      "description": "O Mission Control registra sua origem no gateway Vertex para se conectar via WebSocket e gerenciar agentes remotamente.",
+      "description": "O Vertex Control Center registra sua origem no gateway Vertex para se conectar via WebSocket e gerenciar agentes remotamente.",
       "originRegistered": "Origem do gateway registrada",
-      "originAdded": "Origem do Mission Control adicionada ao allowedOrigins do gateway",
+      "originAdded": "Origem do Vertex Control Center adicionada ao allowedOrigins do gateway",
       "registrationPending": "Registro pendente — será configurado na próxima verificação de capacidades",
       "deviceAuthConfigured": "Autenticação de dispositivo configurada",
       "deviceAuthDisabled": "Autenticação de dispositivo desabilitada — MC se autentica via token do gateway",
@@ -1218,7 +1218,7 @@
     "openingFlightDeck": "Abrindo Flight Deck...",
     "flightDeckCompanion": "Aplicativo companheiro privado/pro para análise profunda de sessões",
     "flightDeckRequired": "Flight Deck Necessário",
-    "flightDeckDescription": "Flight Deck é o aplicativo companheiro privado/pro do Mission Control.",
+    "flightDeckDescription": "Flight Deck é o aplicativo companheiro privado/pro do Vertex Control Center.",
     "flightDeckNotInstalled": "Parece que o Flight Deck não está instalado nesta máquina. Instale-o para abrir sessões de agentes com controles e diagnósticos mais ricos.",
     "maybeLater": "Talvez Depois",
     "downloadFlightDeck": "Baixar Flight Deck",
@@ -1231,7 +1231,7 @@
   },
   "githubSync": {
     "title": "Sincronização de Issues do GitHub",
-    "subtitle": "Importe Issues do GitHub como tarefas do Mission Control",
+    "subtitle": "Importe Issues do GitHub como tarefas do Vertex Control Center",
     "loading": "Carregando sincronização do GitHub...",
     "connectedAs": "GitHub: {user}",
     "notConfigured": "GitHub: não configurado",
@@ -1810,12 +1810,12 @@
   },
   "webhooks": {
     "title": "Webhooks",
-    "subtitle": "Conecte o Mission Control a ferramentas externas. Quando um evento ocorrer aqui — erro de agente, nova tarefa, login suspeito — seu sistema recebe uma chamada HTTP em tempo real.",
+    "subtitle": "Conecte o Vertex Control Center a ferramentas externas. Quando um evento ocorrer aqui — erro de agente, nova tarefa, login suspeito — seu sistema recebe uma chamada HTTP em tempo real.",
     "useCases": "Integre com: Slack · Discord · Zapier · Make · n8n · sistemas internos",
     "configured": "{count, plural, one {# webhook ativo} other {# webhooks ativos}}",
     "addWebhook": "Novo webhook",
     "secretLabel": "Segredo de assinatura — copie agora",
-    "secretWarning": "Este código não será exibido novamente. Use-o no seu servidor para verificar que os disparos vieram do Mission Control.",
+    "secretWarning": "Este código não será exibido novamente. Use-o no seu servidor para verificar que os disparos vieram do Vertex Control Center.",
     "copySecret": "Copiar",
     "secretCopied": "Copiado!",
     "dismiss": "Ok, já salvei",
@@ -1831,7 +1831,7 @@
     "running": "Executando...",
     "run": "Executar agora",
     "noWebhooks": "Nenhum webhook configurado ainda",
-    "noWebhooksDesc": "Crie um webhook para que o Mission Control notifique seu sistema automaticamente sempre que algo importante acontecer.",
+    "noWebhooksDesc": "Crie um webhook para que o Vertex Control Center notifique seu sistema automaticamente sempre que algo importante acontecer.",
     "noWebhooksExamples": "Exemplos: alertar o Slack quando um agente falhar · registrar tarefas criadas em planilhas · acionar pipelines no seu CI/CD.",
     "allEvents": "Todos os eventos",
     "eventCount": "{count, plural, one {# evento} other {# eventos}}",
@@ -2002,7 +2002,7 @@
     "whatIsBody": "Um pipeline é uma sequência fixa de modelos de workflow (prompts) que rodam um após o outro — como uma linha de CI/CD para trabalho dos agentes. Use quando o mesmo processo em várias etapas se repete para cada feature ou ticket.",
     "whatIsStep1": "Crie os modelos de workflow primeiro (aba Fluxos) — cada modelo é o roteiro de uma etapa.",
     "whatIsStep2": "Adicione pelo menos duas etapas aqui em ordem: a etapa 1 roda, depois a 2, e assim por diante.",
-    "whatIsStep3": "Use Executar no pipeline para iniciar; avance cada etapa quando a execução do agente terminar (o Mission Control não detecta fim sozinho salvo integração).",
+    "whatIsStep3": "Use Executar no pipeline para iniciar; avance cada etapa quando a execução do agente terminar (o Vertex Control Center não detecta fim sozinho salvo integração).",
     "stepsSectionTitle": "Etapas em ordem",
     "stepsSectionHint": "Escolha um modelo por etapa. Mínimo duas etapas. Reordene com ↑↓.",
     "pipelineNamePlaceholder": "Nome do pipeline...",
@@ -2029,7 +2029,7 @@
   "deliveryFlow": {
     "title": "Fluxo de entrega (handoffs JIRA)",
     "subtitle": "Etapas da esquerda para a direita: quem age, status JIRA opcional, e se o trabalho é empurrado ou puxado pelo próximo ator.",
-    "journeyIntro": "Espelhe o quadro JIRA ou Azure: cada etapa corresponde a uma coluna (status). Escolha o gatilho — quando um item entra naquela coluna, o Mission Control inicia a jornada de entrega. Vincule agentes por coluna e descreva as instruções que eles seguem no cartão. A reação em tempo real depende de webhooks ou sincronização agendada.",
+    "journeyIntro": "Espelhe o quadro JIRA ou Azure: cada etapa corresponde a uma coluna (status). Escolha o gatilho — quando um item entra naquela coluna, o Vertex Control Center inicia a jornada de entrega. Vincule agentes por coluna e descreva as instruções que eles seguem no cartão. A reação em tempo real depende de webhooks ou sincronização agendada.",
     "loading": "Carregando…",
     "flowName": "Nome do fluxo",
     "flowNamePlaceholder": "ex.: Entrega de produto",
@@ -2078,7 +2078,7 @@
     "noAgentsForSquad": "Ainda não há agentes no workspace — cadastre em Agentes e volte aqui.",
     "agentInstructionsLabel": "Instruções no cartão",
     "agentInstructionsPlaceholder": "Checklist, perguntas ao humano, critérios de aceite…",
-    "agentInstructionsHint": "Exibido no Mission Control para esta coluna e pensado para futuros fios no cartão, para o agente pedir esclarecimentos ao responsável.",
+    "agentInstructionsHint": "Exibido no Vertex Control Center para esta coluna e pensado para futuros fios no cartão, para o agente pedir esclarecimentos ao responsável.",
     "triggerBadge": "Gatilho",
     "advancedParams": "Avançado: parâmetros e {{placeholders}}",
     "diagramTitle": "Diagrama do fluxo",
@@ -2143,7 +2143,7 @@
   },
   "configuration": {
     "title": "Hub de configuração",
-    "subtitle": "Cada cliente ajusta o Mission Control aqui — definições, fluxo de entrega, esteira, agentes e automações.",
+    "subtitle": "Cada cliente ajusta o Vertex Control Center aqui — definições, fluxo de entrega, esteira, agentes e automações.",
     "hubSquadNotice": "Ative a squad de agentes primeiro (tela Agentes) — assim que ativa, fluxo de entrega, pipelines, conexão com backlog e parâmetros do workspace ficam disponíveis.",
     "open": "Abrir",
     "areas": {

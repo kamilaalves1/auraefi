@@ -233,7 +233,7 @@ export function NavRail() {
           <div className="w-9 h-9 rounded-lg overflow-hidden bg-background border border-border/50 flex items-center justify-center shrink-0 hover:border-void-purple/40 hover:glow-purple transition-smooth">
             <Image
               src="/brand/mc-logo-128.png"
-              alt="Mission Control logo"
+              alt="Vertex Control Center logo"
               width={36}
               height={36}
               className="w-full h-full object-cover"

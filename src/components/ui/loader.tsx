@@ -77,7 +77,7 @@ function PageLoader({ steps }: { steps?: InitStep[] }) {
           <div className="animate-float">
             <Image
               src="/brand/mc-logo-128.png"
-              alt="Mission Control"
+              alt="Vertex Control Center"
               width={56}
               height={56}
               priority

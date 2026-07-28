@@ -86,15 +86,15 @@ export function Sidebar() {
           <div className="w-8 h-8 rounded-lg overflow-hidden bg-background border border-border/50 flex items-center justify-center">
             <Image
               src="/brand/mc-logo-128.png"
-              alt="Mission Control logo"
+              alt="Vertex Control Center logo"
               width={32}
               height={32}
               className="w-full h-full object-cover"
             />
           </div>
           <div>
-            <h2 className="font-bold text-foreground">Mission Control</h2>
-            <p className="text-xs text-muted-foreground">ClawdBot Orchestration</p>
+            <h2 className="font-bold text-foreground">Vertex Control</h2>
+            <p className="text-xs text-muted-foreground">AI Agent Orchestration</p>
           </div>
         </div>
       </div>
