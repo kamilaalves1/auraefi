@@ -26,6 +26,12 @@ export interface WorkPipelineConfigJson {
    * Defaults to "@pipeline" if not set.
    */
   botMention?: string
+  /** Fallback behaviour when primary LLM call fails: 'none' | 'fixed' | 'cascade' */
+  llm_fallback_mode?: string
+  /** Model string for 'fixed' fallback mode (e.g. "openai:gpt-4o-mini") */
+  llm_fallback_model?: string
+  /** Max additional attempts for fallback (default 2) */
+  llm_fallback_max_attempts?: string
 }
 
 export interface WorkPipelineSecrets {

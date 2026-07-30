@@ -255,14 +255,41 @@ interface LLMResult {
 
 /**
  * Parse "provider:model" string into provider + model.
- * Priority: assignmentModel (per-agent dropdown) → pipeline cfg llm_* → fallback anthropic.
+ * Priority: assignmentModel (per-agent dropdown) → complexity tier → fallback anthropic.
  */
-function resolveProviderAndModel(cfg: WorkPipelineConfigJson, assignmentModel?: string): { provider: string; model: string | null } {
-  const raw = (assignmentModel || cfg.llm_simple || cfg.llm_medium || cfg.llm_complex || '').trim()
-  if (!raw) return { provider: 'anthropic', model: null }
+
+function classifyCardComplexity(title: string, desc: string): 'simple' | 'medium' | 'complex' {
+  const text = (title + ' ' + desc).toLowerCase()
+  const complexWords = ['arquitetura', 'architect', 'análise', 'analysis', 'infraestrutura', 'infra', 'migração', 'migration', 'reestrutur', 'design system', 'segurança', 'security', 'performance', 'escalab']
+  const simpleWords  = ['bug', 'fix', 'typo', 'texto', 'ajuste', 'correção', 'corrig', 'minor', 'hotfix', 'patch', 'pequen', 'label', 'tradução', 'translation', 'renomear', 'rename']
+  if (complexWords.some(w => text.includes(w))) return 'complex'
+  if (simpleWords.some(w => text.includes(w)))  return 'simple'
+  const wordCount = desc.trim().split(/\s+/).length
+  if (wordCount > 200) return 'complex'
+  if (wordCount < 30)  return 'simple'
+  return 'medium'
+}
+
+function parseProviderModel(raw: string): { provider: string; model: string | null } {
   const idx = raw.indexOf(':')
   if (idx < 0) return { provider: raw, model: null }
   return { provider: raw.slice(0, idx), model: raw.slice(idx + 1) }
+}
+
+function resolveProviderAndModel(
+  cfg: WorkPipelineConfigJson,
+  assignmentModel?: string,
+  complexity?: 'simple' | 'medium' | 'complex',
+): { provider: string; model: string | null } {
+  if (assignmentModel?.trim()) return parseProviderModel(assignmentModel.trim())
+  const tier = complexity ?? 'medium'
+  let raw = ''
+  if (tier === 'complex') raw = cfg.llm_complex || cfg.llm_medium || cfg.llm_simple || ''
+  else if (tier === 'simple') raw = cfg.llm_simple || cfg.llm_medium || cfg.llm_complex || ''
+  else raw = cfg.llm_medium || cfg.llm_simple || cfg.llm_complex || ''
+  raw = raw.trim()
+  if (!raw) return { provider: 'anthropic', model: null }
+  return parseProviderModel(raw)
 }
 
 /** Resolve API key for a provider from env → DB integrations settings. */
@@ -900,7 +927,7 @@ async function checkAndAdvancePRCI(
   await postCardComment(run.provider, cfg, secrets, run.card_key, notifyMsg)
 
   try {
-    const llmResult = await callAgentLLM(devAgent, fixPrompt, cfg, devAssignment.llm_model)
+    const llmResult = await callAgentLLM(devAgent, fixPrompt, cfg, devAssignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
     const nowDone = Math.floor(Date.now() / 1000)
 
     // Log token usage
@@ -963,21 +990,63 @@ async function checkAndAdvancePRCI(
 
 // ─── LLM caller ───────────────────────────────────────────────────────────────
 
-async function callAgentLLM(agent: AgentFullRow, prompt: string, cfg: WorkPipelineConfigJson, assignmentModel?: string): Promise<LLMResult> {
-  const { provider, model: cfgModel } = resolveProviderAndModel(cfg, assignmentModel)
+function dispatchLLM(agent: AgentFullRow, prompt: string, cfg: WorkPipelineConfigJson, provider: string, model: string | null): Promise<LLMResult> {
   const apiKey = resolveApiKey(provider)
-
   switch (provider) {
-    case 'gemini':   return callGeminiLLM(agent, prompt, apiKey, cfgModel)
-    case 'ollama':   return callOllamaLLM(agent, prompt, cfg, cfgModel)
+    case 'gemini':    return callGeminiLLM(agent, prompt, apiKey, model)
+    case 'ollama':    return callOllamaLLM(agent, prompt, cfg, model)
     case 'openai':
     case 'openrouter':
     case 'venice':
     case 'nvidia':
     case 'moonshot':
     case 'deepseek':
-    case 'groq':      return callOpenAICompatLLM(agent, prompt, provider, apiKey, cfgModel)
-    default:         return callAnthropicLLM(agent, prompt, apiKey ?? '', cfgModel)
+    case 'groq':      return callOpenAICompatLLM(agent, prompt, provider, apiKey, model)
+    default:          return callAnthropicLLM(agent, prompt, apiKey ?? '', model)
+  }
+}
+
+async function callAgentLLM(
+  agent: AgentFullRow,
+  prompt: string,
+  cfg: WorkPipelineConfigJson,
+  assignmentModel?: string,
+  complexity?: 'simple' | 'medium' | 'complex',
+): Promise<LLMResult> {
+  const primary = resolveProviderAndModel(cfg, assignmentModel, complexity)
+
+  try {
+    return await dispatchLLM(agent, prompt, cfg, primary.provider, primary.model)
+  } catch (primaryErr: any) {
+    const fallbackMode = (cfg.llm_fallback_mode || 'none').trim()
+    if (fallbackMode === 'none') throw primaryErr
+
+    // Build ordered list of fallback model strings to try
+    const fallbackCandidates: string[] = []
+    if (fallbackMode === 'fixed') {
+      const fb = (cfg.llm_fallback_model || '').trim()
+      if (fb) fallbackCandidates.push(fb)
+    } else if (fallbackMode === 'cascade') {
+      // Try remaining configured tiers in order: complex → medium → simple
+      const cascade = [cfg.llm_complex, cfg.llm_medium, cfg.llm_simple].filter(Boolean) as string[]
+      const usedRaw = assignmentModel?.trim() || (primary.model ? `${primary.provider}:${primary.model}` : primary.provider)
+      for (const m of cascade) {
+        if (m.trim() !== usedRaw) fallbackCandidates.push(m.trim())
+      }
+    }
+
+    const maxAttempts = Math.max(1, Number(cfg.llm_fallback_max_attempts ?? 2))
+    let lastErr: any = primaryErr
+    for (const fb of fallbackCandidates.slice(0, maxAttempts)) {
+      try {
+        const { provider: fbProv, model: fbModel } = parseProviderModel(fb)
+        logger.warn({ primary: primary.provider, fallback: fb }, 'pipeline-engine: primary LLM failed, trying fallback')
+        return await dispatchLLM(agent, prompt, cfg, fbProv, fbModel)
+      } catch (err) {
+        lastErr = err
+      }
+    }
+    throw lastErr
   }
 }
 
@@ -1481,7 +1550,7 @@ async function startColumn(
     updateRun(run.id, { task_id: taskId ?? undefined })
 
     try {
-      const llmResult = await callAgentLLM(agent, prompt, cfg, assignment.llm_model)
+      const llmResult = await callAgentLLM(agent, prompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
       const nowDone = Math.floor(Date.now() / 1000)
 
       try {
@@ -1864,7 +1933,7 @@ async function executeMentionInstruction(
     updateRun(run.id, { task_id: taskId ?? undefined })
 
     try {
-      const llmResult = await callAgentLLM(agent, prompt, cfg, assignment.llm_model)
+      const llmResult = await callAgentLLM(agent, prompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
       const nowDone = Math.floor(Date.now() / 1000)
 
       try {
