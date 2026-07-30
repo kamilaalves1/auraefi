@@ -17,6 +17,7 @@ import { AgentCommsPanel } from '@/components/panels/agent-comms-panel'
 import { StandupPanel } from '@/components/panels/standup-panel'
 import { NotificationsPanel } from '@/components/panels/notifications-panel'
 import { UserManagementPanel } from '@/components/panels/user-management-panel'
+import { GovernancePanel } from '@/components/panels/governance-panel'
 import { AuditTrailPanel } from '@/components/panels/audit-trail-panel'
 import { WebhookPanel } from '@/components/panels/webhook-panel'
 import { SettingsPanel } from '@/components/panels/settings-panel'
@@ -487,6 +488,8 @@ function ContentRouter({ tab }: { tab: string }) {
     case 'tokens':
     case 'agent-costs':
       return <CostTrackerPanel />
+    case 'governance':
+      return <GovernancePanel />
     case 'users':
       return <UserManagementPanel />
     case 'history':

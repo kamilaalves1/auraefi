@@ -57,6 +57,7 @@ const navGroups: NavGroup[] = [
     id: 'admin',
     label: 'ADMIN',
     items: [
+      { id: 'governance', label: 'Governança', icon: <GovernanceIcon />, priority: false },
       { id: 'users', label: 'Users', icon: <UsersIcon />, priority: false },
       { id: 'audit', label: 'Audit', icon: <AuditIcon />, priority: false },
       {
@@ -1217,6 +1218,18 @@ function TokensIcon() {
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="8" cy="8" r="6.5" />
       <path d="M8 4v8M5.5 6h5a1.5 1.5 0 010 3H6" />
+    </svg>
+  )
+}
+
+function GovernanceIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1.5" y="7" width="13" height="7.5" rx="1" />
+      <path d="M8 1.5L1.5 5.5h13L8 1.5z" />
+      <line x1="8" y1="7" x2="8" y2="14.5" />
+      <line x1="4.5" y1="7" x2="4.5" y2="14.5" />
+      <line x1="11.5" y1="7" x2="11.5" y2="14.5" />
     </svg>
   )
 }

@@ -35,6 +35,7 @@ const ENTITY_FIELDS: Record<string, string[]> = {
   task: ['status', 'priority', 'assigned_to', 'title'],
   session: ['status'],
   activity: ['type', 'actor', 'entity_type'],
+  token_cost: ['daily_cost_usd', 'daily_tokens', 'total_cost_usd'],
 }
 
 const OPERATORS = [
@@ -53,6 +54,7 @@ const ENTITY_COLORS: Record<string, string> = {
   task: 'bg-blue-500/20 text-blue-400 border-blue-500/30',
   session: 'bg-green-500/20 text-green-400 border-green-500/30',
   activity: 'bg-amber-500/20 text-amber-400 border-amber-500/30',
+  token_cost: 'bg-red-500/20 text-red-400 border-red-500/30',
 }
 
 export function AlertRulesPanel() {

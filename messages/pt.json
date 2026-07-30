@@ -1,4 +1,4 @@
-﻿{
+{
   "common": {
     "save": "Salvar",
     "cancel": "Cancelar",
@@ -93,6 +93,7 @@
     "configuration": "Configuração",
     "workspaceParameters": "Parâmetros",
     "security": "Segurança",
+    "governance": "Governança",
     "users": "Usuários",
     "audit": "Auditoria",
     "gateway": "gateway",
@@ -1540,7 +1541,14 @@
     "edit": "Editar",
     "delete": "Excluir",
     "never": "Nunca",
-    "createdUser": "Usuário \"{username}\" criado"
+    "createdUser": "Usuário \"{username}\" criado",
+    "active": "Ativo",
+    "inactive": "Inativo",
+    "activate": "Ativar",
+    "deactivate": "Desativar",
+    "userActivated": "Usuário \"{username}\" ativado",
+    "userDeactivated": "Usuário \"{username}\" desativado",
+    "colStatus": "Status"
   },
   "alertRules": {
     "title": "Regras de alerta",

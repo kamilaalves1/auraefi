@@ -215,14 +215,44 @@ function evaluateRules(db: ReturnType<typeof getDatabase>, workspaceId: number) 
       // Update trigger tracking
       db.prepare('UPDATE alert_rules SET last_triggered_at = ?, trigger_count = trigger_count + 1 WHERE id = ?').run(now, rule.id)
 
-      // Create notification
       try {
         const config = JSON.parse(rule.action_config || '{}')
-        const recipient = config.recipient || 'system'
-        db.prepare(`
-          INSERT INTO notifications (recipient, type, title, message, source_type, source_id, workspace_id)
-          VALUES (?, 'alert', ?, ?, 'alert_rule', ?, ?)
-        `).run(recipient, `Alert: ${rule.name}`, rule.description || `Rule "${rule.name}" triggered`, rule.id, workspaceId)
+
+        if (rule.action_type === 'webhook' && config.url) {
+          // Fire webhook asynchronously — don't block evaluation
+          fetch(config.url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              alert: rule.name,
+              description: rule.description,
+              entity_type: rule.entity_type,
+              condition: `${rule.condition_field} ${rule.condition_operator} ${rule.condition_value}`,
+              triggered_at: new Date(now * 1000).toISOString(),
+            }),
+          }).catch(() => {})
+        } else if (rule.action_type === 'email' && config.email_to) {
+          // Email dispatch — requires SMTP config; log as notification for now
+          db.prepare(`
+            INSERT INTO notifications (recipient, type, title, message, source_type, source_id, workspace_id)
+            VALUES (?, 'alert', ?, ?, 'alert_rule', ?, ?)
+          `).run('coordinator', `📧 E-mail: ${rule.name}`, `Limite excedido. Envio para ${config.email_to} requer SMTP configurado.`, rule.id, workspaceId)
+        } else if (rule.action_type === 'block') {
+          // Block rules are evaluated on demand via /api/alerts/block-status
+          // Just update the notification so admins see it
+          const recipient = config.recipient || 'coordinator'
+          db.prepare(`
+            INSERT INTO notifications (recipient, type, title, message, source_type, source_id, workspace_id)
+            VALUES (?, 'alert', ?, ?, 'alert_rule', ?, ?)
+          `).run(recipient, `🚫 Bloqueio ativo: ${rule.name}`, `Limite excedido — novos envios LLM bloqueados. Regra: "${rule.name}"`, rule.id, workspaceId)
+        } else {
+          // Default: internal notification
+          const recipient = config.recipient || 'system'
+          db.prepare(`
+            INSERT INTO notifications (recipient, type, title, message, source_type, source_id, workspace_id)
+            VALUES (?, 'alert', ?, ?, 'alert_rule', ?, ?)
+          `).run(recipient, `Alert: ${rule.name}`, rule.description || `Rule "${rule.name}" triggered`, rule.id, workspaceId)
+        }
       } catch { /* notification creation failed */ }
     }
   }
@@ -238,6 +268,7 @@ function evaluateRule(db: ReturnType<typeof getDatabase>, rule: AlertRule, now: 
       case 'task': return evaluateTaskRule(db, rule, now, workspaceId)
       case 'session': return evaluateSessionRule(db, rule, now, workspaceId)
       case 'activity': return evaluateActivityRule(db, rule, now, workspaceId)
+      case 'token_cost': return evaluateTokenCostRule(db, rule, now, workspaceId)
       default: return false
     }
   } catch {
@@ -301,6 +332,45 @@ function evaluateActivityRule(db: ReturnType<typeof getDatabase>, rule: AlertRul
     const hourAgo = now - 3600
     const count = (db.prepare(`SELECT COUNT(*) as c FROM activities WHERE workspace_id = ? AND created_at > ? AND ${safeColumn('activities', condition_field)} = ?`).get(workspaceId, hourAgo, condition_value) as any)?.c || 0
     return count > parseInt(condition_value)
+  }
+
+  return false
+}
+
+function evaluateTokenCostRule(db: ReturnType<typeof getDatabase>, rule: AlertRule, now: number, workspaceId: number): boolean {
+  const { condition_field, condition_operator, condition_value } = rule
+  const threshold = Number(condition_value)
+
+  // Daily window: last 24h
+  const dayAgo = now - 86400
+
+  if (condition_field === 'daily_cost_usd') {
+    const row = db.prepare(
+      `SELECT COALESCE(SUM(cost_usd), 0) as total FROM token_usage WHERE workspace_id = ? AND created_at > ?`
+    ).get(workspaceId, dayAgo) as { total: number }
+    return compareValue(row.total, condition_operator, condition_value)
+  }
+
+  if (condition_field === 'daily_tokens') {
+    const row = db.prepare(
+      `SELECT COALESCE(SUM(input_tokens + output_tokens), 0) as total FROM token_usage WHERE workspace_id = ? AND created_at > ?`
+    ).get(workspaceId, dayAgo) as { total: number }
+    return compareValue(row.total, condition_operator, condition_value)
+  }
+
+  if (condition_field === 'total_cost_usd') {
+    const row = db.prepare(
+      `SELECT COALESCE(SUM(cost_usd), 0) as total FROM token_usage WHERE workspace_id = ?`
+    ).get(workspaceId) as { total: number }
+    return compareValue(row.total, condition_operator, condition_value)
+  }
+
+  if (condition_field === 'monthly_cost_usd') {
+    const monthAgo = now - 30 * 86400
+    const row = db.prepare(
+      `SELECT COALESCE(SUM(cost_usd), 0) as total FROM token_usage WHERE workspace_id = ? AND created_at > ?`
+    ).get(workspaceId, monthAgo) as { total: number }
+    return compareValue(row.total, condition_operator, condition_value)
   }
 
   return false

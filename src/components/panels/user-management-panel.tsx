@@ -177,6 +177,27 @@ export function UserManagementPanel() {
     }
   }
 
+  const handleToggleActive = async (u: UserRecord) => {
+    if (u.id === currentUser?.id) return
+    const newValue = u.is_approved === 1 ? 0 : 1
+    try {
+      const res = await fetch('/api/auth/users', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: u.id, is_approved: newValue }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        showFeedback(true, newValue === 1 ? t('userActivated', { username: u.username }) : t('userDeactivated', { username: u.username }))
+        fetchAll()
+      } else {
+        showFeedback(false, data.error || t('failedToUpdate'))
+      }
+    } catch {
+      showFeedback(false, t('networkError'))
+    }
+  }
+
   const submitReview = async (requestId: number, action: 'approve' | 'reject') => {
     setProcessingRequestId(requestId)
     try {
@@ -227,7 +248,7 @@ export function UserManagementPanel() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-5">
+    <div className="p-6 space-y-5">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-lg font-semibold text-foreground">{t('usersTitle')}</h2>
@@ -393,6 +414,7 @@ export function UserManagementPanel() {
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">{t('colProvider')}</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">{t('colRole')}</th>
               <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground hidden md:table-cell">{t('colLastLogin')}</th>
+              <th className="text-left px-4 py-2.5 text-xs font-medium text-muted-foreground">{t('colStatus')}</th>
               <th className="text-right px-4 py-2.5 text-xs font-medium text-muted-foreground">{t('colActions')}</th>
             </tr>
           </thead>
@@ -449,10 +471,25 @@ export function UserManagementPanel() {
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${roleColors[u.role] || ''}`}>{u.role}</span>
                     </td>
                     <td className="px-4 py-2.5 text-xs text-muted-foreground hidden md:table-cell">{formatDate(u.last_login_at)}</td>
+                    <td className="px-4 py-2.5 text-xs">
+                      <span className={`px-2 py-0.5 rounded-full font-medium ${u.is_approved === 0 ? 'bg-red-500/20 text-red-400' : 'bg-green-500/20 text-green-400'}`}>
+                        {u.is_approved === 0 ? t('inactive') : t('active')}
+                      </span>
+                    </td>
                     <td className="px-4 py-2.5 text-right space-x-2">
                       <Button onClick={() => startEdit(u)} variant="outline" size="xs">{t('edit')}</Button>
                       {u.id !== currentUser?.id && (
-                        <Button onClick={() => handleDelete(u)} variant="destructive" size="xs">{t('delete')}</Button>
+                        <>
+                          <Button
+                            onClick={() => handleToggleActive(u)}
+                            variant="outline"
+                            size="xs"
+                            className={u.is_approved === 0 ? 'text-green-400 border-green-500/30 hover:bg-green-500/10' : 'text-amber-400 border-amber-500/30 hover:bg-amber-500/10'}
+                          >
+                            {u.is_approved === 0 ? t('activate') : t('deactivate')}
+                          </Button>
+                          <Button onClick={() => handleDelete(u)} variant="destructive" size="xs">{t('delete')}</Button>
+                        </>
                       )}
                     </td>
                   </>

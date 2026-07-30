@@ -55,8 +55,10 @@ interface AgentRow {
 }
 
 interface AgentFullRow extends AgentRow {
-  model: string
-  instructions: string
+  model: string | null
+  instructions: string | null
+  soul_content: string | null
+  config: string | null
 }
 
 interface PipelineColumn {
@@ -237,7 +239,15 @@ function getAgentsByIds(ids: number[]): AgentFullRow[] {
   if (!ids.length) return []
   const db = getDatabase()
   const placeholders = ids.map(() => '?').join(',')
-  return db.prepare(`SELECT id, name, role, status, model, instructions FROM agents WHERE id IN (${placeholders})`).all(...ids) as AgentFullRow[]
+  const rows = db.prepare(`SELECT id, name, role, status, soul_content, config FROM agents WHERE id IN (${placeholders})`).all(...ids) as any[]
+  return rows.map(row => {
+    let cfgModel: string | null = null
+    try {
+      const cfg = row.config ? JSON.parse(row.config) : {}
+      cfgModel = cfg?.model?.primary ?? null
+    } catch { /* ignore */ }
+    return { ...row, model: cfgModel, instructions: row.soul_content } as AgentFullRow
+  })
 }
 
 // ─── Parameterized LLM layer ──────────────────────────────────────────────────
@@ -290,7 +300,7 @@ function resolveApiKey(provider: string): string | null {
 }
 
 function agentSystemPrompt(agent: AgentFullRow): string {
-  return agent.instructions?.trim() ||
+  return agent.soul_content?.trim() || agent.instructions?.trim() ||
     `You are ${agent.name}, a ${agent.role} agent. Analyze the task and provide a thorough response.`
 }
 

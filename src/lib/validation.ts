@@ -192,7 +192,7 @@ export const createWebhookSchema = z.object({
 export const createAlertSchema = z.object({
   name: z.string().min(1, 'Name is required').max(200),
   description: z.string().max(1000).optional(),
-  entity_type: z.enum(['agent', 'task', 'session', 'activity']),
+  entity_type: z.enum(['agent', 'task', 'session', 'activity', 'token_cost']),
   condition_field: z.string().min(1).max(100),
   condition_operator: z.enum(['equals', 'not_equals', 'greater_than', 'less_than', 'contains', 'count_above', 'count_below', 'age_minutes_above']),
   condition_value: z.string().min(1).max(500),
