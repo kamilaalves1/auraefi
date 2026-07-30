@@ -199,8 +199,8 @@ export function OverviewTab({
               )}
             </div>
 
-            <div className="grid grid-cols-[100px_1fr] gap-2 items-center text-sm">
-              <span className="text-muted-foreground">{t('model')}</span>
+            <div className="grid grid-cols-[100px_1fr] gap-2 items-start text-sm">
+              <span className="text-muted-foreground pt-0.5">{t('model')}</span>
               {editing ? (
                 <select
                   value={formData.model || ''}
@@ -213,9 +213,12 @@ export function OverviewTab({
                   ))}
                 </select>
               ) : (
-                <span className="text-foreground font-mono text-xs">
-                  {(() => { const p = (agent as any).config?.model?.primary; const m = (agent as any).model; const v = typeof p === 'string' ? p : p?.primary; return v || (typeof m === 'string' ? m : m?.primary) || t('default') })()}
-                </span>
+                <div className="flex flex-col gap-0.5">
+                  <span className="text-foreground font-mono text-xs">
+                    {(() => { const p = (agent as any).config?.model?.primary; const m = (agent as any).model; const v = typeof p === 'string' ? p : p?.primary; return v || (typeof m === 'string' ? m : m?.primary) || t('default') })()}
+                  </span>
+                  <span className="text-muted-foreground/60 text-[10px] leading-tight">{t('modelPipelineNote')}</span>
+                </div>
               )}
             </div>
 
