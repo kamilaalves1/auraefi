@@ -582,8 +582,6 @@
     "memorySearch": "Pesquisa na memória",
     "cancel": "Cancelar",
     "role": "Papel",
-    "model": "Modelo runtime",
-    "modelPipelineNote": "Usado no modo autônomo. O modelo do pipeline é definido no Fluxo de desenvolvimento.",
     "sessionKey": "Chave de sessão",
     "sessionKeyPlaceholder": "Chave de sessão",
     "notSet": "Não definido",

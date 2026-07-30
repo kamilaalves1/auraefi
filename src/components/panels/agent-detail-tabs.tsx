@@ -199,29 +199,6 @@ export function OverviewTab({
               )}
             </div>
 
-            <div className="grid grid-cols-[100px_1fr] gap-2 items-start text-sm">
-              <span className="text-muted-foreground pt-0.5">{t('model')}</span>
-              {editing ? (
-                <select
-                  value={formData.model || ''}
-                  onChange={(e) => setFormData((prev: any) => ({ ...prev, model: e.target.value }))}
-                  className="bg-surface-1 text-foreground border border-border rounded px-2.5 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary/50"
-                >
-                  <option value="">{t('default')}</option>
-                  {availableModels.map((m) => (
-                    <option key={m.alias} value={m.alias}>{m.alias}</option>
-                  ))}
-                </select>
-              ) : (
-                <div className="flex flex-col gap-0.5">
-                  <span className="text-foreground font-mono text-xs">
-                    {(() => { const p = (agent as any).config?.model?.primary; const m = (agent as any).model; const v = typeof p === 'string' ? p : p?.primary; return v || (typeof m === 'string' ? m : m?.primary) || t('default') })()}
-                  </span>
-                  <span className="text-muted-foreground/60 text-[10px] leading-tight">{t('modelPipelineNote')}</span>
-                </div>
-              )}
-            </div>
-
             <div className="grid grid-cols-[100px_1fr] gap-2 items-center text-sm">
               <span className="text-muted-foreground">{t('sessionKey')}</span>
               {editing ? (
