@@ -683,7 +683,7 @@ function AgentDetailModalPhase3({
   onDelete: (agentId: number, removeWorkspace: boolean) => Promise<void>
 }) {
   const [agentState, setAgentState] = useState<Agent & { config?: any; working_memory?: string }>(agent as Agent & { config?: any; working_memory?: string })
-  const [activeTab, setActiveTab] = useState<'overview' | 'instructions' | 'activity'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'instructions' | 'persona' | 'activity'>('overview')
   const [editing, setEditing] = useState(false)
   const [formData, setFormData] = useState({
     role: agent.role,
@@ -908,6 +908,7 @@ function AgentDetailModalPhase3({
   const tabs = [
     { id: 'overview', label: 'Overview', icon: 'O' },
     { id: 'instructions', label: 'Instruções', icon: 'I' },
+    { id: 'persona', label: 'Persona', icon: 'P' },
     { id: 'activity', label: 'Atividade', icon: 'A' },
   ]
 
@@ -1068,6 +1069,10 @@ function AgentDetailModalPhase3({
 
           {activeTab === 'instructions' && (
             <InstructionsTab agent={agentState} onSaved={(patch) => setAgentState(prev => ({ ...prev, ...patch }))} />
+          )}
+
+          {activeTab === 'persona' && (
+            <PersonaTab agent={agentState} onSaved={(patch) => setAgentState(prev => ({ ...prev, ...patch }))} />
           )}
 
           {activeTab === 'activity' && (
@@ -1304,6 +1309,196 @@ function InstructionsTab({
 
       <Button onClick={handleSave} disabled={saving} size="sm">
         {saving ? 'Salvando...' : 'Salvar'}
+      </Button>
+    </div>
+  )
+}
+
+// ── Persona Tab ───────────────────────────────────────────────────────────────
+
+const SPECIALTIES = [
+  { value: '',            label: 'Sem especialidade' },
+  { value: 'developer',  label: 'Developer' },
+  { value: 'reviewer',   label: 'Code Reviewer' },
+  { value: 'qa',         label: 'QA / Tester' },
+  { value: 'architect',  label: 'Architect' },
+  { value: 'sm',         label: 'Scrum Master' },
+  { value: 'po',         label: 'Product Owner' },
+  { value: 'devops',     label: 'DevOps / SRE' },
+  { value: 'analyst',    label: 'Analyst' },
+  { value: 'ux',         label: 'UX / Design' },
+  { value: 'data',       label: 'Data Engineer' },
+  { value: 'orchestrator', label: 'Orchestrator' },
+]
+
+function TagInput({
+  label, hint, values, onChange, placeholder,
+}: { label: string; hint?: string; values: string[]; onChange: (v: string[]) => void; placeholder?: string }) {
+  const [input, setInput] = useState('')
+
+  const add = () => {
+    const trimmed = input.trim()
+    if (trimmed && !values.includes(trimmed)) onChange([...values, trimmed])
+    setInput('')
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <label className="block text-sm font-medium text-foreground">{label}</label>
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      <div className="flex flex-wrap gap-1.5 min-h-[32px]">
+        {values.map((v) => (
+          <span key={v} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 text-primary text-xs">
+            {v}
+            <button type="button" onClick={() => onChange(values.filter(x => x !== v))} className="hover:text-red-400 transition-colors">×</button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={input}
+          onChange={e => setInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+          placeholder={placeholder || 'Digite e pressione Enter'}
+          className="flex-1 px-3 py-1.5 bg-surface-1 border border-border rounded text-sm text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50"
+        />
+        <button type="button" onClick={add} className="px-3 py-1.5 rounded bg-surface-1 border border-border text-xs text-muted-foreground hover:text-foreground transition-colors">
+          +
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function PersonaTab({
+  agent,
+  onSaved,
+}: {
+  agent: Agent & { persona_name?: string; specialty?: string; capabilities_json?: string; authority_level?: string; constraints_json?: string; collaboration_agents_json?: string }
+  onSaved: (patch: Partial<typeof agent>) => void
+}) {
+  const [saving, setSaving] = useState(false)
+  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const [personaName, setPersonaName] = useState(agent.persona_name || '')
+  const [specialty, setSpecialty] = useState(agent.specialty || '')
+  const [capabilities, setCapabilities] = useState<string[]>(() => {
+    try { return JSON.parse(agent.capabilities_json || '[]') } catch { return [] }
+  })
+  const [authorityLevel, setAuthorityLevel] = useState(agent.authority_level || '')
+  const [constraints, setConstraints] = useState<string[]>(() => {
+    try { return JSON.parse(agent.constraints_json || '[]') } catch { return [] }
+  })
+  const [collaborationAgents, setCollaborationAgents] = useState<string[]>(() => {
+    try { return JSON.parse(agent.collaboration_agents_json || '[]') } catch { return [] }
+  })
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/agents/${agent.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          persona_name: personaName || null,
+          specialty: specialty || null,
+          capabilities,
+          authority_level: authorityLevel || null,
+          constraints,
+          collaboration_agents: collaborationAgents,
+        }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Erro ao salvar')
+      onSaved({
+        persona_name: personaName || undefined,
+        specialty: specialty || undefined,
+        capabilities_json: JSON.stringify(capabilities),
+        authority_level: authorityLevel || undefined,
+        constraints_json: JSON.stringify(constraints),
+        collaboration_agents_json: JSON.stringify(collaborationAgents),
+      })
+      setFeedback({ ok: true, text: 'Persona salva com sucesso' })
+    } catch (err: any) {
+      setFeedback({ ok: false, text: err.message || 'Erro ao salvar' })
+    } finally {
+      setSaving(false)
+      setTimeout(() => setFeedback(null), 3000)
+    }
+  }
+
+  return (
+    <div className="p-6 space-y-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <div className="space-y-1.5">
+          <label className="block text-sm font-medium text-foreground">Nome da persona</label>
+          <p className="text-xs text-muted-foreground">Nome de personagem deste agente (ex.: River, Orion, Max).</p>
+          <input
+            value={personaName}
+            onChange={e => setPersonaName(e.target.value)}
+            placeholder="ex.: River"
+            className="w-full px-3 py-2 bg-surface-1 border border-border rounded text-sm text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50"
+          />
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="block text-sm font-medium text-foreground">Especialidade</label>
+          <p className="text-xs text-muted-foreground">Papel técnico deste agente no squad.</p>
+          <select
+            value={specialty}
+            onChange={e => setSpecialty(e.target.value)}
+            className="w-full px-3 py-2 bg-surface-1 border border-border rounded text-sm text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50"
+          >
+            {SPECIALTIES.map(s => (
+              <option key={s.value} value={s.value}>{s.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <TagInput
+        label="Capacidades"
+        hint="O que este agente sabe fazer. Adicione uma por vez e pressione Enter."
+        values={capabilities}
+        onChange={setCapabilities}
+        placeholder="ex.: Implementar APIs REST"
+      />
+
+      <div className="space-y-1.5">
+        <label className="block text-sm font-medium text-foreground">Nível de autoridade</label>
+        <p className="text-xs text-muted-foreground">O que este agente pode decidir de forma autônoma, sem aprovação humana.</p>
+        <textarea
+          value={authorityLevel}
+          onChange={e => setAuthorityLevel(e.target.value)}
+          rows={3}
+          className="w-full px-3 py-2 bg-surface-1 border border-border rounded text-sm text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50 resize-y"
+          placeholder="ex.: Pode criar branches, escrever testes e abrir PRs. Não pode aprovar merges em main nem fazer deploy."
+        />
+      </div>
+
+      <TagInput
+        label="Restrições"
+        hint="O que este agente NÃO deve fazer. Adicione uma por vez e pressione Enter."
+        values={constraints}
+        onChange={setConstraints}
+        placeholder="ex.: Não modificar arquivos de configuração de produção"
+      />
+
+      <TagInput
+        label="Agentes colaboradores"
+        hint="Nomes de outros agentes com os quais este colabora diretamente."
+        values={collaborationAgents}
+        onChange={setCollaborationAgents}
+        placeholder="ex.: dev-agent"
+      />
+
+      {feedback && (
+        <div className={`rounded-md px-3 py-2 text-xs font-medium ${feedback.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
+          {feedback.text}
+        </div>
+      )}
+
+      <Button onClick={handleSave} disabled={saving} size="sm">
+        {saving ? 'Salvando...' : 'Salvar persona'}
       </Button>
     </div>
   )

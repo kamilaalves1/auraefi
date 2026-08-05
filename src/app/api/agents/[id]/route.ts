@@ -63,7 +63,8 @@ export async function PUT(
     const { id } = await params
     const workspaceId = auth.user.workspace_id ?? 1;
     const body = await request.json()
-    const { role, gateway_config, write_to_gateway, model, instructions } = body
+    const { role, gateway_config, write_to_gateway, model, instructions,
+            persona_name, specialty, capabilities, authority_level, constraints, collaboration_agents } = body
 
     let agent
     if (isNaN(Number(id))) {
@@ -120,6 +121,31 @@ export async function PUT(
       if (instructions !== undefined) {
         fields.push('instructions = ?')
         values.push(String(instructions))
+      }
+
+      if (persona_name !== undefined) {
+        fields.push('persona_name = ?')
+        values.push(persona_name ? String(persona_name) : null)
+      }
+      if (specialty !== undefined) {
+        fields.push('specialty = ?')
+        values.push(specialty ? String(specialty) : null)
+      }
+      if (capabilities !== undefined) {
+        fields.push('capabilities_json = ?')
+        values.push(Array.isArray(capabilities) ? JSON.stringify(capabilities) : null)
+      }
+      if (authority_level !== undefined) {
+        fields.push('authority_level = ?')
+        values.push(authority_level ? String(authority_level) : null)
+      }
+      if (constraints !== undefined) {
+        fields.push('constraints_json = ?')
+        values.push(Array.isArray(constraints) ? JSON.stringify(constraints) : null)
+      }
+      if (collaboration_agents !== undefined) {
+        fields.push('collaboration_agents_json = ?')
+        values.push(Array.isArray(collaboration_agents) ? JSON.stringify(collaboration_agents) : null)
       }
 
       if (gateway_config) {

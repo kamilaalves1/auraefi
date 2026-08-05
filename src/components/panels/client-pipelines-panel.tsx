@@ -876,6 +876,351 @@ function ConnectedBacklogCard({
   )
 }
 
+// ── Workflow Templates ────────────────────────────────────────────────────────
+
+interface PhaseDefinition {
+  column_name: string
+  column_order: number
+  is_trigger: boolean
+  agent_role: string | null
+  instructions: string | null
+  timeout_seconds: number | null
+  human_checkpoint: boolean
+  on_failure: 'stop' | 'continue'
+}
+
+interface WorkflowTemplate {
+  id: number
+  workspace_id: number
+  name: string
+  description: string | null
+  category: string | null
+  is_builtin: boolean
+  phases: PhaseDefinition[]
+  created_by: string
+  use_count: number
+}
+
+const CATEGORY_META: Record<string, { label: string; icon: string; color: string }> = {
+  development: { label: 'Desenvolvimento', icon: '⚙️', color: 'text-blue-400' },
+  review:      { label: 'Revisão',         icon: '🔍', color: 'text-purple-400' },
+  qa:          { label: 'QA',              icon: '✅', color: 'text-green-400' },
+  devops:      { label: 'DevOps',          icon: '🚀', color: 'text-orange-400' },
+  full:        { label: 'Full SDLC',       icon: '🔄', color: 'text-cyan-400' },
+}
+
+const SPECIALTY_LABELS: Record<string, string> = {
+  developer: 'Developer', reviewer: 'Reviewer', qa: 'QA',
+  architect: 'Architect', sm: 'Scrum Master', po: 'Product Owner',
+  devops: 'DevOps', analyst: 'Analyst', ux: 'UX', data: 'Data Eng.', orchestrator: 'Orchestrator',
+}
+
+function PhaseRow({ phase, index, onUpdate, onRemove }: {
+  phase: PhaseDefinition; index: number
+  onUpdate: (p: Partial<PhaseDefinition>) => void
+  onRemove: () => void
+}) {
+  const inp = 'px-2 py-1.5 bg-surface-1 border border-border rounded text-sm text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50'
+
+  return (
+    <div className="flex flex-col gap-2 p-3 rounded-lg border border-border/60 bg-surface-1/40">
+      <div className="flex items-center gap-2">
+        <span className="text-xs text-muted-foreground w-5 shrink-0">{index + 1}</span>
+        <input
+          value={phase.column_name}
+          onChange={e => onUpdate({ column_name: e.target.value })}
+          className={`${inp} flex-1`}
+          placeholder="Nome da fase"
+        />
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0 cursor-pointer">
+          <input type="checkbox" checked={phase.is_trigger} onChange={e => onUpdate({ is_trigger: e.target.checked })}
+            className="w-3.5 h-3.5 accent-primary" />
+          Gatilho
+        </label>
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground shrink-0 cursor-pointer">
+          <input type="checkbox" checked={phase.human_checkpoint} onChange={e => onUpdate({ human_checkpoint: e.target.checked })}
+            className="w-3.5 h-3.5 accent-amber-400" />
+          Checkpoint
+        </label>
+        <button type="button" onClick={onRemove} className="w-6 h-6 flex items-center justify-center text-muted-foreground/40 hover:text-red-400 transition-colors text-xs shrink-0">✕</button>
+      </div>
+      <div className="flex gap-2 pl-7">
+        <select value={phase.agent_role || ''} onChange={e => onUpdate({ agent_role: e.target.value || null })} className={`${inp} w-40`}>
+          <option value="">— Agente (papel) —</option>
+          {Object.entries(SPECIALTY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <input type="number" min={0} value={phase.timeout_seconds ?? ''} onChange={e => onUpdate({ timeout_seconds: e.target.value ? Number(e.target.value) : null })}
+          className={`${inp} w-28`} placeholder="Timeout (s)" />
+        <select value={phase.on_failure} onChange={e => onUpdate({ on_failure: e.target.value as 'stop' | 'continue' })} className={`${inp} w-32`}>
+          <option value="stop">Parar em erro</option>
+          <option value="continue">Continuar em erro</option>
+        </select>
+      </div>
+      <div className="pl-7">
+        <textarea value={phase.instructions || ''} onChange={e => onUpdate({ instructions: e.target.value || null })}
+          rows={2} className={`${inp} w-full resize-none text-xs`} placeholder="Instruções para o agente nesta fase..." />
+      </div>
+    </div>
+  )
+}
+
+function TemplateEditorModal({ template, onSave, onClose }: {
+  template: Partial<WorkflowTemplate> | null
+  onSave: (t: WorkflowTemplate) => void
+  onClose: () => void
+}) {
+  const isNew = !template?.id
+  const [name, setName] = useState(template?.name || '')
+  const [description, setDescription] = useState(template?.description || '')
+  const [category, setCategory] = useState(template?.category || 'development')
+  const [phases, setPhases] = useState<PhaseDefinition[]>(
+    template?.phases?.length ? template.phases : [
+      { column_name: 'Entrada', column_order: 0, is_trigger: true, agent_role: null, instructions: null, timeout_seconds: null, human_checkpoint: false, on_failure: 'stop' },
+    ]
+  )
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+
+  const addPhase = () => setPhases(prev => [...prev, {
+    column_name: `Fase ${prev.length + 1}`, column_order: prev.length,
+    is_trigger: false, agent_role: null, instructions: null, timeout_seconds: null, human_checkpoint: false, on_failure: 'stop',
+  }])
+
+  const updatePhase = (i: number, patch: Partial<PhaseDefinition>) =>
+    setPhases(prev => prev.map((p, idx) => idx === i ? { ...p, ...patch } : p))
+
+  const removePhase = (i: number) =>
+    setPhases(prev => prev.filter((_, idx) => idx !== i).map((p, idx) => ({ ...p, column_order: idx })))
+
+  const handleSave = async () => {
+    if (!name.trim()) { setError('Nome é obrigatório'); return }
+    if (phases.length === 0) { setError('Adicione pelo menos uma fase'); return }
+    setSaving(true); setError('')
+    try {
+      const body = { name: name.trim(), description: description || null, category, phases }
+      const url = isNew ? '/api/pipeline-column-templates' : '/api/pipeline-column-templates'
+      const method = isNew ? 'POST' : 'PUT'
+      const payload = isNew ? body : { id: template!.id, ...body }
+      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Erro ao salvar')
+      onSave(data.template)
+    } catch (err: any) {
+      setError(err.message || 'Erro ao salvar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-start justify-center p-6 overflow-y-auto"
+      onClick={onClose}>
+      <div className="bg-card border border-border/80 rounded-lg shadow-2xl max-w-2xl w-full my-auto flex flex-col gap-5 p-6"
+        onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-base font-semibold text-foreground">{isNew ? 'Novo template' : 'Editar template'}</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground transition-colors text-lg leading-none">×</button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-foreground">Nome</label>
+            <input value={name} onChange={e => setName(e.target.value)}
+              className="w-full px-3 py-2 bg-surface-1 border border-border rounded text-sm text-foreground focus:border-primary/50"
+              placeholder="ex.: Ciclo de Revisão" />
+          </div>
+          <div className="space-y-1.5">
+            <label className="block text-xs font-medium text-foreground">Categoria</label>
+            <select value={category} onChange={e => setCategory(e.target.value)}
+              className="w-full px-3 py-2 bg-surface-1 border border-border rounded text-sm text-foreground focus:border-primary/50">
+              {Object.entries(CATEGORY_META).map(([v, m]) => <option key={v} value={v}>{m.icon} {m.label}</option>)}
+            </select>
+          </div>
+          <div className="sm:col-span-2 space-y-1.5">
+            <label className="block text-xs font-medium text-foreground">Descrição</label>
+            <input value={description} onChange={e => setDescription(e.target.value)}
+              className="w-full px-3 py-2 bg-surface-1 border border-border rounded text-sm text-foreground focus:border-primary/50"
+              placeholder="Descrição breve do que este template faz..." />
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-foreground">Fases ({phases.length})</label>
+            <button type="button" onClick={addPhase}
+              className="text-xs text-primary/70 hover:text-primary transition-colors">+ Adicionar fase</button>
+          </div>
+          <div className="space-y-2 max-h-[40vh] overflow-y-auto pr-1">
+            {phases.map((phase, i) => (
+              <PhaseRow key={i} phase={phase} index={i}
+                onUpdate={patch => updatePhase(i, patch)}
+                onRemove={() => removePhase(i)} />
+            ))}
+            {phases.length === 0 && (
+              <p className="text-xs text-muted-foreground text-center py-4">Nenhuma fase. Clique em "+ Adicionar fase" para começar.</p>
+            )}
+          </div>
+        </div>
+
+        {error && <p className="text-xs text-red-400">{error}</p>}
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-border/50">
+          <Button variant="ghost" size="sm" onClick={onClose}>Cancelar</Button>
+          <Button size="sm" onClick={handleSave} disabled={saving}>
+            {saving ? 'Salvando...' : isNew ? 'Criar template' : 'Salvar alterações'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function TemplatePickerView({ onApplyTemplate, onConnectBacklog, onCancel, onManageTemplates }: {
+  onApplyTemplate: (template: WorkflowTemplate, name: string) => Promise<void>
+  onConnectBacklog: () => void
+  onCancel: () => void
+  onManageTemplates: () => void
+}) {
+  const [templates, setTemplates] = useState<WorkflowTemplate[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selected, setSelected] = useState<WorkflowTemplate | null>(null)
+  const [pipelineName, setPipelineName] = useState('')
+  const [applying, setApplying] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    fetch('/api/pipeline-column-templates')
+      .then(r => r.json())
+      .then(d => setTemplates(d.templates ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleApply = async () => {
+    if (!selected) return
+    setApplying(true); setError('')
+    try {
+      await onApplyTemplate(selected, pipelineName || selected.name)
+    } catch (err: any) {
+      setError(err.message || 'Erro ao aplicar template')
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  if (selected) {
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center gap-3">
+          <button onClick={() => setSelected(null)}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors">← Voltar</button>
+          <h3 className="text-sm font-semibold text-foreground">{selected.name}</h3>
+        </div>
+
+        <div className="rounded-lg border border-border/60 p-4 space-y-4">
+          <p className="text-xs text-muted-foreground">{selected.description}</p>
+          <div className="space-y-2">
+            {selected.phases.map((phase, i) => (
+              <div key={i} className="flex items-start gap-3">
+                <div className="flex flex-col items-center gap-1 shrink-0">
+                  <div className={`w-6 h-6 rounded-full border text-xs flex items-center justify-center font-medium ${
+                    phase.is_trigger ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground'
+                  }`}>{i + 1}</div>
+                  {i < selected.phases.length - 1 && <div className="w-px h-4 bg-border/50" />}
+                </div>
+                <div className="flex-1 min-w-0 pb-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-medium text-foreground">{phase.column_name}</span>
+                    {phase.is_trigger && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-primary/10 text-primary border border-primary/20">gatilho</span>}
+                    {phase.human_checkpoint && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">checkpoint humano</span>}
+                    {phase.agent_role && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-1 text-muted-foreground border border-border">{SPECIALTY_LABELS[phase.agent_role] ?? phase.agent_role}</span>}
+                    {phase.timeout_seconds && <span className="text-[10px] text-muted-foreground/60">{Math.round(phase.timeout_seconds / 60)}min</span>}
+                  </div>
+                  {phase.instructions && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{phase.instructions}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="space-y-1.5">
+          <label className="block text-xs font-medium text-foreground">Nome do pipeline (opcional)</label>
+          <input value={pipelineName} onChange={e => setPipelineName(e.target.value)}
+            placeholder={selected.name}
+            className="w-full px-3 py-2 bg-surface-1 border border-border rounded text-sm text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50" />
+        </div>
+
+        {error && <p className="text-xs text-red-400">{error}</p>}
+
+        <div className="flex gap-2 justify-end">
+          <Button variant="ghost" size="sm" onClick={() => setSelected(null)}>Voltar</Button>
+          <Button size="sm" onClick={handleApply} disabled={applying}>
+            {applying ? 'Criando...' : 'Criar pipeline com este template'}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button onClick={onCancel}
+            className="text-xs text-muted-foreground hover:text-foreground transition-colors">← Voltar</button>
+          <h3 className="text-sm font-semibold text-foreground">Escolher template de workflow</h3>
+        </div>
+        <button onClick={onManageTemplates}
+          className="text-xs text-primary/70 hover:text-primary transition-colors">+ Criar template</button>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center justify-center py-10">
+          <div className="w-5 h-5 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {templates.map(t => {
+            const meta = CATEGORY_META[t.category || ''] ?? { label: t.category || '', icon: '📋', color: 'text-muted-foreground' }
+            return (
+              <button key={t.id} onClick={() => setSelected(t)}
+                className="text-left p-4 rounded-lg border border-border/60 hover:border-primary/40 hover:bg-primary/5 transition-all group space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">{meta.icon}</span>
+                    <span className="text-sm font-medium text-foreground">{t.name}</span>
+                  </div>
+                  {t.is_builtin && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-1 border border-border text-muted-foreground">padrão</span>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground line-clamp-2">{t.description}</p>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] font-medium ${meta.color}`}>{meta.label}</span>
+                  <span className="text-[10px] text-muted-foreground/60">·</span>
+                  <span className="text-[10px] text-muted-foreground/60">{t.phases.length} fases</span>
+                  {t.use_count > 0 && <>
+                    <span className="text-[10px] text-muted-foreground/60">·</span>
+                    <span className="text-[10px] text-muted-foreground/60">{t.use_count}× usado</span>
+                  </>}
+                </div>
+              </button>
+            )
+          })}
+        </div>
+      )}
+
+      <div className="rounded-lg border border-dashed border-border/60 p-4">
+        <p className="text-xs text-muted-foreground mb-3">Prefere conectar um backlog externo diretamente?</p>
+        <button onClick={onConnectBacklog}
+          className="inline-flex items-center gap-2 text-xs text-primary/70 hover:text-primary transition-colors">
+          <span className="text-base">🎯</span> Conectar Jira ou Azure DevOps
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Create form ───────────────────────────────────────────────────────────────
 
 function IntegrationForm({ onSuccess, onCancel }: {
@@ -1376,11 +1721,13 @@ function ColumnConfigurator({
 // ── Main panel ────────────────────────────────────────────────────────────────
 
 export function ClientPipelinesPanel() {
-  const [loading,   setLoading]   = useState(true)
-  const [pipelines, setPipelines] = useState<Pipeline[]>([])
-  const [agents,    setAgents]    = useState<Agent[]>([])
-  const [creating,  setCreating]  = useState(false)
-  const [initCols,  setInitCols]  = useState<Record<number, string[]>>({})
+  const [loading,       setLoading]       = useState(true)
+  const [pipelines,     setPipelines]     = useState<Pipeline[]>([])
+  const [agents,        setAgents]        = useState<Agent[]>([])
+  const [creating,      setCreating]      = useState(false)
+  const [creatingMode,  setCreatingMode]  = useState<'template' | 'integration' | null>(null)
+  const [initCols,      setInitCols]      = useState<Record<number, string[]>>({})
+  const [templateEditor, setTemplateEditor] = useState<Partial<WorkflowTemplate> | null | false>(false)
   const { options: llmOptions, loading: llmLoading } = useLLMOptions()
   const allRepos = useGitRepos()
 
@@ -1391,13 +1738,25 @@ export function ClientPipelinesPanel() {
     ])
     if (pRes.ok) {
       const data = await pRes.json()
-      const list: Pipeline[] = (data.pipelines ?? []).filter((p: Pipeline) => p.provider !== 'none')
-      setPipelines(list)
+      setPipelines(data.pipelines ?? [])
     }
     if (aRes.ok) setAgents((await aRes.json()).agents ?? [])
   }, [])
 
   useEffect(() => { load().finally(() => setLoading(false)) }, [load])
+
+  const handleApplyTemplate = async (template: WorkflowTemplate, name: string) => {
+    const res = await fetch(`/api/pipeline-column-templates/${template.id}/apply`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pipeline_name: name }),
+    })
+    const data = await res.json()
+    if (!res.ok) throw new Error(data.error || 'Erro ao criar pipeline')
+    setPipelines([data.pipeline])
+    setCreating(false)
+    setCreatingMode(null)
+  }
 
   const pipeline = pipelines[0] ?? null
 
@@ -1412,12 +1771,70 @@ export function ClientPipelinesPanel() {
     )
   }
 
-  /* ── Form full-screen mode ── */
+  /* ── Template editor modal ── */
+  {templateEditor !== false && (
+    <TemplateEditorModal
+      template={templateEditor}
+      onSave={() => setTemplateEditor(false)}
+      onClose={() => setTemplateEditor(false)}
+    />
+  )}
+
+  /* ── Create flow ── */
   if (creating) {
+    /* Step 1: choose mode */
+    if (!creatingMode) {
+      return (
+        <div className="p-5 space-y-5 max-w-2xl">
+          <div className="flex items-center gap-3">
+            <button onClick={() => setCreating(false)}
+              className="text-xs text-muted-foreground hover:text-foreground transition-colors">← Voltar</button>
+            <h2 className="text-base font-semibold text-foreground">Como quer começar?</h2>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button onClick={() => setCreatingMode('template')}
+              className="text-left p-5 rounded-lg border border-border/60 hover:border-primary/40 hover:bg-primary/5 transition-all space-y-2">
+              <div className="text-2xl">🧩</div>
+              <p className="text-sm font-semibold text-foreground">A partir de um template</p>
+              <p className="text-xs text-muted-foreground">Escolha um workflow pré-definido e personalize depois. Ideal para começar rápido.</p>
+            </button>
+            <button onClick={() => setCreatingMode('integration')}
+              className="text-left p-5 rounded-lg border border-border/60 hover:border-primary/40 hover:bg-primary/5 transition-all space-y-2">
+              <div className="text-2xl">🔌</div>
+              <p className="text-sm font-semibold text-foreground">Conectar backlog externo</p>
+              <p className="text-xs text-muted-foreground">Integre com Jira ou Azure DevOps e importe colunas automaticamente.</p>
+            </button>
+          </div>
+        </div>
+      )
+    }
+
+    /* Step 2a: template picker */
+    if (creatingMode === 'template') {
+      return (
+        <div className="p-5 max-w-2xl">
+          {templateEditor !== false && (
+            <TemplateEditorModal
+              template={templateEditor}
+              onSave={() => setTemplateEditor(false)}
+              onClose={() => setTemplateEditor(false)}
+            />
+          )}
+          <TemplatePickerView
+            onApplyTemplate={handleApplyTemplate}
+            onConnectBacklog={() => setCreatingMode('integration')}
+            onCancel={() => { setCreating(false); setCreatingMode(null) }}
+            onManageTemplates={() => setTemplateEditor({})}
+          />
+        </div>
+      )
+    }
+
+    /* Step 2b: integration form */
     return (
       <div className="p-5 space-y-5">
         <div className="flex items-center gap-3">
-          <button onClick={() => setCreating(false)}
+          <button onClick={() => setCreatingMode(null)}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
             ← Voltar
           </button>
@@ -1428,8 +1845,9 @@ export function ClientPipelinesPanel() {
             setPipelines([p])
             setInitCols({ [p.id]: cols })
             setCreating(false)
+            setCreatingMode(null)
           }}
-          onCancel={() => setCreating(false)}
+          onCancel={() => { setCreating(false); setCreatingMode(null) }}
         />
       </div>
     )
