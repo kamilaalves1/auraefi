@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGetAll, dbGetOne, dbRun } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { randomBytes } from 'crypto'
 import { mutationLimiter } from '@/lib/rate-limit'
@@ -40,9 +40,8 @@ export async function GET(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
-    const webhooks = db.prepare(`
+    const webhooks = await dbGetAll<any>(`
       SELECT w.*,
         (SELECT COUNT(*) FROM webhook_deliveries wd WHERE wd.webhook_id = w.id AND wd.workspace_id = w.workspace_id) as total_deliveries,
         (SELECT COUNT(*) FROM webhook_deliveries wd WHERE wd.webhook_id = w.id AND wd.workspace_id = w.workspace_id AND wd.status_code BETWEEN 200 AND 299) as successful_deliveries,
@@ -50,7 +49,7 @@ export async function GET(request: NextRequest) {
       FROM webhooks w
       WHERE w.workspace_id = ?
       ORDER BY w.created_at DESC
-    `).all(workspaceId) as any[]
+    `, [workspaceId])
 
     // Parse events JSON, mask secret, add circuit breaker status
     const maxRetries = parseInt(process.env.MC_WEBHOOK_MAX_RETRIES || '5', 10) || 5
@@ -81,7 +80,6 @@ export async function POST(request: NextRequest) {
   if (rateCheck) return rateCheck
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const validated = await validateBody(request, createWebhookSchema)
     if ('error' in validated) return validated.error
@@ -95,13 +93,13 @@ export async function POST(request: NextRequest) {
     const secret = generate_secret !== false ? randomBytes(32).toString('hex') : null
     const eventsJson = JSON.stringify(events || ['*'])
 
-    const dbResult = db.prepare(`
+    const dbResult = await dbRun(`
       INSERT INTO webhooks (name, url, secret, events, created_by, workspace_id)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(name, url, secret, eventsJson, auth.user.username, workspaceId)
+    `, [name, url, secret, eventsJson, auth.user.username, workspaceId])
 
     return NextResponse.json({
-      id: dbResult.lastInsertRowid,
+      id: dbResult.insertId,
       name,
       url,
       secret, // Show full secret only on creation
@@ -126,7 +124,6 @@ export async function PUT(request: NextRequest) {
   if (rateCheck) return rateCheck
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const body = await request.json()
     const { id, name, url, events, enabled, regenerate_secret, reset_circuit } = body
@@ -135,7 +132,7 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: 'Webhook ID is required' }, { status: 400 })
     }
 
-    const existing = db.prepare('SELECT * FROM webhooks WHERE id = ? AND workspace_id = ?').get(id, workspaceId) as any
+    const existing = await dbGetOne<any>('SELECT * FROM webhooks WHERE id = ? AND workspace_id = ?', [id, workspaceId])
     if (!existing) {
       return NextResponse.json({ error: 'Webhook not found' }, { status: 404 })
     }
@@ -149,7 +146,7 @@ export async function PUT(request: NextRequest) {
       }
     }
 
-    const updates: string[] = ['updated_at = unixepoch()']
+    const updates: string[] = ['updated_at = UNIX_TIMESTAMP()']
     const params: any[] = []
 
     if (name !== undefined) { updates.push('name = ?'); params.push(name) }
@@ -171,7 +168,7 @@ export async function PUT(request: NextRequest) {
     }
 
     params.push(id, workspaceId)
-    db.prepare(`UPDATE webhooks SET ${updates.join(', ')} WHERE id = ? AND workspace_id = ?`).run(...params)
+    await dbRun(`UPDATE webhooks SET ${updates.join(', ')} WHERE id = ? AND workspace_id = ?`, params)
 
     return NextResponse.json({
       success: true,
@@ -194,7 +191,6 @@ export async function DELETE(request: NextRequest) {
   if (rateCheck) return rateCheck
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     let body: any
     try { body = await request.json() } catch { return NextResponse.json({ error: 'Request body required' }, { status: 400 }) }
@@ -205,14 +201,14 @@ export async function DELETE(request: NextRequest) {
     }
 
     // Delete deliveries first (cascade should handle it, but be explicit)
-    db.prepare('DELETE FROM webhook_deliveries WHERE webhook_id = ? AND workspace_id = ?').run(id, workspaceId)
-    const result = db.prepare('DELETE FROM webhooks WHERE id = ? AND workspace_id = ?').run(id, workspaceId)
+    await dbRun('DELETE FROM webhook_deliveries WHERE webhook_id = ? AND workspace_id = ?', [id, workspaceId])
+    const result = await dbRun('DELETE FROM webhooks WHERE id = ? AND workspace_id = ?', [id, workspaceId])
 
-    if (result.changes === 0) {
+    if (result.affectedRows === 0) {
       return NextResponse.json({ error: 'Webhook not found' }, { status: 404 })
     }
 
-    return NextResponse.json({ success: true, deleted: result.changes })
+    return NextResponse.json({ success: true, deleted: result.affectedRows })
   } catch (error) {
     logger.error({ err: error }, 'DELETE /api/webhooks error')
     return NextResponse.json({ error: 'Failed to delete webhook' }, { status: 500 })

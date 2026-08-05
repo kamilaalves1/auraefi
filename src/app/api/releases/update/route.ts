@@ -3,7 +3,7 @@ import { execFileSync } from 'child_process'
 import { readFileSync } from 'fs'
 import { join } from 'path'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbRun } from '@/lib/db'
 import { APP_VERSION } from '@/lib/version'
 import { validateBody, releaseUpdateSchema } from '@/lib/validation'
 
@@ -87,17 +87,17 @@ export async function POST(request: Request) {
 
     // 8. Log to audit_log
     try {
-      const db = getDatabase()
-      db.prepare(
-        'INSERT INTO audit_log (action, actor, detail) VALUES (?, ?, ?)'
-      ).run(
-        'system.update',
-        user.username,
-        JSON.stringify({
-          previousVersion: APP_VERSION,
-          newVersion,
-          tag,
-        })
+      await dbRun(
+        'INSERT INTO audit_log (action, actor, detail) VALUES (?, ?, ?)',
+        [
+          'system.update',
+          user.username,
+          JSON.stringify({
+            previousVersion: APP_VERSION,
+            newVersion,
+            tag,
+          })
+        ]
       )
     } catch {
       // Non-critical -- don't fail the update if audit logging fails

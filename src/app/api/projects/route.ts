@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbGetAll, dbRun } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
-import { ensureTenantWorkspaceAccess, ForbiddenError } from '@/lib/workspaces'
+import { ForbiddenError } from '@/lib/workspaces'
 
 function slugify(input: string): string {
   return input
@@ -24,20 +24,20 @@ export async function GET(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const tenantId = auth.user.tenant_id ?? 1
-    const forwardedFor = (request.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() || null
-    ensureTenantWorkspaceAccess(db, tenantId, workspaceId, {
-      actor: auth.user.username,
-      actorId: auth.user.id,
-      route: '/api/projects',
-      ipAddress: forwardedFor,
-      userAgent: request.headers.get('user-agent'),
-    })
     const includeArchived = new URL(request.url).searchParams.get('includeArchived') === '1'
 
-    const rows = db.prepare(`
+    // Verify workspace belongs to tenant
+    const wsCheck = await dbGetOne<{ id: number }>(
+      'SELECT id FROM workspaces WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [workspaceId, tenantId]
+    )
+    if (!wsCheck) {
+      return NextResponse.json({ error: 'Workspace not accessible for tenant' }, { status: 403 })
+    }
+
+    const rows = await dbGetAll<Record<string, unknown>>(`
       SELECT p.id, p.workspace_id, p.name, p.slug, p.description, p.ticket_prefix, p.ticket_counter, p.status,
              p.github_repo, p.deadline, p.color, p.github_sync_enabled, p.github_labels_initialized, p.github_default_branch, p.created_at, p.updated_at,
              (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as task_count,
@@ -45,8 +45,8 @@ export async function GET(request: NextRequest) {
       FROM projects p
       WHERE p.workspace_id = ?
         ${includeArchived ? '' : "AND p.status = 'active'"}
-      ORDER BY p.name COLLATE NOCASE ASC
-    `).all(workspaceId) as Array<Record<string, unknown>>
+      ORDER BY p.name ASC
+    `, [workspaceId])
 
     const projects = rows.map(row => ({
       ...row,
@@ -72,17 +72,18 @@ export async function POST(request: NextRequest) {
   if (rateCheck) return rateCheck
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const tenantId = auth.user.tenant_id ?? 1
-    const forwardedFor = (request.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() || null
-    ensureTenantWorkspaceAccess(db, tenantId, workspaceId, {
-      actor: auth.user.username,
-      actorId: auth.user.id,
-      route: '/api/projects',
-      ipAddress: forwardedFor,
-      userAgent: request.headers.get('user-agent'),
-    })
+
+    // Verify workspace belongs to tenant
+    const wsCheck = await dbGetOne<{ id: number }>(
+      'SELECT id FROM workspaces WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [workspaceId, tenantId]
+    )
+    if (!wsCheck) {
+      return NextResponse.json({ error: 'Workspace not accessible for tenant' }, { status: 403 })
+    }
+
     const body = await request.json()
 
     const name = String(body?.name || '').trim()
@@ -100,26 +101,26 @@ export async function POST(request: NextRequest) {
     if (!slug) return NextResponse.json({ error: 'Invalid project slug' }, { status: 400 })
     if (!ticketPrefix) return NextResponse.json({ error: 'Invalid ticket prefix' }, { status: 400 })
 
-    const exists = db.prepare(`
+    const exists = await dbGetOne<{ id: number }>(`
       SELECT id FROM projects
       WHERE workspace_id = ? AND (slug = ? OR ticket_prefix = ?)
       LIMIT 1
-    `).get(workspaceId, slug, ticketPrefix) as { id: number } | undefined
+    `, [workspaceId, slug, ticketPrefix])
     if (exists) {
       return NextResponse.json({ error: 'Project slug or ticket prefix already exists' }, { status: 409 })
     }
 
-    const result = db.prepare(`
+    const result = await dbRun(`
       INSERT INTO projects (workspace_id, name, slug, description, ticket_prefix, github_repo, deadline, color, status, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', unixepoch(), unixepoch())
-    `).run(workspaceId, name, slug, description || null, ticketPrefix, githubRepo, deadline, color)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', UNIX_TIMESTAMP(), UNIX_TIMESTAMP())
+    `, [workspaceId, name, slug, description || null, ticketPrefix, githubRepo, deadline, color])
 
-    const project = db.prepare(`
+    const project = await dbGetOne(`
       SELECT id, workspace_id, name, slug, description, ticket_prefix, ticket_counter, status,
              github_repo, deadline, color, github_sync_enabled, github_labels_initialized, github_default_branch, created_at, updated_at
       FROM projects
       WHERE id = ?
-    `).get(Number(result.lastInsertRowid))
+    `, [result.insertId])
 
     return NextResponse.json({ project }, { status: 201 })
   } catch (error) {

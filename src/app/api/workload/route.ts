@@ -1,43 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase } from '@/lib/db';
+import { dbGetAll, dbGetOne } from '@/lib/db';
 import { requireRole } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 
 /**
  * GET /api/workload - Real-Time Workload Signals
- *
- * Provides system-wide capacity metrics and throttle recommendations
- * so agents can make informed decisions about work submission.
- *
- * Response:
- *   capacity    - Current system capacity metrics
- *   queue       - Task queue depth and breakdown
- *   agents      - Agent availability and load distribution
- *   recommendation - Actionable signal: normal | throttle | shed | pause
- *   thresholds  - Current threshold configuration
- *
- * Agents should call this before submitting new work to avoid
- * cascading failures and SLO breaches.
  */
 export async function GET(request: NextRequest) {
   const auth = requireRole(request, 'viewer');
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const db = getDatabase();
     const workspaceId = auth.user.workspace_id ?? 1;
     const now = Math.floor(Date.now() / 1000);
 
-    // --- Capacity metrics ---
-    const capacity = buildCapacityMetrics(db, workspaceId, now);
+    const [capacity, queue, agents] = await Promise.all([
+      buildCapacityMetrics(workspaceId, now),
+      buildQueueMetrics(workspaceId),
+      buildAgentMetrics(workspaceId),
+    ]);
 
-    // --- Queue depth ---
-    const queue = buildQueueMetrics(db, workspaceId);
-
-    // --- Agent availability ---
-    const agents = buildAgentMetrics(db, workspaceId, now);
-
-    // --- Recommendation ---
     const recommendation = computeRecommendation(capacity, queue, agents);
 
     return NextResponse.json({
@@ -55,7 +37,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// Configurable thresholds for recommendation engine
 function numEnv(name: string, fallback: number): number {
   const raw = process.env[name];
   if (!raw || raw.trim().length === 0) return fallback;
@@ -106,35 +87,26 @@ interface AgentMetrics {
   load_distribution: Array<{ agent: string; assigned: number; in_progress: number }>;
 }
 
-function buildCapacityMetrics(db: any, workspaceId: number, now: number): CapacityMetrics {
+async function buildCapacityMetrics(workspaceId: number, now: number): Promise<CapacityMetrics> {
   const recentWindow = now - THRESHOLDS.recent_window_seconds;
   const hourAgo = now - 3600;
-
-  const activeTasks = (db.prepare(
-    `SELECT COUNT(*) as c FROM tasks WHERE workspace_id = ? AND status IN ('assigned', 'in_progress', 'review', 'quality_review')`
-  ).get(workspaceId) as any).c;
-
-  const tasksLast5m = (db.prepare(
-    `SELECT COUNT(*) as c FROM activities WHERE workspace_id = ? AND created_at >= ? AND type IN ('task_created', 'task_assigned')`
-  ).get(workspaceId, recentWindow) as any).c;
-
-  const errorsLast5m = (db.prepare(
-    `SELECT COUNT(*) as c FROM activities WHERE workspace_id = ? AND created_at >= ? AND (type LIKE '%error%' OR type LIKE '%fail%')`
-  ).get(workspaceId, recentWindow) as any).c;
-
-  const totalLast5m = (db.prepare(
-    `SELECT COUNT(*) as c FROM activities WHERE workspace_id = ? AND created_at >= ?`
-  ).get(workspaceId, recentWindow) as any).c;
-
-  const completionsLastHour = (db.prepare(
-    `SELECT COUNT(*) as c FROM tasks WHERE workspace_id = ? AND status = 'done' AND updated_at >= ?`
-  ).get(workspaceId, hourAgo) as any).c;
-
-  // Average completion rate over last 24h
   const dayAgo = now - 86400;
-  const completionsLastDay = (db.prepare(
-    `SELECT COUNT(*) as c FROM tasks WHERE workspace_id = ? AND status = 'done' AND updated_at >= ?`
-  ).get(workspaceId, dayAgo) as any).c;
+
+  const [activeRow, tasks5mRow, errors5mRow, total5mRow, completionsHourRow, completionsDayRow] = await Promise.all([
+    dbGetOne<{ c: number }>(`SELECT COUNT(*) as c FROM tasks WHERE workspace_id = ? AND status IN ('assigned', 'in_progress', 'review', 'quality_review')`, [workspaceId]),
+    dbGetOne<{ c: number }>(`SELECT COUNT(*) as c FROM activities WHERE workspace_id = ? AND created_at >= ? AND type IN ('task_created', 'task_assigned')`, [workspaceId, recentWindow]),
+    dbGetOne<{ c: number }>(`SELECT COUNT(*) as c FROM activities WHERE workspace_id = ? AND created_at >= ? AND (type LIKE '%error%' OR type LIKE '%fail%')`, [workspaceId, recentWindow]),
+    dbGetOne<{ c: number }>(`SELECT COUNT(*) as c FROM activities WHERE workspace_id = ? AND created_at >= ?`, [workspaceId, recentWindow]),
+    dbGetOne<{ c: number }>(`SELECT COUNT(*) as c FROM tasks WHERE workspace_id = ? AND status = 'done' AND updated_at >= ?`, [workspaceId, hourAgo]),
+    dbGetOne<{ c: number }>(`SELECT COUNT(*) as c FROM tasks WHERE workspace_id = ? AND status = 'done' AND updated_at >= ?`, [workspaceId, dayAgo]),
+  ]);
+
+  const activeTasks = activeRow?.c ?? 0;
+  const tasksLast5m = tasks5mRow?.c ?? 0;
+  const errorsLast5m = errors5mRow?.c ?? 0;
+  const totalLast5m = total5mRow?.c ?? 0;
+  const completionsLastHour = completionsHourRow?.c ?? 0;
+  const completionsLastDay = completionsDayRow?.c ?? 0;
 
   const safeErrorRate = totalLast5m > 0 ? errorsLast5m / totalLast5m : 0;
 
@@ -148,33 +120,28 @@ function buildCapacityMetrics(db: any, workspaceId: number, now: number): Capaci
   };
 }
 
-function buildQueueMetrics(db: any, workspaceId: number): QueueMetrics {
+async function buildQueueMetrics(workspaceId: number): Promise<QueueMetrics> {
   const now = Math.floor(Date.now() / 1000);
-
+  const hourAgo = now - 3600;
   const pendingStatuses = ['inbox', 'assigned', 'in_progress', 'review', 'quality_review'];
+  const placeholders = pendingStatuses.map(() => '?').join(',');
 
-  const byStatus = db.prepare(
-    `SELECT status, COUNT(*) as count FROM tasks WHERE workspace_id = ? AND status IN (${pendingStatuses.map(() => '?').join(',')}) GROUP BY status`
-  ).all(workspaceId, ...pendingStatuses) as Array<{ status: string; count: number }>;
-
-  const byPriority = db.prepare(
-    `SELECT priority, COUNT(*) as count FROM tasks WHERE workspace_id = ? AND status IN (${pendingStatuses.map(() => '?').join(',')}) GROUP BY priority`
-  ).all(workspaceId, ...pendingStatuses) as Array<{ priority: string; count: number }>;
+  const [byStatus, byPriority, oldest, completionsHourRow] = await Promise.all([
+    dbGetAll<{ status: string; count: number }>(
+      `SELECT status, COUNT(*) as count FROM tasks WHERE workspace_id = ? AND status IN (${placeholders}) GROUP BY status`,
+      [workspaceId, ...pendingStatuses]
+    ),
+    dbGetAll<{ priority: string; count: number }>(
+      `SELECT priority, COUNT(*) as count FROM tasks WHERE workspace_id = ? AND status IN (${placeholders}) GROUP BY priority`,
+      [workspaceId, ...pendingStatuses]
+    ),
+    dbGetOne<{ oldest: number | null }>(`SELECT MIN(created_at) as oldest FROM tasks WHERE workspace_id = ? AND status IN ('inbox', 'assigned')`, [workspaceId]),
+    dbGetOne<{ c: number }>(`SELECT COUNT(*) as c FROM tasks WHERE workspace_id = ? AND status = 'done' AND updated_at >= ?`, [workspaceId, hourAgo]),
+  ]);
 
   const totalPending = byStatus.reduce((sum, r) => sum + r.count, 0);
-
-  const oldest = db.prepare(
-    `SELECT MIN(created_at) as oldest FROM tasks WHERE workspace_id = ? AND status IN ('inbox', 'assigned')`
-  ).get(workspaceId) as any;
-
   const oldestAge = oldest?.oldest ? now - oldest.oldest : null;
-
-  // Estimate wait: pending tasks / completion rate per hour * 3600
-  const hourAgo = now - 3600;
-  const completionsLastHour = (db.prepare(
-    `SELECT COUNT(*) as c FROM tasks WHERE workspace_id = ? AND status = 'done' AND updated_at >= ?`
-  ).get(workspaceId, hourAgo) as any).c;
-
+  const completionsLastHour = completionsHourRow?.c ?? 0;
   const estimatedWait = completionsLastHour > 0
     ? Math.round((totalPending / completionsLastHour) * 3600)
     : null;
@@ -199,10 +166,23 @@ function buildQueueMetrics(db: any, workspaceId: number): QueueMetrics {
   };
 }
 
-function buildAgentMetrics(db: any, workspaceId: number, now: number): AgentMetrics {
-  const agentStatuses = db.prepare(
-    `SELECT status, COUNT(*) as count FROM agents WHERE workspace_id = ? GROUP BY status`
-  ).all(workspaceId) as Array<{ status: string; count: number }>;
+async function buildAgentMetrics(workspaceId: number): Promise<AgentMetrics> {
+  const [agentStatuses, loadDist] = await Promise.all([
+    dbGetAll<{ status: string; count: number }>(
+      `SELECT status, COUNT(*) as count FROM agents WHERE workspace_id = ? GROUP BY status`,
+      [workspaceId]
+    ),
+    dbGetAll<{ agent: string; assigned: number; in_progress: number }>(`
+      SELECT a.name as agent,
+        SUM(CASE WHEN t.status = 'assigned' THEN 1 ELSE 0 END) as assigned,
+        SUM(CASE WHEN t.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress
+      FROM agents a
+      LEFT JOIN tasks t ON t.assigned_to = a.name AND t.workspace_id = a.workspace_id AND t.status IN ('assigned', 'in_progress')
+      WHERE a.workspace_id = ? AND a.status != 'offline'
+      GROUP BY a.name
+      ORDER BY (assigned + in_progress) DESC
+    `, [workspaceId]),
+  ]);
 
   const statusMap: Record<string, number> = {};
   let total = 0;
@@ -215,18 +195,6 @@ function buildAgentMetrics(db: any, workspaceId: number, now: number): AgentMetr
   const busy = statusMap['busy'] || 0;
   const idle = statusMap['idle'] || 0;
   const offline = statusMap['offline'] || 0;
-
-  // Load distribution per agent
-  const loadDist = db.prepare(`
-    SELECT a.name as agent,
-      SUM(CASE WHEN t.status = 'assigned' THEN 1 ELSE 0 END) as assigned,
-      SUM(CASE WHEN t.status = 'in_progress' THEN 1 ELSE 0 END) as in_progress
-    FROM agents a
-    LEFT JOIN tasks t ON t.assigned_to = a.name AND t.workspace_id = a.workspace_id AND t.status IN ('assigned', 'in_progress')
-    WHERE a.workspace_id = ? AND a.status != 'offline'
-    GROUP BY a.name
-    ORDER BY (assigned + in_progress) DESC
-  `).all(workspaceId) as Array<{ agent: string; assigned: number; in_progress: number }>;
 
   return {
     total,
@@ -257,7 +225,6 @@ function computeRecommendation(
   const reasons: string[] = [];
   let level: RecommendationLevel = 'normal';
 
-  // Check error rate
   if (capacity.error_rate_5m >= THRESHOLDS.error_rate_shed) {
     level = escalate(level, 'shed');
     reasons.push(`High error rate: ${(capacity.error_rate_5m * 100).toFixed(1)}%`);
@@ -266,7 +233,6 @@ function computeRecommendation(
     reasons.push(`Elevated error rate: ${(capacity.error_rate_5m * 100).toFixed(1)}%`);
   }
 
-  // Check queue depth
   if (queue.total_pending >= THRESHOLDS.queue_depth_shed) {
     level = escalate(level, 'shed');
     reasons.push(`Queue depth critical: ${queue.total_pending} pending tasks`);
@@ -275,7 +241,6 @@ function computeRecommendation(
     reasons.push(`Queue depth high: ${queue.total_pending} pending tasks`);
   }
 
-  // Check agent saturation
   if (agents.busy_ratio >= THRESHOLDS.busy_agent_ratio_shed) {
     level = escalate(level, 'shed');
     reasons.push(`Agent saturation critical: ${(agents.busy_ratio * 100).toFixed(0)}% busy`);
@@ -284,7 +249,6 @@ function computeRecommendation(
     reasons.push(`Agent saturation high: ${(agents.busy_ratio * 100).toFixed(0)}% busy`);
   }
 
-  // No online agents = pause
   if (agents.online === 0) {
     level = 'pause';
     reasons.push(agents.total > 0 ? 'No agents online' : 'No agents registered');

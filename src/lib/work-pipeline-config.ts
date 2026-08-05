@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3'
+import { dbGetOne, dbRun } from '@/lib/db'
 import { decryptWorkPipelineBlob, encryptWorkPipelineBlob } from '@/lib/work-pipeline-crypto'
 import type {
   WorkPipelineConfigJson,
@@ -77,22 +77,18 @@ export interface WorkPipelineRow {
   secret_blob: string | null
 }
 
-export function getWorkPipelineRow(
-  db: Database.Database,
+export async function getWorkPipelineRow(
   workspaceId: number
-): WorkPipelineRow | null {
-  const row = db
-    .prepare(
-      `SELECT provider, enabled, config_json, secret_blob FROM work_pipeline_configs WHERE workspace_id = ?`
-    )
-    .get(workspaceId) as
-    | {
-        provider: string
-        enabled: number
-        config_json: string
-        secret_blob: string | null
-      }
-    | undefined
+): Promise<WorkPipelineRow | null> {
+  const row = await dbGetOne<{
+    provider: string
+    enabled: number
+    config_json: string
+    secret_blob: string | null
+  }>(
+    'SELECT provider, enabled, config_json, secret_blob FROM work_pipeline_configs WHERE workspace_id = ?',
+    [workspaceId]
+  )
 
   if (!row) return null
 
@@ -108,8 +104,7 @@ export function getWorkPipelineRow(
   }
 }
 
-export function upsertWorkPipeline(
-  db: Database.Database,
+export async function upsertWorkPipeline(
   workspaceId: number,
   params: {
     provider: WorkPipelineProvider
@@ -117,8 +112,8 @@ export function upsertWorkPipeline(
     config: WorkPipelineConfigJson
     secretsPatch?: Partial<WorkPipelineSecrets>
   }
-): void {
-  const prevRow = getWorkPipelineRow(db, workspaceId)
+): Promise<void> {
+  const prevRow = await getWorkPipelineRow(workspaceId)
   const prevSecrets = prevRow?.secret_blob ? decryptPipelineSecrets(prevRow.secret_blob) : {}
   const merged = mergeSecrets(params.provider, prevSecrets, params.secretsPatch)
 
@@ -133,24 +128,22 @@ export function upsertWorkPipeline(
 
   const configJson = JSON.stringify(params.config ?? {})
 
-  db.prepare(
-    `
+  await dbRun(`
     INSERT INTO work_pipeline_configs (workspace_id, provider, enabled, config_json, secret_blob, updated_at)
-    VALUES (?, ?, ?, ?, ?, unixepoch())
-    ON CONFLICT(workspace_id) DO UPDATE SET
-      provider = excluded.provider,
-      enabled = excluded.enabled,
-      config_json = excluded.config_json,
-      secret_blob = excluded.secret_blob,
-      updated_at = unixepoch()
-  `
-  ).run(
+    VALUES (?, ?, ?, ?, ?, UNIX_TIMESTAMP())
+    ON DUPLICATE KEY UPDATE
+      provider = VALUES(provider),
+      enabled = VALUES(enabled),
+      config_json = VALUES(config_json),
+      secret_blob = VALUES(secret_blob),
+      updated_at = UNIX_TIMESTAMP()
+  `, [
     workspaceId,
     params.provider,
     params.enabled ? 1 : 0,
     configJson,
-    secretBlob
-  )
+    secretBlob,
+  ])
 }
 
 /** Public view for admin UI — never includes raw secrets. */
@@ -173,11 +166,10 @@ export function toPublicPipelineDto(row: WorkPipelineRow | null): {
 }
 
 export async function loadBacklogForWorkspace(
-  db: Database.Database,
   workspaceId: number,
   limit = 50
 ): Promise<{ provider: WorkPipelineProvider; items: NormalizedBacklogItem[] }> {
-  const row = getWorkPipelineRow(db, workspaceId)
+  const row = await getWorkPipelineRow(workspaceId)
   if (!row || !row.enabled || row.provider === 'none') {
     return { provider: row?.provider ?? 'none', items: [] }
   }

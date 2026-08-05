@@ -1,9 +1,8 @@
-import { getDatabase } from '@/lib/db'
+import { dbGetAll } from '@/lib/db'
 
-export function queryPendingAssignments(agentId: string): Assignment[] {
+export async function queryPendingAssignments(agentId: string): Promise<Assignment[]> {
   try {
-    const db = getDatabase()
-    const rows = db.prepare(`
+    const rows = await dbGetAll<{ id: number; title: string; description: string | null; priority: string }>(`
       SELECT id, title, description, priority
       FROM tasks
       WHERE (assigned_to = ? OR assigned_to IS NULL)
@@ -13,7 +12,7 @@ export function queryPendingAssignments(agentId: string): Assignment[] {
         due_date ASC,
         created_at ASC
       LIMIT 5
-    `).all(agentId) as Array<{ id: number; title: string; description: string | null; priority: string }>
+    `, [agentId])
 
     return rows.map(row => ({
       taskId: String(row.id),

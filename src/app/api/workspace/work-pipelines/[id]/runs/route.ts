@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbGetAll } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { tickPipelineEngine } from '@/lib/pipeline-engine'
 
@@ -11,18 +11,15 @@ export async function GET(request: NextRequest, { params }: Params) {
 
   try {
     const { id } = await params
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
 
-    const pipeline = db.prepare('SELECT id, provider, workspace_id FROM work_pipelines WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId) as { id: number; provider: string; workspace_id: number } | undefined
+    const pipeline = await dbGetOne<{ id: number; provider: string; workspace_id: number }>(
+      'SELECT id, provider, workspace_id FROM work_pipelines WHERE id = ? AND workspace_id = ?',
+      [Number(id), workspaceId]
+    )
     if (!pipeline) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
 
-    const runs = db.prepare(
-      `SELECT id, card_key, card_title, card_url, current_stage_id, status, cost_usd, created_at, updated_at
-       FROM pipeline_card_runs
-       WHERE workspace_id = ? AND provider = ?
-       ORDER BY updated_at DESC LIMIT 20`
-    ).all(workspaceId, pipeline.provider) as Array<{
+    const runs = await dbGetAll<{
       id: number
       card_key: string
       card_title: string
@@ -32,13 +29,22 @@ export async function GET(request: NextRequest, { params }: Params) {
       cost_usd: number | null
       created_at: number
       updated_at: number
-    }>
+    }>(
+      `SELECT id, card_key, card_title, card_url, current_stage_id, status, cost_usd, created_at, updated_at
+       FROM pipeline_card_runs
+       WHERE workspace_id = ? AND provider = ?
+       ORDER BY updated_at DESC LIMIT 20`,
+      [workspaceId, pipeline.provider]
+    )
 
     const columnIds = [...new Set(runs.map(r => parseInt(r.current_stage_id, 10)).filter(n => !isNaN(n)))]
     const stageNames: Record<number, string> = {}
     if (columnIds.length > 0) {
       const placeholders = columnIds.map(() => '?').join(',')
-      const cols = db.prepare(`SELECT id, column_name FROM pipeline_columns WHERE id IN (${placeholders})`).all(...columnIds) as Array<{ id: number; column_name: string }>
+      const cols = await dbGetAll<{ id: number; column_name: string }>(
+        `SELECT id, column_name FROM pipeline_columns WHERE id IN (${placeholders})`,
+        columnIds
+      )
       for (const c of cols) stageNames[c.id] = c.column_name
     }
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbRun } from '@/lib/db'
 import { listProvisionJobs } from '@/lib/super-admin'
 
 /**
@@ -32,7 +32,6 @@ export async function POST(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const body = await request.json()
     const tenantId = Number(body.tenant_id)
     const dryRun = body.dry_run !== false
@@ -46,28 +45,27 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid job_type' }, { status: 400 })
     }
 
-    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId) as any
+    const tenant = await dbGetOne<any>('SELECT * FROM tenants WHERE id = ?', [tenantId])
     if (!tenant) {
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
     }
 
     const plan = body.plan_json && Array.isArray(body.plan_json) ? body.plan_json : []
-    const result = db.prepare(`
+    const result = await dbRun(`
       INSERT INTO provision_jobs (tenant_id, job_type, status, dry_run, requested_by, request_json, plan_json, updated_at)
-      VALUES (?, ?, 'queued', ?, ?, ?, ?, (unixepoch()))
-    `).run(
+      VALUES (?, ?, 'queued', ?, ?, ?, ?, UNIX_TIMESTAMP())
+    `, [
       tenantId,
       jobType,
       dryRun ? 1 : 0,
       auth.user.username,
       JSON.stringify(body.request_json || {}),
       JSON.stringify(plan),
-    )
+    ])
 
-    const id = Number(result.lastInsertRowid)
-    return NextResponse.json({
-      job: db.prepare('SELECT * FROM provision_jobs WHERE id = ?').get(id),
-    }, { status: 201 })
+    const id = result.insertId
+    const job = await dbGetOne<any>('SELECT * FROM provision_jobs WHERE id = ?', [id])
+    return NextResponse.json({ job }, { status: 201 })
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Failed to queue job' }, { status: 500 })
   }

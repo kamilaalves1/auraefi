@@ -1,8 +1,7 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, db_helpers } from '@/lib/db'
+import { NextRequest, NextResponse } from 'next/server'
+import { dbGetOne, dbRun, db_helpers, logAuditEvent } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { selfRegisterLimiter, extractClientIp } from '@/lib/rate-limit'
-import { logAuditEvent } from '@/lib/db'
 import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
 
@@ -52,19 +51,20 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const now = Math.floor(Date.now() / 1000)
 
     // Check if agent already exists — idempotent: update last_seen and status
-    const existing = db.prepare(
-      'SELECT * FROM agents WHERE name = ? AND workspace_id = ?'
-    ).get(name, workspaceId) as any | undefined
+    const existing = await dbGetOne<any>(
+      'SELECT * FROM agents WHERE name = ? AND workspace_id = ?',
+      [name, workspaceId]
+    )
 
     if (existing) {
-      db.prepare(
-        'UPDATE agents SET status = ?, last_seen = ?, updated_at = ? WHERE id = ? AND workspace_id = ?'
-      ).run('idle', now, now, existing.id, workspaceId)
+      await dbRun(
+        'UPDATE agents SET status = ?, last_seen = ?, updated_at = ? WHERE id = ? AND workspace_id = ?',
+        ['idle', now, now, existing.id, workspaceId]
+      )
 
       return NextResponse.json({
         agent: {
@@ -84,14 +84,14 @@ export async function POST(request: NextRequest) {
     if (capabilities.length > 0) config.capabilities = capabilities
     if (framework) config.framework = framework
 
-    const result = db.prepare(`
+    const result = await dbRun(`
       INSERT INTO agents (name, role, status, config, created_at, updated_at, last_seen, workspace_id)
       VALUES (?, ?, 'idle', ?, ?, ?, ?, ?)
-    `).run(name, role, JSON.stringify(config), now, now, now, workspaceId)
+    `, [name, role, JSON.stringify(config), now, now, now, workspaceId])
 
-    const agentId = Number(result.lastInsertRowid)
+    const agentId = result.insertId
 
-    db_helpers.logActivity(
+    await db_helpers.logActivity(
       'agent_created',
       'agent',
       agentId,
@@ -99,9 +99,9 @@ export async function POST(request: NextRequest) {
       `Agent self-registered: ${name} (${role})${framework ? ` via ${framework}` : ''}`,
       { name, role, framework, capabilities, self_registered: true },
       workspaceId,
-    )
+    ).catch(() => {})
 
-    logAuditEvent({
+    await logAuditEvent({
       action: 'agent_self_register',
       actor: auth.user.username,
       actor_id: auth.user.id,
@@ -109,7 +109,7 @@ export async function POST(request: NextRequest) {
       target_id: agentId,
       detail: { name, role, framework, self_registered: true },
       ip_address: extractClientIp(request),
-    })
+    }).catch(() => {})
 
     eventBus.broadcast('agent.created', { id: agentId, name, role, status: 'idle', workspace_id: workspaceId })
 

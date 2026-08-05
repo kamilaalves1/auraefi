@@ -5,7 +5,7 @@ import path from 'node:path'
 import crypto from 'node:crypto'
 import { requireRole } from '@/lib/auth'
 import { config } from '@/lib/config'
-import { getDatabase } from '@/lib/db'
+import { dbRun } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { FIX_SAFETY, runSecurityScan, type FixSafety } from '@/lib/security-scan'
 
@@ -348,10 +348,10 @@ export async function POST(request: NextRequest) {
 
   // Audit log
   try {
-    const db = getDatabase()
-    db.prepare(
-      'INSERT INTO audit_log (action, actor, detail) VALUES (?, ?, ?)'
-    ).run('security.auto_fix', auth.user.username, JSON.stringify({ fixes: results.filter(r => r.fixed).map(r => r.id) }))
+    await dbRun(
+      'INSERT INTO audit_log (action, actor, detail) VALUES (?, ?, ?)',
+      ['security.auto_fix', auth.user.username, JSON.stringify({ fixes: results.filter(r => r.fixed).map(r => r.id) })]
+    )
   } catch { /* non-critical */ }
 
   const fixed = results.filter(r => r.fixed).length

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, Task, db_helpers } from '@/lib/db'
+import { dbGetOne, dbGetAll, dbRun, db_helpers, type Task } from '@/lib/db'
 import { eventBus } from '@/lib/event-bus'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
@@ -83,7 +83,7 @@ export async function POST(request: NextRequest) {
       case 'close':
         return await handleClose(body, auth.user.username, auth.user.workspace_id ?? 1)
       case 'status':
-        return handleStatus(auth.user.workspace_id ?? 1)
+        return await handleStatus(auth.user.workspace_id ?? 1)
       case 'init-labels':
         return await handleInitLabels(body, auth.user.workspace_id ?? 1)
       case 'sync-project':
@@ -120,7 +120,6 @@ async function handleSync(
     per_page: 100,
   })
 
-  const db = getDatabase()
   const now = Math.floor(Date.now() / 1000)
   let imported = 0
   let skipped = 0
@@ -130,12 +129,12 @@ async function handleSync(
   for (const issue of issues) {
     try {
       // Check for duplicate: existing task with same github_repo + github_issue_number
-      const existing = db.prepare(`
+      const existing = await dbGetOne<{ id: number }>(`
         SELECT id FROM tasks
-        WHERE json_extract(metadata, '$.github_repo') = ?
-          AND json_extract(metadata, '$.github_issue_number') = ?
+        WHERE metadata->>'$.github_repo' = ?
+          AND metadata->>'$.github_issue_number' = ?
           AND workspace_id = ?
-      `).get(repo, issue.number, workspaceId) as { id: number } | undefined
+      `, [repo, issue.number, workspaceId])
 
       if (existing) {
         skipped++
@@ -155,14 +154,12 @@ async function handleSync(
         github_state: issue.state,
       }
 
-      const stmt = db.prepare(`
+      const dbResult = await dbRun(`
         INSERT INTO tasks (
           title, description, status, priority, assigned_to, created_by,
           created_at, updated_at, tags, metadata, workspace_id
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-
-      const dbResult = stmt.run(
+      `, [
         issue.title,
         issue.body || '',
         status,
@@ -173,10 +170,10 @@ async function handleSync(
         now,
         JSON.stringify(tags),
         JSON.stringify(metadata),
-        workspaceId
-      )
+        workspaceId,
+      ])
 
-      const taskId = dbResult.lastInsertRowid as number
+      const taskId = dbResult.insertId
 
       db_helpers.logActivity(
         'task_created',
@@ -186,9 +183,16 @@ async function handleSync(
         `Imported from GitHub: ${repo}#${issue.number}`,
         { github_issue: issue.number, github_repo: repo },
         workspaceId
-      )
+      ).catch(() => {})
 
-      const createdTask = db.prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?').get(taskId, workspaceId) as Task
+      const createdTask = await dbGetOne<Task>(
+        'SELECT * FROM tasks WHERE id = ? AND workspace_id = ?',
+        [taskId, workspaceId]
+      )
+      if (!createdTask) {
+        errors++
+        continue
+      }
       const parsedTask = {
         ...createdTask,
         tags: JSON.parse(createdTask.tags || '[]'),
@@ -205,33 +209,17 @@ async function handleSync(
   }
 
   // Log sync to github_syncs table
-  const syncTableHasWorkspace = db
-    .prepare("SELECT 1 as ok FROM pragma_table_info('github_syncs') WHERE name = 'workspace_id'")
-    .get() as { ok?: number } | undefined
-  if (syncTableHasWorkspace?.ok) {
-    db.prepare(`
-      INSERT INTO github_syncs (repo, last_synced_at, issue_count, sync_direction, status, error, workspace_id)
-      VALUES (?, ?, ?, 'inbound', ?, ?, ?)
-    `).run(
-      repo,
-      now,
-      imported,
-      errors > 0 ? 'partial' : 'success',
-      errors > 0 ? `${errors} issues failed to import` : null,
-      workspaceId
-    )
-  } else {
-    db.prepare(`
-      INSERT INTO github_syncs (repo, last_synced_at, issue_count, sync_direction, status, error)
-      VALUES (?, ?, ?, 'inbound', ?, ?)
-    `).run(
-      repo,
-      now,
-      imported,
-      errors > 0 ? 'partial' : 'success',
-      errors > 0 ? `${errors} issues failed to import` : null
-    )
-  }
+  await dbRun(`
+    INSERT INTO github_syncs (repo, last_synced_at, issue_count, sync_direction, status, error, workspace_id)
+    VALUES (?, ?, ?, 'inbound', ?, ?, ?)
+  `, [
+    repo,
+    now,
+    imported,
+    errors > 0 ? 'partial' : 'success',
+    errors > 0 ? `${errors} issues failed to import` : null,
+    workspaceId,
+  ])
 
   eventBus.broadcast('github.synced', {
     repo,
@@ -273,7 +261,7 @@ async function handleComment(
     `Commented on ${body.repo}#${body.issueNumber}`,
     { github_repo: body.repo, github_issue: body.issueNumber },
     workspaceId
-  )
+  ).catch(() => {})
 
   return NextResponse.json({ ok: true })
 }
@@ -300,16 +288,15 @@ async function handleClose(
   await updateIssueState(body.repo, body.issueNumber, 'closed')
 
   // Update local task metadata if we have a linked task
-  const db = getDatabase()
   const now = Math.floor(Date.now() / 1000)
-  db.prepare(`
+  await dbRun(`
     UPDATE tasks
-    SET metadata = json_set(metadata, '$.github_state', 'closed'),
+    SET metadata = JSON_SET(metadata, '$.github_state', 'closed'),
         updated_at = ?
-    WHERE json_extract(metadata, '$.github_repo') = ?
-      AND json_extract(metadata, '$.github_issue_number') = ?
+    WHERE metadata->>'$.github_repo' = ?
+      AND metadata->>'$.github_issue_number' = ?
       AND workspace_id = ?
-  `).run(now, body.repo, body.issueNumber, workspaceId)
+  `, [now, body.repo, body.issueNumber, workspaceId])
 
   db_helpers.logActivity(
     'github_close',
@@ -319,25 +306,18 @@ async function handleClose(
     `Closed GitHub issue ${body.repo}#${body.issueNumber}`,
     { github_repo: body.repo, github_issue: body.issueNumber },
     workspaceId
-  )
+  ).catch(() => {})
 
   return NextResponse.json({ ok: true })
 }
 
 // ── Status: return recent sync history ──────────────────────────
 
-function handleStatus(workspaceId: number) {
-  const db = getDatabase()
-  const tableHasWorkspace = db
-    .prepare("SELECT 1 as ok FROM pragma_table_info('github_syncs') WHERE name = 'workspace_id'")
-    .get() as { ok?: number } | undefined
-  const syncs = db.prepare(`
-    SELECT * FROM github_syncs
-    ${tableHasWorkspace?.ok ? 'WHERE workspace_id = ?' : ''}
-    ORDER BY created_at DESC
-    LIMIT 20
-  `).all(...(tableHasWorkspace?.ok ? [workspaceId] : []))
-
+async function handleStatus(workspaceId: number) {
+  const syncs = await dbGetAll<any>(
+    'SELECT * FROM github_syncs WHERE workspace_id = ? ORDER BY created_at DESC LIMIT 20',
+    [workspaceId]
+  )
   return NextResponse.json({ syncs })
 }
 
@@ -436,12 +416,11 @@ async function handleInitLabels(
   await initializeLabels(repo)
 
   // Mark project labels as initialized
-  const db = getDatabase()
-  db.prepare(`
+  await dbRun(`
     UPDATE projects
-    SET github_labels_initialized = 1, updated_at = unixepoch()
+    SET github_labels_initialized = 1, updated_at = UNIX_TIMESTAMP()
     WHERE github_repo = ? AND workspace_id = ?
-  `).run(repo, workspaceId)
+  `, [repo, workspaceId])
 
   return NextResponse.json({ ok: true, repo })
 }
@@ -457,12 +436,11 @@ async function handleSyncProject(
     return NextResponse.json({ error: 'project_id is required' }, { status: 400 })
   }
 
-  const db = getDatabase()
-  const project = db.prepare(`
+  const project = await dbGetOne<any>(`
     SELECT id, github_repo, github_sync_enabled, github_default_branch
     FROM projects
     WHERE id = ? AND workspace_id = ? AND status = 'active'
-  `).get(body.project_id, workspaceId) as any | undefined
+  `, [body.project_id, workspaceId])
 
   if (!project) {
     return NextResponse.json({ error: 'Project not found' }, { status: 404 })
@@ -478,7 +456,7 @@ async function handleSyncProject(
     `Manual sync: pulled ${result.pulled}, pushed ${result.pushed}`,
     { repo: project.github_repo, ...result },
     workspaceId
-  )
+  ).catch(() => {})
 
   return NextResponse.json({ ok: true, ...result })
 }

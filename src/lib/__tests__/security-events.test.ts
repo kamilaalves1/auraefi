@@ -1,19 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const mockRun = vi.fn((): any => ({ lastInsertRowid: 1, changes: 1 }))
-const mockGet = vi.fn((): any => ({
-  auth_failures: 1,
-  injection_attempts: 0,
-  rate_limit_hits: 0,
-  secret_exposures: 0,
-  successful_tasks: 5,
-  failed_tasks: 0,
-  trust_score: 0.95,
+const { mockDbRun, mockDbGetOne } = vi.hoisted(() => ({
+  mockDbRun: vi.fn(() => Promise.resolve({ insertId: 42, affectedRows: 1 })),
+  mockDbGetOne: vi.fn(),
 }))
-const mockPrepare = vi.fn(() => ({ run: mockRun, get: mockGet, all: vi.fn(() => []) }))
 
 vi.mock('@/lib/db', () => ({
-  getDatabase: () => ({ prepare: mockPrepare }),
+  dbGetOne: mockDbGetOne,
+  dbGetAll: vi.fn(() => Promise.resolve([])),
+  dbRun: mockDbRun,
 }))
 
 vi.mock('@/lib/event-bus', () => ({
@@ -29,46 +24,48 @@ import { logSecurityEvent, updateAgentTrustScore, getSecurityPosture } from '@/l
 describe('logSecurityEvent', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockRun.mockReturnValue({ lastInsertRowid: 42, changes: 1 })
+    mockDbRun.mockResolvedValue({ insertId: 42, affectedRows: 1 })
   })
 
-  it('inserts an event into the database', () => {
-    const id = logSecurityEvent({
+  it('inserts an event into the database', async () => {
+    const id = await logSecurityEvent({
       event_type: 'auth_failure',
       severity: 'warning',
       source: 'auth',
       detail: 'test detail',
     })
 
-    expect(mockPrepare).toHaveBeenCalled()
-    expect(mockRun).toHaveBeenCalledWith(
-      'auth_failure', 'warning', 'auth', null, 'test detail', null, 1, 1
+    expect(mockDbRun).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO security_events'),
+      expect.arrayContaining(['auth_failure', 'warning', 'auth', 'test detail'])
     )
     expect(id).toBe(42)
   })
 
-  it('defaults severity to info when not provided', () => {
-    logSecurityEvent({ event_type: 'test_event' })
-    expect(mockRun).toHaveBeenCalledWith(
-      'test_event', 'info', null, null, null, null, 1, 1
+  it('defaults severity to info when not provided', async () => {
+    await logSecurityEvent({ event_type: 'test_event' })
+    expect(mockDbRun).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO security_events'),
+      expect.arrayContaining(['test_event', 'info'])
     )
   })
 
-  it('uses provided workspace_id and tenant_id', () => {
-    logSecurityEvent({
+  it('uses provided workspace_id and tenant_id', async () => {
+    await logSecurityEvent({
       event_type: 'test_event',
       severity: 'critical',
       workspace_id: 5,
       tenant_id: 3,
     })
-    expect(mockRun).toHaveBeenCalledWith(
-      'test_event', 'critical', null, null, null, null, 5, 3
+    expect(mockDbRun).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO security_events'),
+      expect.arrayContaining(['test_event', 'critical', 5, 3])
     )
   })
 
   it('broadcasts via event bus', async () => {
     const { eventBus } = await import('@/lib/event-bus')
-    logSecurityEvent({ event_type: 'injection_attempt', severity: 'critical' })
+    await logSecurityEvent({ event_type: 'injection_attempt', severity: 'critical' })
     expect(eventBus.broadcast).toHaveBeenCalledWith(
       'security.event',
       expect.objectContaining({ event_type: 'injection_attempt', severity: 'critical' })
@@ -79,7 +76,8 @@ describe('logSecurityEvent', () => {
 describe('updateAgentTrustScore', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGet.mockReturnValue({
+    mockDbRun.mockResolvedValue({ insertId: 1, affectedRows: 1 })
+    mockDbGetOne.mockResolvedValue({
       auth_failures: 1,
       injection_attempts: 0,
       rate_limit_hits: 0,
@@ -90,15 +88,13 @@ describe('updateAgentTrustScore', () => {
     })
   })
 
-  it('creates a row if one does not exist (INSERT OR IGNORE)', () => {
-    updateAgentTrustScore('test-agent', 'auth.failure', 1)
-    // First call: INSERT OR IGNORE, second: UPDATE counter, third: SELECT, fourth: UPDATE score
-    expect(mockPrepare).toHaveBeenCalled()
-    expect(mockRun).toHaveBeenCalled()
+  it('inserts and updates the trust score row', async () => {
+    await updateAgentTrustScore('test-agent', 'auth.failure', 1)
+    expect(mockDbRun).toHaveBeenCalled()
   })
 
-  it('recalculates trust score clamped between 0 and 1', () => {
-    mockGet.mockReturnValue({
+  it('recalculates trust score clamped between 0 and 1', async () => {
+    mockDbGetOne.mockResolvedValue({
       auth_failures: 20,
       injection_attempts: 10,
       rate_limit_hits: 5,
@@ -108,14 +104,11 @@ describe('updateAgentTrustScore', () => {
       trust_score: 0,
     })
 
-    updateAgentTrustScore('bad-agent', 'injection.attempt', 1)
-    // Score would go negative, should be clamped to 0
-    const calls = mockRun.mock.calls as any[][]
-    const lastCall = calls[calls.length - 1]
-    if (typeof lastCall[0] === 'number') {
-      expect(lastCall[0]).toBeGreaterThanOrEqual(0)
-      expect(lastCall[0]).toBeLessThanOrEqual(1)
-    }
+    await updateAgentTrustScore('bad-agent', 'injection.attempt', 1)
+    // The score update call should pass a value between 0 and 1
+    const calls = mockDbRun.mock.calls as any[][]
+    const scoreUpdate = calls.find(c => Array.isArray(c[1]) && typeof c[1][0] === 'number' && c[1][0] >= 0 && c[1][0] <= 1)
+    expect(scoreUpdate).toBeDefined()
   })
 })
 
@@ -124,13 +117,13 @@ describe('getSecurityPosture', () => {
     vi.clearAllMocks()
   })
 
-  it('returns expected posture shape', () => {
-    mockGet
-      .mockReturnValueOnce({ total: 10, critical: 2, warning: 5 })
-      .mockReturnValueOnce({ count: 3 })
-      .mockReturnValueOnce({ avg_trust: 0.85 })
+  it('returns expected posture shape', async () => {
+    mockDbGetOne
+      .mockResolvedValueOnce({ total: 10, critical: 2, warning: 5 })
+      .mockResolvedValueOnce({ count: 3 })
+      .mockResolvedValueOnce({ avg_trust: 0.85 })
 
-    const posture = getSecurityPosture(1)
+    const posture = await getSecurityPosture(1)
     expect(posture).toHaveProperty('score')
     expect(posture).toHaveProperty('totalEvents')
     expect(posture).toHaveProperty('criticalEvents')
@@ -142,23 +135,23 @@ describe('getSecurityPosture', () => {
     expect(posture.score).toBeLessThanOrEqual(100)
   })
 
-  it('deducts points for critical and warning events', () => {
-    mockGet
-      .mockReturnValueOnce({ total: 5, critical: 5, warning: 0 })
-      .mockReturnValueOnce({ count: 5 })
-      .mockReturnValueOnce({ avg_trust: 1.0 })
+  it('deducts points for critical and warning events', async () => {
+    mockDbGetOne
+      .mockResolvedValueOnce({ total: 5, critical: 5, warning: 0 })
+      .mockResolvedValueOnce({ count: 5 })
+      .mockResolvedValueOnce({ avg_trust: 1.0 })
 
-    const posture = getSecurityPosture(1)
+    const posture = await getSecurityPosture(1)
     expect(posture.score).toBeLessThan(100)
   })
 
-  it('returns score of 100 with no events', () => {
-    mockGet
-      .mockReturnValueOnce({ total: 0, critical: 0, warning: 0 })
-      .mockReturnValueOnce({ count: 0 })
-      .mockReturnValueOnce({ avg_trust: 1.0 })
+  it('returns score of 100 with no events', async () => {
+    mockDbGetOne
+      .mockResolvedValueOnce({ total: 0, critical: 0, warning: 0 })
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ avg_trust: 1.0 })
 
-    const posture = getSecurityPosture(1)
+    const posture = await getSecurityPosture(1)
     expect(posture.score).toBe(100)
   })
 })

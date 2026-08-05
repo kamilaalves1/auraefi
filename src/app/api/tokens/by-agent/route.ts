@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbGetAll } from '@/lib/db'
 import { calculateTokenCost } from '@/lib/token-pricing'
 import { getProviderSubscriptionFlags } from '@/lib/provider-subscriptions'
 import { logger } from '@/lib/logger'
@@ -49,7 +49,6 @@ export async function GET(request: NextRequest) {
     const days = Math.max(1, Math.min(365, Number(searchParams.get('days') || 30)))
     const workspaceId = auth.user.workspace_id ?? 1
 
-    const db = getDatabase()
     const cutoff = Math.floor(Date.now() / 1000) - days * 86400
     const providerSubscriptions = getProviderSubscriptionFlags()
 
@@ -62,7 +61,7 @@ export async function GET(request: NextRequest) {
         )`
 
     // Query per-agent totals — prefer stored cost_usd; fall back to recalculating
-    const rows = db.prepare(`
+    const rows = await dbGetAll<AgentBreakdownRow & { total_cost_stored: number }>(`
       SELECT
         ${agentExpr} AS agent_name,
         SUM(input_tokens)              AS total_input_tokens,
@@ -77,10 +76,17 @@ export async function GET(request: NextRequest) {
         AND created_at >= ?
       GROUP BY agent_name
       ORDER BY SUM(COALESCE(cost_usd, 0)) DESC, (SUM(input_tokens) + SUM(output_tokens)) DESC
-    `).all(workspaceId, cutoff) as (AgentBreakdownRow & { total_cost_stored: number })[]
+    `, [workspaceId, cutoff])
 
     // Per-model breakdown with stored cost
-    const modelRows = db.prepare(`
+    const modelRows = await dbGetAll<{
+      agent_name: string
+      model: string
+      input_tokens: number
+      output_tokens: number
+      cost_stored: number
+      request_count: number
+    }>(`
       SELECT
         ${agentExpr} AS agent_name,
         model,
@@ -93,14 +99,7 @@ export async function GET(request: NextRequest) {
         AND created_at >= ?
       GROUP BY agent_name, model
       ORDER BY agent_name, SUM(COALESCE(cost_usd, 0)) DESC
-    `).all(workspaceId, cutoff) as Array<{
-      agent_name: string
-      model: string
-      input_tokens: number
-      output_tokens: number
-      cost_stored: number
-      request_count: number
-    }>
+    `, [workspaceId, cutoff])
 
     const modelsByAgent = new Map<string, ModelBreakdown[]>()
     for (const row of modelRows) {

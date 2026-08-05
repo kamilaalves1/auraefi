@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbRun } from '@/lib/db'
 import { buildGatewayWebSocketUrl } from '@/lib/gateway-url'
 import { getDetectedGatewayToken } from '@/lib/gateway-runtime'
 import {
@@ -99,10 +99,10 @@ function resolveRemoteGatewayUrl(
   return `${protocol}://${browserHost}:${gateway.port}`
 }
 
-function ensureTable(db: ReturnType<typeof getDatabase>) {
-  db.exec(`
+async function ensureTable() {
+  await dbRun(`
     CREATE TABLE IF NOT EXISTS gateways (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INT AUTO_INCREMENT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       host TEXT NOT NULL DEFAULT '127.0.0.1',
       port INTEGER NOT NULL DEFAULT 18789,
@@ -113,10 +113,10 @@ function ensureTable(db: ReturnType<typeof getDatabase>) {
       latency INTEGER,
       sessions_count INTEGER NOT NULL DEFAULT 0,
       agents_count INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      created_at INTEGER NOT NULL DEFAULT (UNIX_TIMESTAMP()),
+      updated_at INTEGER NOT NULL DEFAULT (UNIX_TIMESTAMP())
     )
-  `)
+  `, [])
 }
 
 /**
@@ -130,8 +130,7 @@ export async function POST(request: NextRequest) {
   const auth = requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  const db = getDatabase()
-  ensureTable(db)
+  await ensureTable()
 
   let id: number | null = null
   try {
@@ -145,7 +144,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'id is required' }, { status: 400 })
   }
 
-  const gateway = db.prepare('SELECT id, host, port, token, is_primary FROM gateways WHERE id = ?').get(id) as GatewayEntry | undefined
+  const gateway = await dbGetOne<GatewayEntry>('SELECT id, host, port, token, is_primary FROM gateways WHERE id = ?', [id])
   if (!gateway) {
     return NextResponse.json({ error: 'Gateway not found' }, { status: 404 })
   }
@@ -171,7 +170,7 @@ export async function POST(request: NextRequest) {
   // Keep runtime DB aligned with detected gateway token for primary gateway.
   if (gateway.is_primary === 1 && detectedToken && detectedToken !== dbToken) {
     try {
-      db.prepare('UPDATE gateways SET token = ?, updated_at = (unixepoch()) WHERE id = ?').run(detectedToken, gateway.id)
+      await dbRun('UPDATE gateways SET token = ?, updated_at = (UNIX_TIMESTAMP()) WHERE id = ?', [detectedToken, gateway.id])
     } catch {
       // Non-fatal: connect still succeeds with detected token even if persistence fails.
     }

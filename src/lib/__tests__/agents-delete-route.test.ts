@@ -4,7 +4,8 @@ import { NextRequest } from 'next/server'
 const requireRole = vi.fn()
 const runGateway = vi.fn()
 const removeAgentFromConfig = vi.fn()
-const prepare = vi.fn()
+const mockDbGetOne = vi.fn()
+const mockDbRun = vi.fn(() => Promise.resolve({ insertId: 0, affectedRows: 1 }))
 
 vi.mock('@/lib/auth', () => ({
   requireRole,
@@ -21,11 +22,13 @@ vi.mock('@/lib/agent-sync', () => ({
 }))
 
 vi.mock('@/lib/db', () => ({
-  getDatabase: vi.fn(() => ({ prepare })),
+  dbGetOne: mockDbGetOne,
+  dbGetAll: vi.fn(() => Promise.resolve([])),
+  dbRun: mockDbRun,
   db_helpers: {
-    logActivity: vi.fn(),
+    logActivity: vi.fn(() => Promise.resolve()),
   },
-  logAuditEvent: vi.fn(),
+  logAuditEvent: vi.fn(() => Promise.resolve()),
 }))
 
 vi.mock('@/lib/event-bus', () => ({
@@ -48,7 +51,9 @@ describe('DELETE /api/agents/[id]', () => {
     requireRole.mockReturnValue({ user: { id: 1, username: 'admin', role: 'admin', workspace_id: 1 } })
     runGateway.mockReset()
     removeAgentFromConfig.mockReset()
-    prepare.mockReset()
+    mockDbGetOne.mockReset()
+    mockDbRun.mockReset()
+    mockDbRun.mockResolvedValue({ insertId: 0, affectedRows: 1 })
   })
 
   afterEach(() => {
@@ -57,13 +62,7 @@ describe('DELETE /api/agents/[id]', () => {
 
   it('removes the agent from gateway config even when workspace deletion is disabled', async () => {
     const agent = { id: 7, name: 'neo', role: 'tester', config: JSON.stringify({ agentId: 'neo' }) }
-    const selectStmt = { get: vi.fn(() => agent) }
-    const deleteStmt = { run: vi.fn() }
-    prepare.mockImplementation((sql: string) => {
-      if (sql.startsWith('SELECT * FROM agents')) return selectStmt
-      if (sql.startsWith('DELETE FROM agents')) return deleteStmt
-      throw new Error(`Unexpected SQL: ${sql}`)
-    })
+    mockDbGetOne.mockResolvedValue(agent)
 
     const { DELETE } = await import('@/app/api/agents/[id]/route')
     const request = new NextRequest('http://localhost/api/agents/7', {
@@ -78,19 +77,16 @@ describe('DELETE /api/agents/[id]', () => {
     expect(response.status).toBe(200)
     expect(runGateway).not.toHaveBeenCalled()
     expect(removeAgentFromConfig).toHaveBeenCalledWith({ id: 'neo', name: 'neo' })
-    expect(deleteStmt.run).toHaveBeenCalledWith(7, 1)
+    expect(mockDbRun).toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM agents'),
+      [7, 1]
+    )
     expect(body.success).toBe(true)
   })
 
   it('logs a warning when remove_workspace is requested but does not call gateway CLI', async () => {
     const agent = { id: 8, name: 'adam', role: 'tester', config: JSON.stringify({ agentId: 'adam' }) }
-    const selectStmt = { get: vi.fn(() => agent) }
-    const deleteStmt = { run: vi.fn() }
-    prepare.mockImplementation((sql: string) => {
-      if (sql.startsWith('SELECT * FROM agents')) return selectStmt
-      if (sql.startsWith('DELETE FROM agents')) return deleteStmt
-      throw new Error(`Unexpected SQL: ${sql}`)
-    })
+    mockDbGetOne.mockResolvedValue(agent)
 
     const { DELETE } = await import('@/app/api/agents/[id]/route')
     const request = new NextRequest('http://localhost/api/agents/8', {
@@ -104,18 +100,15 @@ describe('DELETE /api/agents/[id]', () => {
     expect(response.status).toBe(200)
     expect(runGateway).not.toHaveBeenCalled()
     expect(removeAgentFromConfig).toHaveBeenCalledWith({ id: 'adam', name: 'adam' })
-    expect(deleteStmt.run).toHaveBeenCalledWith(8, 1)
+    expect(mockDbRun).toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM agents'),
+      [8, 1]
+    )
   })
 
   it('still deletes the Mission Control agent when config cleanup fails', async () => {
     const agent = { id: 9, name: 'trinity', role: 'tester', config: JSON.stringify({ agentId: 'trinity' }) }
-    const selectStmt = { get: vi.fn(() => agent) }
-    const deleteStmt = { run: vi.fn() }
-    prepare.mockImplementation((sql: string) => {
-      if (sql.startsWith('SELECT * FROM agents')) return selectStmt
-      if (sql.startsWith('DELETE FROM agents')) return deleteStmt
-      throw new Error(`Unexpected SQL: ${sql}`)
-    })
+    mockDbGetOne.mockResolvedValue(agent)
     removeAgentFromConfig.mockRejectedValue(new Error('GATEWAY_CONFIG_PATH not configured'))
 
     const { DELETE } = await import('@/app/api/agents/[id]/route')
@@ -128,7 +121,10 @@ describe('DELETE /api/agents/[id]', () => {
     const body = await response.json()
 
     expect(response.status).toBe(200)
-    expect(deleteStmt.run).toHaveBeenCalledWith(9, 1)
+    expect(mockDbRun).toHaveBeenCalledWith(
+      expect.stringContaining('DELETE FROM agents'),
+      [9, 1]
+    )
     expect(body.success).toBe(true)
     expect(body.warning).toContain('Gateway config cleanup skipped')
   })

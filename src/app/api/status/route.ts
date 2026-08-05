@@ -5,7 +5,7 @@ import { existsSync, statSync } from 'node:fs'
 import path from 'node:path'
 import { runCommand } from '@/lib/command'
 import { config } from '@/lib/config'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbGetAll, dbRun } from '@/lib/db'
 import { getAllGatewaySessions, getAgentLiveStatuses } from '@/lib/sessions'
 import { requireRole } from '@/lib/auth'
 import { MODEL_CATALOG } from '@/lib/models'
@@ -136,17 +136,17 @@ async function getMemorySnapshot() {
   }
 }
 
-function getDbStats(workspaceId: number) {
+async function getDbStats(workspaceId: number) {
   try {
-    const db = getDatabase()
     const now = Math.floor(Date.now() / 1000)
     const day = now - 86400
     const week = now - 7 * 86400
 
     // Task breakdown
-    const taskStats = db.prepare(`
-      SELECT status, COUNT(*) as count FROM tasks WHERE workspace_id = ? GROUP BY status
-    `).all(workspaceId) as Array<{ status: string; count: number }>
+    const taskStats = await dbGetAll<{ status: string; count: number }>(
+      `SELECT status, COUNT(*) as count FROM tasks WHERE workspace_id = ? GROUP BY status`,
+      [workspaceId]
+    )
     const tasksByStatus: Record<string, number> = {}
     let totalTasks = 0
     for (const row of taskStats) {
@@ -155,9 +155,10 @@ function getDbStats(workspaceId: number) {
     }
 
     // Agent breakdown
-    const agentStats = db.prepare(`
-      SELECT status, COUNT(*) as count FROM agents WHERE workspace_id = ? GROUP BY status
-    `).all(workspaceId) as Array<{ status: string; count: number }>
+    const agentStats = await dbGetAll<{ status: string; count: number }>(
+      `SELECT status, COUNT(*) as count FROM agents WHERE workspace_id = ? GROUP BY status`,
+      [workspaceId]
+    )
     const agentsByStatus: Record<string, number> = {}
     let totalAgents = 0
     for (const row of agentStats) {
@@ -166,30 +167,40 @@ function getDbStats(workspaceId: number) {
     }
 
     // Audit events (24h / 7d)
-    const auditDay = (db.prepare('SELECT COUNT(*) as c FROM audit_log WHERE created_at > ?').get(day) as any).c
-    const auditWeek = (db.prepare('SELECT COUNT(*) as c FROM audit_log WHERE created_at > ?').get(week) as any).c
+    const auditDayRow = await dbGetOne<{ c: number }>('SELECT COUNT(*) as c FROM audit_log WHERE created_at > ?', [day])
+    const auditWeekRow = await dbGetOne<{ c: number }>('SELECT COUNT(*) as c FROM audit_log WHERE created_at > ?', [week])
+    const auditDay = auditDayRow?.c ?? 0
+    const auditWeek = auditWeekRow?.c ?? 0
 
     // Security events (login failures in last 24h)
-    const loginFailures = (db.prepare(
-      "SELECT COUNT(*) as c FROM audit_log WHERE action = 'login_failed' AND created_at > ?"
-    ).get(day) as any).c
+    const loginFailuresRow = await dbGetOne<{ c: number }>(
+      "SELECT COUNT(*) as c FROM audit_log WHERE action = 'login_failed' AND created_at > ?",
+      [day]
+    )
+    const loginFailures = loginFailuresRow?.c ?? 0
 
     // Activities (24h)
-    const activityDay = (
-      db.prepare('SELECT COUNT(*) as c FROM activities WHERE created_at > ? AND workspace_id = ?').get(day, workspaceId) as any
-    ).c
+    const activityDayRow = await dbGetOne<{ c: number }>(
+      'SELECT COUNT(*) as c FROM activities WHERE created_at > ? AND workspace_id = ?',
+      [day, workspaceId]
+    )
+    const activityDay = activityDayRow?.c ?? 0
 
     // Notifications (unread)
-    const unreadNotifs = (
-      db.prepare('SELECT COUNT(*) as c FROM notifications WHERE read_at IS NULL AND workspace_id = ?').get(workspaceId) as any
-    ).c
+    const unreadNotifsRow = await dbGetOne<{ c: number }>(
+      'SELECT COUNT(*) as c FROM notifications WHERE read_at IS NULL AND workspace_id = ?',
+      [workspaceId]
+    )
+    const unreadNotifs = unreadNotifsRow?.c ?? 0
 
     // Pipeline runs (active + recent)
     let pipelineActive = 0
     let pipelineRecent = 0
     try {
-      pipelineActive = (db.prepare("SELECT COUNT(*) as c FROM pipeline_runs WHERE status = 'running'").get() as any).c
-      pipelineRecent = (db.prepare('SELECT COUNT(*) as c FROM pipeline_runs WHERE created_at > ?').get(day) as any).c
+      const paRow = await dbGetOne<{ c: number }>("SELECT COUNT(*) as c FROM pipeline_runs WHERE status = 'running'", [])
+      const prRow = await dbGetOne<{ c: number }>('SELECT COUNT(*) as c FROM pipeline_runs WHERE created_at > ?', [day])
+      pipelineActive = paRow?.c ?? 0
+      pipelineRecent = prRow?.c ?? 0
     } catch {
       // Pipeline tables may not exist yet
     }
@@ -198,12 +209,11 @@ function getDbStats(workspaceId: number) {
     let latestBackup: { name: string; size: number; age_hours: number } | null = null
     try {
       const { readdirSync } = require('fs')
-      const { join, dirname } = require('path')
-      const backupDir = join(dirname(config.dbPath), 'backups')
+      const backupDir = config.backupDir
       const files = readdirSync(backupDir)
         .filter((f: string) => f.endsWith('.db'))
         .map((f: string) => {
-          const stat = statSync(join(backupDir, f))
+          const stat = statSync(path.join(backupDir, f))
           return { name: f, size: stat.size, mtime: stat.mtimeMs }
         })
         .sort((a: any, b: any) => b.mtime - a.mtime)
@@ -221,7 +231,7 @@ function getDbStats(workspaceId: number) {
     // DB file size
     let dbSizeBytes = 0
     try {
-      dbSizeBytes = statSync(config.dbPath).size
+      dbSizeBytes = 0 // Aurora MySQL: size managed by AWS
     } catch {
       // ignore
     }
@@ -229,7 +239,8 @@ function getDbStats(workspaceId: number) {
     // Webhook configs count
     let webhookCount = 0
     try {
-      webhookCount = (db.prepare('SELECT COUNT(*) as c FROM webhooks').get() as any).c
+      const whRow = await dbGetOne<{ c: number }>('SELECT COUNT(*) as c FROM webhooks', [])
+      webhookCount = whRow?.c ?? 0
     } catch {
       // table may not exist
     }
@@ -324,24 +335,16 @@ async function getSystemStatus(workspaceId: number) {
 
     // Sync agent statuses in DB from live session data
     try {
-      const db = getDatabase()
       const liveStatuses = getAgentLiveStatuses()
       const now = Math.floor(Date.now() / 1000)
       // Match by: exact name, lowercase, or normalized (spaces→hyphens)
-      const updateStmt = db.prepare(
-        `UPDATE agents SET status = ?, last_seen = ?, updated_at = ?
-         WHERE workspace_id = ?
-           AND (LOWER(name) = LOWER(?)
-           OR LOWER(REPLACE(name, ' ', '-')) = LOWER(?))`
-      )
       for (const [agentName, info] of liveStatuses) {
-        updateStmt.run(
-          info.status,
-          Math.floor(info.lastActivity / 1000),
-          now,
-          workspaceId,
-          agentName,
-          agentName
+        await dbRun(
+          `UPDATE agents SET status = ?, last_seen = ?, updated_at = ?
+           WHERE workspace_id = ?
+             AND (LOWER(name) = LOWER(?)
+             OR LOWER(REPLACE(name, ' ', '-')) = LOWER(?))`,
+          [info.status, Math.floor(info.lastActivity / 1000), now, workspaceId, agentName, agentName]
         )
       }
     } catch (dbErr) {
@@ -425,9 +428,8 @@ async function performHealthCheck() {
 
   // Check DB connectivity
   try {
-    const db = getDatabase()
     const start = Date.now()
-    db.prepare('SELECT 1').get()
+    await dbGetOne('SELECT 1', [])
     const elapsed = Date.now() - start
 
     let dbStatus: string
@@ -443,13 +445,10 @@ async function performHealthCheck() {
       message: dbStatus === 'healthy' ? `DB reachable (${elapsed}ms)` : `DB slow (${elapsed}ms)`
     })
   } catch (error: any) {
-    const isNativeModuleError = error?.code === 'ERR_DLOPEN_FAILED' || /NODE_MODULE_VERSION/.test(error?.message || '')
     health.checks.push({
       name: 'Database',
       status: 'unhealthy',
-      message: isNativeModuleError
-        ? 'better-sqlite3 compiled for wrong Node.js version. Run: pnpm rebuild better-sqlite3'
-        : 'DB connectivity failed'
+      message: 'DB connectivity failed'
     })
   }
 
@@ -564,17 +563,11 @@ async function getCapabilities(request?: NextRequest) {
   // A DB row alone isn't enough — the gateway must actually be reachable.
   let gatewayReachable = false
   try {
-    const db = getDatabase()
-    const table = db.prepare(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='gateways'"
-    ).get() as { name?: string } | undefined
-    if (table?.name) {
-      const rows = db.prepare('SELECT host, port FROM gateways').all() as { host: string; port: number }[]
-      if (rows.length > 0) {
-        const probes = rows.map(r => isPortOpen(r.host, Number(r.port)))
-        const results = await Promise.all(probes)
-        gatewayReachable = results.some(Boolean)
-      }
+    const rows = await dbGetAll<{ host: string; port: number }>('SELECT host, port FROM gateways', [])
+    if (rows.length > 0) {
+      const probes = rows.map(r => isPortOpen(r.host, Number(r.port)))
+      const results = await Promise.all(probes)
+      gatewayReachable = results.some(Boolean)
     }
   } catch {
     // ignore — fall through to default probe
@@ -587,10 +580,10 @@ async function getCapabilities(request?: NextRequest) {
 
   let claudeSessions = 0
   try {
-    const db = getDatabase()
-    const row = db.prepare(
-      "SELECT COUNT(*) as c FROM claude_sessions WHERE is_active = 1"
-    ).get() as { c: number } | undefined
+    const row = await dbGetOne<{ c: number }>(
+      "SELECT COUNT(*) as c FROM claude_sessions WHERE is_active = 1",
+      []
+    )
     claudeSessions = row?.c ?? 0
   } catch {
     // claude_sessions table may not exist
@@ -605,8 +598,10 @@ async function getCapabilities(request?: NextRequest) {
 
   // Apply subscription overrides from settings
   try {
-    const settingsDb = getDatabase()
-    const planOverride = settingsDb.prepare("SELECT value FROM settings WHERE key = 'subscription.plan_override'").get() as { value: string } | undefined
+    const planOverride = await dbGetOne<{ value: string }>(
+      "SELECT value FROM settings WHERE key = 'subscription.plan_override'",
+      []
+    )
     if (planOverride?.value && subscription) {
       subscription.type = planOverride.value
     }
@@ -619,8 +614,10 @@ async function getCapabilities(request?: NextRequest) {
   // Interface mode preference
   let interfaceMode = 'essential'
   try {
-    const settingsDb = getDatabase()
-    const modeRow = settingsDb.prepare("SELECT value FROM settings WHERE key = 'general.interface_mode'").get() as { value: string } | undefined
+    const modeRow = await dbGetOne<{ value: string }>(
+      "SELECT value FROM settings WHERE key = 'general.interface_mode'",
+      []
+    )
     if (modeRow?.value === 'full' || modeRow?.value === 'essential') {
       interfaceMode = modeRow.value
     }

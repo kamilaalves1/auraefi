@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbGetAll, dbRun, dbTransaction } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -30,19 +30,19 @@ export async function GET(request: NextRequest, { params }: Params) {
 
   try {
     const { id } = await params
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
 
-    const pipeline = db.prepare('SELECT id FROM work_pipelines WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId)
+    const pipeline = await dbGetOne('SELECT id FROM work_pipelines WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId])
     if (!pipeline) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
 
-    const rows = db.prepare(
+    const rows = await dbGetAll<any>(
       `SELECT pc.*, a.name as agent_name
        FROM pipeline_columns pc
        LEFT JOIN agents a ON a.id = pc.agent_id
        WHERE pc.pipeline_id = ? AND pc.workspace_id = ?
-       ORDER BY pc.column_order ASC`
-    ).all(Number(id), workspaceId) as any[]
+       ORDER BY pc.column_order ASC`,
+      [Number(id), workspaceId]
+    )
 
     const columns = rows.map(row => ({
       id: row.id,
@@ -73,11 +73,10 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
   try {
     const { id } = await params
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const body = await request.json().catch(() => ({}))
 
-    const pipeline = db.prepare('SELECT id FROM work_pipelines WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId)
+    const pipeline = await dbGetOne('SELECT id FROM work_pipelines WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId])
     if (!pipeline) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
 
     const columns: Array<{
@@ -88,37 +87,42 @@ export async function PUT(request: NextRequest, { params }: Params) {
       instructions?: string | null
     }> = Array.isArray(body.columns) ? body.columns : []
 
-    db.prepare('DELETE FROM pipeline_columns WHERE pipeline_id = ? AND workspace_id = ?').run(Number(id), workspaceId)
-
-    const insert = db.prepare(
-      `INSERT INTO pipeline_columns (pipeline_id, workspace_id, column_name, column_order, is_trigger, agent_id, skill_id, instructions, assignments_json)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`
-    )
-
-    for (let i = 0; i < columns.length; i++) {
-      const col = columns[i]
-      const assignments = Array.isArray(col.assignments) ? col.assignments : []
-      // first agent_id for legacy column
-      const firstAgentId = assignments.find(a => a.agent_id != null)?.agent_id ?? null
-      insert.run(
-        Number(id),
-        workspaceId,
-        String(col.column_name ?? '').slice(0, 200),
-        col.column_order ?? i,
-        col.is_trigger ? 1 : 0,
-        firstAgentId,
-        col.instructions ? String(col.instructions).slice(0, 2000) : null,
-        JSON.stringify(assignments),
+    await dbTransaction(async (conn) => {
+      await conn.execute(
+        'DELETE FROM pipeline_columns WHERE pipeline_id = ? AND workspace_id = ?',
+        [Number(id), workspaceId]
       )
-    }
 
-    const saved = db.prepare(
+      for (let i = 0; i < columns.length; i++) {
+        const col = columns[i]
+        const assignments = Array.isArray(col.assignments) ? col.assignments : []
+        // first agent_id for legacy column
+        const firstAgentId = assignments.find(a => a.agent_id != null)?.agent_id ?? null
+        await conn.execute(
+          `INSERT INTO pipeline_columns (pipeline_id, workspace_id, column_name, column_order, is_trigger, agent_id, skill_id, instructions, assignments_json)
+           VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+          [
+            Number(id),
+            workspaceId,
+            String(col.column_name ?? '').slice(0, 200),
+            col.column_order ?? i,
+            col.is_trigger ? 1 : 0,
+            firstAgentId,
+            col.instructions ? String(col.instructions).slice(0, 2000) : null,
+            JSON.stringify(assignments),
+          ]
+        )
+      }
+    })
+
+    const saved = await dbGetAll<any>(
       `SELECT pc.*, a.name as agent_name
        FROM pipeline_columns pc
        LEFT JOIN agents a ON a.id = pc.agent_id
        WHERE pc.pipeline_id = ? AND pc.workspace_id = ?
-       ORDER BY pc.column_order ASC`
-    ).all(Number(id), workspaceId) as any[]
+       ORDER BY pc.column_order ASC`,
+      [Number(id), workspaceId]
+    )
 
     return NextResponse.json({
       columns: saved.map(row => ({

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
 import { setWorkspaceSquadActive, getWorkspaceSquadActive } from '@/lib/workspace-squad-state-db'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
@@ -17,9 +16,8 @@ export async function GET(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
-    return NextResponse.json({ squad_active: getWorkspaceSquadActive(db, workspaceId) })
+    return NextResponse.json({ squad_active: await getWorkspaceSquadActive(workspaceId) })
   } catch (error) {
     logger.error({ err: error }, 'GET /api/workspace/squad-state error')
     return NextResponse.json({ error: 'Failed to load squad state' }, { status: 500 })
@@ -38,14 +36,13 @@ export async function PUT(request: NextRequest) {
     const validated = await validateBody(request, putSchema)
     if ('error' in validated) return validated.error
 
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const user = auth.user.username
-    const active = validated.data.squad_active ? 1 : 0
+    const active = validated.data.squad_active
 
-    setWorkspaceSquadActive(db, workspaceId, active === 1, user)
+    await setWorkspaceSquadActive(workspaceId, active, user)
 
-    return NextResponse.json({ ok: true, squad_active: active === 1 })
+    return NextResponse.json({ ok: true, squad_active: active })
   } catch (error) {
     logger.error({ err: error }, 'PUT /api/workspace/squad-state error')
     return NextResponse.json({ error: 'Failed to save squad state' }, { status: 500 })

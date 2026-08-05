@@ -1,7 +1,7 @@
 import { randomBytes } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createUser, getUserFromRequest , requireRole } from '@/lib/auth'
-import { getDatabase, logAuditEvent } from '@/lib/db'
+import { dbGetOne, dbGetAll, dbRun, dbTransaction, logAuditEvent } from '@/lib/db'
 import { validateBody, accessRequestActionSchema } from '@/lib/validation'
 import { mutationLimiter } from '@/lib/rate-limit'
 
@@ -10,11 +10,10 @@ function makeUsernameFromEmail(email: string): string {
   return base.slice(0, 28)
 }
 
-function ensureUniqueUsername(base: string): string {
-  const db = getDatabase()
+async function ensureUniqueUsername(base: string): Promise<string> {
   let candidate = base
   let i = 0
-  while (db.prepare('SELECT 1 FROM users WHERE username = ?').get(candidate)) {
+  while (await dbGetOne<any>('SELECT 1 FROM users WHERE username = ?', [candidate])) {
     i += 1
     candidate = `${base.slice(0, 24)}-${i}`
   }
@@ -30,8 +29,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
   }
 
-  const db = getDatabase()
-  db.exec(`
+  await dbRun(`
     CREATE TABLE IF NOT EXISTS access_requests (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       provider TEXT NOT NULL DEFAULT 'google',
@@ -40,20 +38,20 @@ export async function GET(request: NextRequest) {
       display_name TEXT,
       avatar_url TEXT,
       status TEXT NOT NULL DEFAULT 'pending',
-      requested_at INTEGER NOT NULL DEFAULT (unixepoch()),
-      last_attempt_at INTEGER NOT NULL DEFAULT (unixepoch()),
+      requested_at INTEGER NOT NULL DEFAULT (UNIX_TIMESTAMP()),
+      last_attempt_at INTEGER NOT NULL DEFAULT (UNIX_TIMESTAMP()),
       attempt_count INTEGER NOT NULL DEFAULT 1,
       reviewed_by TEXT,
       reviewed_at INTEGER,
       review_note TEXT,
       approved_user_id INTEGER
     )
-  `)
+  `, [])
 
   const status = String(request.nextUrl.searchParams.get('status') || 'all')
   const rows = status === 'all'
-    ? db.prepare("SELECT * FROM access_requests ORDER BY status = 'pending' DESC, last_attempt_at DESC, id DESC").all()
-    : db.prepare('SELECT * FROM access_requests WHERE status = ? ORDER BY last_attempt_at DESC, id DESC').all(status)
+    ? await dbGetAll<any>("SELECT * FROM access_requests ORDER BY status = 'pending' DESC, last_attempt_at DESC, id DESC", [])
+    : await dbGetAll<any>('SELECT * FROM access_requests WHERE status = ? ORDER BY last_attempt_at DESC, id DESC', [status])
 
   return NextResponse.json({ requests: rows })
 }
@@ -70,25 +68,24 @@ export async function POST(request: NextRequest) {
   const result = await validateBody(request, accessRequestActionSchema)
   if ('error' in result) return result.error
 
-  const db = getDatabase()
   const { request_id: requestId, action, role, note } = result.data
 
-  const reqRow = db.prepare('SELECT * FROM access_requests WHERE id = ?').get(requestId) as any
+  const reqRow = await dbGetOne<any>('SELECT * FROM access_requests WHERE id = ?', [requestId])
   if (!reqRow) return NextResponse.json({ error: 'Request not found' }, { status: 404 })
 
   if (action === 'reject') {
-    db.prepare(`
+    await dbRun(`
       UPDATE access_requests
-      SET status = 'rejected', reviewed_by = ?, reviewed_at = (unixepoch()), review_note = ?
+      SET status = 'rejected', reviewed_by = ?, reviewed_at = UNIX_TIMESTAMP(), review_note = ?
       WHERE id = ?
-    `).run(admin.username, note, requestId)
+    `, [admin.username, note, requestId])
 
-    logAuditEvent({
+    await logAuditEvent({
       action: 'access_request_rejected',
       actor: admin.username,
       actor_id: admin.id,
       detail: { request_id: requestId, email: reqRow.email, note },
-    })
+    }).catch(() => {})
 
     return NextResponse.json({ ok: true })
   }
@@ -98,19 +95,23 @@ export async function POST(request: NextRequest) {
   const displayName = String(reqRow.display_name || email.split('@')[0] || 'Google User')
   const avatarUrl = reqRow.avatar_url ? String(reqRow.avatar_url) : null
 
-  const user = db.transaction(() => {
-    const existing = db.prepare('SELECT * FROM users WHERE lower(email) = ? OR (provider = ? AND provider_user_id = ?) ORDER BY id ASC LIMIT 1').get(email, 'google', providerUserId || '') as any
+  const user = await dbTransaction(async (conn) => {
+    const [existingRows] = await conn.execute(
+      'SELECT * FROM users WHERE lower(email) = ? OR (provider = ? AND provider_user_id = ?) ORDER BY id ASC LIMIT 1',
+      [email, 'google', providerUserId || '']
+    )
+    const existing = (existingRows as any[])[0] as any
 
     let userId: number
     if (existing) {
-      db.prepare(`
+      await conn.execute(`
         UPDATE users
-        SET provider = 'google', provider_user_id = ?, email = ?, avatar_url = COALESCE(?, avatar_url), is_approved = 1, role = ?, approved_by = ?, approved_at = (unixepoch()), updated_at = (unixepoch())
+        SET provider = 'google', provider_user_id = ?, email = ?, avatar_url = COALESCE(?, avatar_url), is_approved = 1, role = ?, approved_by = ?, approved_at = UNIX_TIMESTAMP(), updated_at = UNIX_TIMESTAMP()
         WHERE id = ?
-      `).run(providerUserId, email, avatarUrl, role, admin.username, existing.id)
+      `, [providerUserId, email, avatarUrl, role, admin.username, existing.id])
       userId = Number(existing.id)
     } else {
-      const username = ensureUniqueUsername(makeUsernameFromEmail(email))
+      const username = await ensureUniqueUsername(makeUsernameFromEmail(email))
       const randomPwd = randomBytes(24).toString('hex')
       const created = createUser(username, randomPwd, displayName, role, {
         provider: 'google',
@@ -124,21 +125,25 @@ export async function POST(request: NextRequest) {
       userId = created.id
     }
 
-    db.prepare(`
+    await conn.execute(`
       UPDATE access_requests
-      SET status = 'approved', reviewed_by = ?, reviewed_at = (unixepoch()), review_note = ?, approved_user_id = ?
+      SET status = 'approved', reviewed_by = ?, reviewed_at = UNIX_TIMESTAMP(), review_note = ?, approved_user_id = ?
       WHERE id = ?
-    `).run(admin.username, note, userId, requestId)
+    `, [admin.username, note, userId, requestId])
 
-    return db.prepare('SELECT id, username, display_name, role, provider, email, avatar_url, is_approved FROM users WHERE id = ?').get(userId)
-  })() as any
+    const [userRows] = await conn.execute(
+      'SELECT id, username, display_name, role, provider, email, avatar_url, is_approved FROM users WHERE id = ?',
+      [userId]
+    )
+    return (userRows as any[])[0]
+  }) as any
 
-  logAuditEvent({
+  await logAuditEvent({
     action: 'access_request_approved',
     actor: admin.username,
     actor_id: admin.id,
     detail: { request_id: requestId, email, role, user_id: user?.id, note },
-  })
+  }).catch(() => {})
 
   return NextResponse.json({ ok: true, user })
 }

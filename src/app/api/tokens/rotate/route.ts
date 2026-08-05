@@ -1,7 +1,7 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { requireRole } from '@/lib/auth'
-import { getDatabase, logAuditEvent } from '@/lib/db'
+import { dbGetOne, dbRun, logAuditEvent } from '@/lib/db'
 import { mutationLimiter, extractClientIp } from '@/lib/rate-limit'
 
 interface ApiKeyRow {
@@ -26,12 +26,11 @@ export async function GET(request: NextRequest) {
   const auth = requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  const db = getDatabase()
-
   // Check for DB-stored override first
-  const row = db.prepare(
-    "SELECT value, updated_by, updated_at FROM settings WHERE key = 'security.api_key'"
-  ).get() as ApiKeyRow | undefined
+  const row = await dbGetOne<ApiKeyRow>(
+    "SELECT value, updated_by, updated_at FROM settings WHERE key = 'security.api_key'",
+    []
+  )
 
   if (row) {
     return NextResponse.json({
@@ -74,12 +73,11 @@ export async function POST(request: NextRequest) {
   // Generate a new key: mc_ prefix + 32 random hex chars
   const newKey = 'mc_' + randomBytes(24).toString('hex')
 
-  const db = getDatabase()
-
   // Get old key info for audit trail
-  const existing = db.prepare(
-    "SELECT value FROM settings WHERE key = 'security.api_key'"
-  ).get() as { value: string } | undefined
+  const existing = await dbGetOne<{ value: string }>(
+    "SELECT value FROM settings WHERE key = 'security.api_key'",
+    []
+  )
 
   const oldSource = existing ? 'database' : (process.env.API_KEY || '').trim() ? 'environment' : 'none'
   const oldMasked = existing
@@ -89,18 +87,18 @@ export async function POST(request: NextRequest) {
       : null
 
   // Store new key in settings table (overrides env var)
-  db.prepare(`
+  await dbRun(`
     INSERT INTO settings (key, value, description, category, updated_by, updated_at)
-    VALUES ('security.api_key', ?, 'Active API key (overrides API_KEY env var)', 'security', ?, unixepoch())
-    ON CONFLICT(key) DO UPDATE SET
-      value = excluded.value,
-      updated_by = excluded.updated_by,
-      updated_at = unixepoch()
-  `).run(newKey, auth.user.username)
+    VALUES ('security.api_key', ?, 'Active API key (overrides API_KEY env var)', 'security', ?, UNIX_TIMESTAMP())
+    ON DUPLICATE KEY UPDATE
+      value = VALUES(value),
+      updated_by = VALUES(updated_by),
+      updated_at = UNIX_TIMESTAMP()
+  `, [newKey, auth.user.username])
 
   // Audit log
   const ipAddress = extractClientIp(request)
-  logAuditEvent({
+  await logAuditEvent({
     action: 'api_key_rotated',
     actor: auth.user.username,
     actor_id: auth.user.id,
@@ -110,7 +108,7 @@ export async function POST(request: NextRequest) {
       new_key_masked: maskApiKey(newKey),
     },
     ip_address: ipAddress,
-  })
+  }).catch(() => {})
 
   return NextResponse.json({
     key: newKey,

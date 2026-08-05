@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const mockGet = vi.fn()
-const mockAll = vi.fn(() => [])
-const mockRun = vi.fn(() => ({ lastInsertRowid: 1, changes: 1 }))
-const mockPrepare = vi.fn(() => ({ get: mockGet, all: mockAll, run: mockRun }))
+const { mockDbGetOne } = vi.hoisted(() => ({
+  mockDbGetOne: vi.fn(),
+}))
 
 vi.mock('@/lib/db', () => ({
-  getDatabase: () => ({ prepare: mockPrepare }),
+  dbGetOne: mockDbGetOne,
+  dbGetAll: vi.fn(() => Promise.resolve([])),
+  dbRun: vi.fn(() => Promise.resolve({ insertId: 0, affectedRows: 0 })),
 }))
 
 import { convergenceScore, checkDrift, evalTaskCompletion, evalCorrectnessScore } from '@/lib/agent-evals'
@@ -92,24 +93,24 @@ describe('evalTaskCompletion', () => {
     vi.clearAllMocks()
   })
 
-  it('returns score based on completed/total ratio', () => {
-    mockGet.mockReturnValue({ total: 10, completed: 7, successful: 5 })
-    const result = evalTaskCompletion('test-agent', 168, 1)
+  it('returns score based on completed/total ratio', async () => {
+    mockDbGetOne.mockResolvedValue({ total: 10, completed: 7, successful: 5 })
+    const result = await evalTaskCompletion('test-agent', 168, 1)
     expect(result.layer).toBe('output')
     expect(result.score).toBe(0.7)
     expect(result.passed).toBe(true)
   })
 
-  it('returns score 1.0 when no tasks exist', () => {
-    mockGet.mockReturnValue({ total: 0, completed: 0, successful: 0 })
-    const result = evalTaskCompletion('new-agent', 168, 1)
+  it('returns score 1.0 when no tasks exist', async () => {
+    mockDbGetOne.mockResolvedValue({ total: 0, completed: 0, successful: 0 })
+    const result = await evalTaskCompletion('new-agent', 168, 1)
     expect(result.score).toBe(1.0)
     expect(result.passed).toBe(true)
   })
 
-  it('fails when completion rate is below 70%', () => {
-    mockGet.mockReturnValue({ total: 10, completed: 5, successful: 3 })
-    const result = evalTaskCompletion('slow-agent', 168, 1)
+  it('fails when completion rate is below 70%', async () => {
+    mockDbGetOne.mockResolvedValue({ total: 10, completed: 5, successful: 3 })
+    const result = await evalTaskCompletion('slow-agent', 168, 1)
     expect(result.score).toBe(0.5)
     expect(result.passed).toBe(false)
   })
@@ -120,25 +121,25 @@ describe('evalCorrectnessScore', () => {
     vi.clearAllMocks()
   })
 
-  it('returns success rate when no feedback ratings', () => {
-    mockGet.mockReturnValue({ total: 10, successful: 8, avg_rating: null })
-    const result = evalCorrectnessScore('test-agent', 168, 1)
+  it('returns success rate when no feedback ratings', async () => {
+    mockDbGetOne.mockResolvedValue({ total: 10, successful: 8, avg_rating: null })
+    const result = await evalCorrectnessScore('test-agent', 168, 1)
     expect(result.layer).toBe('output')
     expect(result.score).toBe(0.8)
     expect(result.passed).toBe(true)
   })
 
-  it('blends success rate with feedback rating', () => {
-    mockGet.mockReturnValue({ total: 10, successful: 10, avg_rating: 4.0 })
-    const result = evalCorrectnessScore('rated-agent', 168, 1)
+  it('blends success rate with feedback rating', async () => {
+    mockDbGetOne.mockResolvedValue({ total: 10, successful: 10, avg_rating: 4.0 })
+    const result = await evalCorrectnessScore('rated-agent', 168, 1)
     // score = 1.0 * 0.6 + ((4-1)/4) * 0.4 = 0.6 + 0.3 = 0.9
     expect(result.score).toBe(0.9)
     expect(result.passed).toBe(true)
   })
 
-  it('fails when score is below 0.6', () => {
-    mockGet.mockReturnValue({ total: 10, successful: 3, avg_rating: null })
-    const result = evalCorrectnessScore('bad-agent', 168, 1)
+  it('fails when score is below 0.6', async () => {
+    mockDbGetOne.mockResolvedValue({ total: 10, successful: 3, avg_rating: null })
+    const result = await evalCorrectnessScore('bad-agent', 168, 1)
     expect(result.score).toBe(0.3)
     expect(result.passed).toBe(false)
   })

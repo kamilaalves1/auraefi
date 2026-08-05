@@ -5,7 +5,7 @@
  * Lazy singleton — call startSyncPoller() to begin.
  */
 
-import { getDatabase } from '@/lib/db'
+import { dbGetAll } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { pullFromGitHub } from '@/lib/github-sync-engine'
 import { pullFromGitProvider, type DeliveryFlowSyncConfig } from '@/lib/git-sync-engine'
@@ -47,10 +47,14 @@ export function getSyncPollerStatus(): { running: boolean; interval: number; las
 
 async function runSyncTick(): Promise<void> {
   try {
-    const db = getDatabase()
-
     // ── 1. Sync delivery flows (multi-provider) ──────────────────────
-    const flows = db.prepare(`
+    const flows = await dbGetAll<{
+      id: number
+      workspace_id: number
+      git_provider: GitProvider
+      git_repo_url: string
+      git_branch: string
+    }>(`
       SELECT df.id, df.workspace_id,
              gr.provider AS git_provider, gr.repo_url AS git_repo_url, gr.branch AS git_branch
       FROM delivery_flows df
@@ -59,13 +63,7 @@ async function runSyncTick(): Promise<void> {
         AND gr.is_active = 1
         AND gr.repo_url IS NOT NULL
         AND gr.repo_url != ''
-    `).all() as Array<{
-      id: number
-      workspace_id: number
-      git_provider: GitProvider
-      git_repo_url: string
-      git_branch: string
-    }>
+    `, [])
 
     for (const flow of flows) {
       try {
@@ -83,17 +81,17 @@ async function runSyncTick(): Promise<void> {
     }
 
     // ── 2. Legacy: sync GitHub-enabled projects ───────────────────────
-    const projects = db.prepare(`
-      SELECT id, github_repo, github_sync_enabled, github_default_branch, workspace_id
-      FROM projects
-      WHERE github_sync_enabled = 1 AND github_repo IS NOT NULL AND status = 'active'
-    `).all() as Array<{
+    const projects = await dbGetAll<{
       id: number
       github_repo: string
       github_sync_enabled: number
       github_default_branch: string | null
       workspace_id: number
-    }>
+    }>(`
+      SELECT id, github_repo, github_sync_enabled, github_default_branch, workspace_id
+      FROM projects
+      WHERE github_sync_enabled = 1 AND github_repo IS NOT NULL AND status = 'active'
+    `, [])
 
     for (const project of projects) {
       try {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase, Task, db_helpers } from '@/lib/db';
+import { Task, db_helpers, dbGetOne, dbRun } from '@/lib/db';
 import { eventBus } from '@/lib/event-bus';
 import { requireRole } from '@/lib/auth';
 import { mutationLimiter } from '@/lib/rate-limit';
@@ -25,17 +25,13 @@ function mapTaskRow(task: any): Task & { tags: string[]; metadata: Record<string
   }
 }
 
-function hasAegisApproval(
-  db: ReturnType<typeof getDatabase>,
-  taskId: number,
-  workspaceId: number
-): boolean {
-  const review = db.prepare(`
+async function hasAegisApproval(taskId: number, workspaceId: number): Promise<boolean> {
+  const review = await dbGetOne<{ status?: string }>(`
     SELECT status FROM quality_reviews
     WHERE task_id = ? AND reviewer = 'aegis' AND workspace_id = ?
     ORDER BY created_at DESC
     LIMIT 1
-  `).get(taskId, workspaceId) as { status?: string } | undefined
+  `, [taskId, workspaceId])
   return review?.status === 'approved'
 }
 
@@ -50,7 +46,6 @@ export async function GET(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const db = getDatabase();
     const resolvedParams = await params;
     const taskId = parseInt(resolvedParams.id);
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -58,22 +53,21 @@ export async function GET(
     if (isNaN(taskId)) {
       return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 });
     }
-    
-    const stmt = db.prepare(`
+
+    const task = await dbGetOne<Task>(`
       SELECT t.*, p.name as project_name, p.ticket_prefix as project_prefix
       FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id AND p.workspace_id = t.workspace_id
       WHERE t.id = ? AND t.workspace_id = ?
-    `);
-    const task = stmt.get(taskId, workspaceId) as Task;
-    
+    `, [taskId, workspaceId]);
+
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
-    
+
     // Parse JSON fields
     const taskWithParsedData = mapTaskRow(task);
-    
+
     return NextResponse.json({ task: taskWithParsedData });
   } catch (error) {
     logger.error({ err: error }, 'GET /api/tasks/[id] error');
@@ -95,27 +89,27 @@ export async function PUT(
   if (rateCheck) return rateCheck;
 
   try {
-    const db = getDatabase();
     const resolvedParams = await params;
     const taskId = parseInt(resolvedParams.id);
     const workspaceId = auth.user.workspace_id ?? 1;
     const validated = await validateBody(request, updateTaskSchema);
     if ('error' in validated) return validated.error;
     const body = validated.data;
-    
+
     if (isNaN(taskId)) {
       return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 });
     }
-    
+
     // Get current task for comparison
-    const currentTask = db
-      .prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?')
-      .get(taskId, workspaceId) as Task;
-    
+    const currentTask = await dbGetOne<Task>(
+      'SELECT * FROM tasks WHERE id = ? AND workspace_id = ?',
+      [taskId, workspaceId]
+    );
+
     if (!currentTask) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
-    
+
     const {
       title,
       description,
@@ -142,10 +136,10 @@ export async function PUT(
       assignedTo: assigned_to,
       assignedToProvided: assigned_to !== undefined,
     })
-    
+
     const now = Math.floor(Date.now() / 1000);
     const descriptionMentionResolution = description !== undefined
-      ? resolveMentionRecipients(description || '', db, workspaceId)
+      ? resolveMentionRecipients(description || '', workspaceId)
       : null;
     if (descriptionMentionResolution && descriptionMentionResolution.unresolved.length > 0) {
       return NextResponse.json({
@@ -154,13 +148,13 @@ export async function PUT(
       }, { status: 400 });
     }
 
-    const previousDescriptionMentionRecipients = resolveMentionRecipients(currentTask.description || '', db, workspaceId).recipients;
-    
+    const previousDescriptionMentionRecipients = resolveMentionRecipients(currentTask.description || '', workspaceId).recipients;
+
     // Build dynamic update query
     const fieldsToUpdate = [];
     const updateParams: any[] = [];
     let nextProjectTicketNo: number | null = null;
-    
+
     if (title !== undefined) {
       fieldsToUpdate.push('title = ?');
       updateParams.push(title);
@@ -170,7 +164,7 @@ export async function PUT(
       updateParams.push(description);
     }
     if (normalizedStatus !== undefined) {
-      if (normalizedStatus === 'done' && !hasAegisApproval(db, taskId, workspaceId)) {
+      if (normalizedStatus === 'done' && !await hasAegisApproval(taskId, workspaceId)) {
         return NextResponse.json(
           { error: 'Aegis approval is required to move task to done.' },
           { status: 403 }
@@ -184,23 +178,23 @@ export async function PUT(
       updateParams.push(priority);
     }
     if (project_id !== undefined) {
-      const project = db.prepare(`
+      const project = await dbGetOne<{ id: number }>(`
         SELECT id FROM projects
         WHERE id = ? AND workspace_id = ? AND status = 'active'
-      `).get(project_id, workspaceId) as { id: number } | undefined
+      `, [project_id, workspaceId])
       if (!project) {
         return NextResponse.json({ error: 'Project not found or archived' }, { status: 400 })
       }
       if (project_id !== currentTask.project_id) {
-        db.prepare(`
+        await dbRun(`
           UPDATE projects
-          SET ticket_counter = ticket_counter + 1, updated_at = unixepoch()
+          SET ticket_counter = ticket_counter + 1, updated_at = UNIX_TIMESTAMP()
           WHERE id = ? AND workspace_id = ?
-        `).run(project_id, workspaceId)
-        const row = db.prepare(`
+        `, [project_id, workspaceId])
+        const row = await dbGetOne<{ ticket_counter: number }>(`
           SELECT ticket_counter FROM projects
           WHERE id = ? AND workspace_id = ?
-        `).get(project_id, workspaceId) as { ticket_counter: number } | undefined
+        `, [project_id, workspaceId])
         if (!row || !row.ticket_counter) {
           return NextResponse.json({ error: 'Failed to allocate project ticket number' }, { status: 500 })
         }
@@ -268,32 +262,30 @@ export async function PUT(
       fieldsToUpdate.push('metadata = ?');
       updateParams.push(JSON.stringify(metadata));
     }
-    
+
     fieldsToUpdate.push('updated_at = ?');
     updateParams.push(now);
     updateParams.push(taskId, workspaceId);
-    
+
     if (fieldsToUpdate.length === 1) { // Only updated_at
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
-    
-    const stmt = db.prepare(`
-      UPDATE tasks 
+
+    await dbRun(`
+      UPDATE tasks
       SET ${fieldsToUpdate.join(', ')}
       WHERE id = ? AND workspace_id = ?
-    `);
-    
-    stmt.run(...updateParams);
-    
+    `, updateParams);
+
     // Track changes and log activities
     const changes: string[] = [];
-    
+
     if (normalizedStatus !== undefined && normalizedStatus !== currentTask.status) {
       changes.push(`status: ${currentTask.status} → ${normalizedStatus}`);
-      
+
       // Create notification for status change if assigned
       if (currentTask.assigned_to) {
-        db_helpers.createNotification(
+        await db_helpers.createNotification(
           currentTask.assigned_to,
           'status_change',
           'Task Status Updated',
@@ -304,14 +296,14 @@ export async function PUT(
         );
       }
     }
-    
+
     if (assigned_to !== undefined && assigned_to !== currentTask.assigned_to) {
       changes.push(`assigned: ${currentTask.assigned_to || 'unassigned'} → ${assigned_to || 'unassigned'}`);
-      
+
       // Create notification for new assignee
       if (assigned_to) {
         db_helpers.ensureTaskSubscription(taskId, assigned_to, workspaceId);
-        db_helpers.createNotification(
+        await db_helpers.createNotification(
           assigned_to,
           'assignment',
           'Task Assigned',
@@ -322,11 +314,11 @@ export async function PUT(
         );
       }
     }
-    
+
     if (title && title !== currentTask.title) {
       changes.push('title updated');
     }
-    
+
     if (priority && priority !== currentTask.priority) {
       changes.push(`priority: ${currentTask.priority} → ${priority}`);
     }
@@ -345,7 +337,7 @@ export async function PUT(
         if (previousRecipients.has(recipient)) continue;
         db_helpers.ensureTaskSubscription(taskId, recipient, workspaceId);
         if (recipient === auth.user.username) continue;
-        db_helpers.createNotification(
+        await db_helpers.createNotification(
           recipient,
           'mention',
           'You were mentioned in a task description',
@@ -356,16 +348,16 @@ export async function PUT(
         );
       }
     }
-    
+
     // Log activity if there were meaningful changes
     if (changes.length > 0) {
-      db_helpers.logActivity(
+      await db_helpers.logActivity(
         'task_updated',
         'task',
         taskId,
         auth.user.username,
         `Task updated: ${changes.join(', ')}`,
-        { 
+        {
           changes: changes,
           oldValues: {
             title: currentTask.title,
@@ -376,16 +368,16 @@ export async function PUT(
           newValues: { title, status: normalizedStatus ?? currentTask.status, priority, assigned_to }
         },
         workspaceId
-      );
+      ).catch(() => {});
     }
-    
+
     // Fetch updated task
-    const updatedTask = db.prepare(`
+    const updatedTask = await dbGetOne<Task>(`
       SELECT t.*, p.name as project_name, p.ticket_prefix as project_prefix
       FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id AND p.workspace_id = t.workspace_id
       WHERE t.id = ? AND t.workspace_id = ?
-    `).get(taskId, workspaceId) as Task;
+    `, [taskId, workspaceId]);
     const parsedTask = mapTaskRow(updatedTask);
 
     // Fire-and-forget outbound GitHub sync for relevant changes
@@ -393,10 +385,10 @@ export async function PUT(
       c.startsWith('status:') || c.startsWith('priority:') || c.includes('title') || c.includes('assigned')
     )
     if (syncRelevantChanges && (updatedTask as any).github_repo) {
-      const project = db.prepare(`
+      const project = await dbGetOne<any>(`
         SELECT id, github_repo, github_sync_enabled FROM projects
         WHERE id = ? AND workspace_id = ?
-      `).get((updatedTask as any).project_id, workspaceId) as any
+      `, [(updatedTask as any).project_id, workspaceId])
       if (project?.github_sync_enabled) {
         pushTaskToGitHub(updatedTask as any, project).catch(err =>
           logger.error({ err, taskId }, 'Outbound GitHub sync failed')
@@ -434,30 +426,29 @@ export async function DELETE(
   if (rateCheck) return rateCheck;
 
   try {
-    const db = getDatabase();
     const resolvedParams = await params;
     const taskId = parseInt(resolvedParams.id);
     const workspaceId = auth.user.workspace_id ?? 1;
-    
+
     if (isNaN(taskId)) {
       return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 });
     }
-    
+
     // Get task before deletion for logging
-    const task = db
-      .prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?')
-      .get(taskId, workspaceId) as Task;
-    
+    const task = await dbGetOne<Task>(
+      'SELECT * FROM tasks WHERE id = ? AND workspace_id = ?',
+      [taskId, workspaceId]
+    );
+
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
-    
+
     // Delete task (cascades will handle comments)
-    const stmt = db.prepare('DELETE FROM tasks WHERE id = ? AND workspace_id = ?');
-    stmt.run(taskId, workspaceId);
-    
+    await dbRun('DELETE FROM tasks WHERE id = ? AND workspace_id = ?', [taskId, workspaceId]);
+
     // Log deletion
-    db_helpers.logActivity(
+    await db_helpers.logActivity(
       'task_deleted',
       'task',
       taskId,
@@ -469,7 +460,7 @@ export async function DELETE(
         assigned_to: task.assigned_to
       },
       workspaceId
-    );
+    ).catch(() => {});
 
     // Remove from GNAP repo
     if (config.gnap.enabled && config.gnap.autoSync) {

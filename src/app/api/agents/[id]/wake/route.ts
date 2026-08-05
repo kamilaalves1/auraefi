@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, db_helpers } from '@/lib/db'
+import { dbGetOne, db_helpers } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 
@@ -18,10 +18,9 @@ export async function POST(
     const customMessage =
       typeof body?.message === 'string' ? body.message.trim() : ''
 
-    const db = getDatabase()
     const agent: any = isNaN(Number(agentId))
-      ? db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(agentId, workspaceId)
-      : db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(agentId), workspaceId)
+      ? await dbGetOne<any>('SELECT * FROM agents WHERE name = ? AND workspace_id = ?', [agentId, workspaceId])
+      : await dbGetOne<any>('SELECT * FROM agents WHERE id = ? AND workspace_id = ?', [Number(agentId), workspaceId])
 
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
@@ -41,7 +40,7 @@ export async function POST(
     // Gateway CLI wake removed — log the request and update status only
     logger.info({ agent: agent.name, session_key: agent.session_key, message }, 'Wake requested (gateway CLI unavailable)')
 
-    db_helpers.updateAgentStatus(agent.name, 'idle', 'Manual wake', workspaceId)
+    await db_helpers.updateAgentStatus(agent.name, 'idle', 'Manual wake', workspaceId).catch(() => {})
 
     return NextResponse.json({
       success: true,

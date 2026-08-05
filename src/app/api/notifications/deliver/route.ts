@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase, Notification, db_helpers } from '@/lib/db';
+import { dbGetOne, dbGetAll, dbRun, Notification, db_helpers } from '@/lib/db';
 import { requireRole } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 
 /**
  * POST /api/notifications/deliver - Notification delivery daemon endpoint
- * 
+ *
  * Polls undelivered notifications and sends them to agents
  * via gateway agent command
  */
@@ -14,7 +14,6 @@ export async function POST(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const db = getDatabase();
     const body = await request.json();
     const workspaceId = auth.user.workspace_id ?? 1;
     const {
@@ -22,27 +21,27 @@ export async function POST(request: NextRequest) {
       limit = 50,   // Max notifications to process per call
       dry_run = false // Test mode - don't actually deliver
     } = body;
-    
+
     // Get undelivered notifications
     let query = `
-      SELECT n.*, a.session_key 
+      SELECT n.*, a.session_key
       FROM notifications n
       LEFT JOIN agents a ON n.recipient = a.name AND a.workspace_id = n.workspace_id
       WHERE n.delivered_at IS NULL AND n.workspace_id = ?
     `;
-    
+
     const params: any[] = [workspaceId];
-    
+
     if (agent_filter) {
       query += ' AND n.recipient = ?';
       params.push(agent_filter);
     }
-    
+
     query += ' ORDER BY n.created_at ASC LIMIT ?';
     params.push(limit);
-    
-    const undeliveredNotifications = db.prepare(query).all(...params) as (Notification & { session_key?: string })[];
-    
+
+    const undeliveredNotifications = await dbGetAll<Notification & { session_key?: string }>(query, params);
+
     if (undeliveredNotifications.length === 0) {
       return NextResponse.json({
         status: 'success',
@@ -52,14 +51,11 @@ export async function POST(request: NextRequest) {
         errors: []
       });
     }
-    
+
     let deliveredCount = 0;
     let errorCount = 0;
     const errors: any[] = [];
     const deliveryResults: any[] = [];
-
-    // Prepare update statement once (avoids N+1)
-    const markDeliveredStmt = db.prepare('UPDATE notifications SET delivered_at = ? WHERE id = ? AND workspace_id = ?');
 
     for (const notification of undeliveredNotifications) {
       try {
@@ -73,10 +69,10 @@ export async function POST(request: NextRequest) {
           errorCount++;
           continue;
         }
-        
+
         // Format message for delivery
         const message = formatNotificationMessage(notification);
-        
+
         if (!dry_run) {
           // Gateway CLI delivery is not available; mark notification as skipped
           deliveryResults.push({
@@ -104,13 +100,13 @@ export async function POST(request: NextRequest) {
           recipient: notification.recipient,
           error: error.message
         });
-        
+
         logger.error({ err: error, notificationId: notification.id, recipient: notification.recipient }, 'Failed to deliver notification');
       }
     }
-    
+
     // Log delivery batch summary
-    db_helpers.logActivity(
+    await db_helpers.logActivity(
       'notification_delivery_batch',
       'system',
       0,
@@ -124,8 +120,8 @@ export async function POST(request: NextRequest) {
         agent_filter: agent_filter || null
       },
       workspaceId
-    );
-    
+    ).catch(() => {});
+
     return NextResponse.json({
       status: 'success',
       message: `Processed ${undeliveredNotifications.length} notifications`,
@@ -150,48 +146,43 @@ export async function GET(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase();
     const { searchParams } = new URL(request.url);
     const workspaceId = auth.user.workspace_id ?? 1;
     const agent = searchParams.get('agent');
-    
+
     // Get delivery statistics
     let baseQuery = 'SELECT COUNT(*) as count FROM notifications WHERE workspace_id = ?';
-    let params: any[] = [workspaceId];
-    
+    const params: any[] = [workspaceId];
+
     if (agent) {
       baseQuery += ' AND recipient = ?';
       params.push(agent);
     }
-    
-    const totalNotifications = db.prepare(baseQuery).get(...params) as { count: number };
-    
-    const undeliveredCount = db.prepare(
-      baseQuery + ' AND delivered_at IS NULL'
-    ).get(...params) as { count: number };
-    
-    const deliveredCount = db.prepare(
-      baseQuery + ' AND delivered_at IS NOT NULL'
-    ).get(...params) as { count: number };
-    
+
+    const [totalNotifications, undeliveredCount, deliveredCount] = await Promise.all([
+      dbGetOne<{ count: number }>(baseQuery, params),
+      dbGetOne<{ count: number }>(baseQuery + ' AND delivered_at IS NULL', params),
+      dbGetOne<{ count: number }>(baseQuery + ' AND delivered_at IS NOT NULL', params),
+    ]);
+
     // Get recent delivery activity
-    const recentDeliveries = db.prepare(`
-      SELECT 
+    const recentDeliveries = await dbGetAll(`
+      SELECT
         recipient,
         type,
         title,
         delivered_at,
         created_at
-      FROM notifications 
+      FROM notifications
       WHERE delivered_at IS NOT NULL AND workspace_id = ?
       ${agent ? 'AND recipient = ?' : ''}
-      ORDER BY delivered_at DESC 
+      ORDER BY delivered_at DESC
       LIMIT 10
-    `).all(...(agent ? [workspaceId, agent] : [workspaceId]));
-    
+    `, agent ? [workspaceId, agent] : [workspaceId]);
+
     // Get agents with pending notifications
-    const agentsPending = db.prepare(`
-      SELECT 
+    const agentsPending = await dbGetAll<any>(`
+      SELECT
         n.recipient,
         a.session_key,
         COUNT(*) as pending_count
@@ -200,15 +191,17 @@ export async function GET(request: NextRequest) {
       WHERE n.delivered_at IS NULL AND n.workspace_id = ?
       GROUP BY n.recipient, a.session_key
       ORDER BY pending_count DESC
-    `).all(workspaceId) as any[];
-    
+    `, [workspaceId]);
+
+    const total = totalNotifications?.count ?? 0;
+    const delivered = deliveredCount?.count ?? 0;
+
     return NextResponse.json({
       statistics: {
-        total: totalNotifications.count,
-        delivered: deliveredCount.count,
-        undelivered: undeliveredCount.count,
-        delivery_rate: totalNotifications.count > 0 ? 
-          Math.round((deliveredCount.count / totalNotifications.count) * 100) : 0
+        total,
+        delivered,
+        undelivered: undeliveredCount?.count ?? 0,
+        delivery_rate: total > 0 ? Math.round((delivered / total) * 100) : 0
       },
       agents_with_pending: agentsPending,
       recent_deliveries: recentDeliveries,
@@ -225,10 +218,10 @@ export async function GET(request: NextRequest) {
  */
 function formatNotificationMessage(notification: Notification): string {
   const timestamp = new Date(notification.created_at * 1000).toLocaleString();
-  
+
   let message = `🔔 **${notification.title}**\n\n`;
   message += `${notification.message}\n\n`;
-  
+
   if (notification.type === 'mention') {
     message += `📝 You were mentioned in a comment\n`;
   } else if (notification.type === 'assignment') {
@@ -236,12 +229,12 @@ function formatNotificationMessage(notification: Notification): string {
   } else if (notification.type === 'due_date') {
     message += `⏰ Task deadline approaching\n`;
   }
-  
+
   if (notification.source_type && notification.source_id) {
     message += `🔗 Related ${notification.source_type} ID: ${notification.source_id}\n`;
   }
-  
+
   message += `⏰ ${timestamp}`;
-  
+
   return message;
 }

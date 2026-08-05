@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbRun } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -46,13 +46,13 @@ export async function GET(request: NextRequest, { params }: Params) {
 
   try {
     const { id } = await params
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
-    const row = db.prepare(
-      'SELECT * FROM git_repositories WHERE id = ? AND workspace_id = ?'
-    ).get(Number(id), workspaceId)
+    const row = await dbGetOne<any>(
+      'SELECT * FROM git_repositories WHERE id = ? AND workspace_id = ?',
+      [Number(id), workspaceId]
+    )
     if (!row) return NextResponse.json({ error: 'Repository not found' }, { status: 404 })
-    return NextResponse.json({ repository: rowToRepoForRole(row as any, auth.user.role) })
+    return NextResponse.json({ repository: rowToRepoForRole(row, auth.user.role) })
   } catch (err) {
     logger.error({ err }, 'GET /api/workspace/git-repositories/[id] error')
     return NextResponse.json({ error: 'Failed to load repository' }, { status: 500 })
@@ -69,12 +69,12 @@ export async function PUT(request: NextRequest, { params }: Params) {
   try {
     const { id } = await params
     const body = await request.json().catch(() => ({}))
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
 
-    const existing = db.prepare(
-      'SELECT * FROM git_repositories WHERE id = ? AND workspace_id = ?'
-    ).get(Number(id), workspaceId) as any | undefined
+    const existing = await dbGetOne<any>(
+      'SELECT * FROM git_repositories WHERE id = ? AND workspace_id = ?',
+      [Number(id), workspaceId]
+    )
     if (!existing) return NextResponse.json({ error: 'Repository not found' }, { status: 404 })
 
     const name = typeof body.name === 'string' && body.name.trim()
@@ -99,13 +99,14 @@ export async function PUT(request: NextRequest, { params }: Params) {
         : existing.base_url
     const now = Math.floor(Date.now() / 1000)
 
-    db.prepare(
+    await dbRun(
       `UPDATE git_repositories SET name=?, provider=?, repo_url=?, branch=?, access_token=?, base_url=?, is_active=?, updated_at=?
-       WHERE id=? AND workspace_id=?`
-    ).run(name, provider, repo_url, branch, access_token, base_url, is_active, now, Number(id), workspaceId)
+       WHERE id=? AND workspace_id=?`,
+      [name, provider, repo_url, branch, access_token, base_url, is_active, now, Number(id), workspaceId]
+    )
 
-    const updated = db.prepare('SELECT * FROM git_repositories WHERE id = ?').get(Number(id))
-    return NextResponse.json({ repository: rowToRepo(updated as any) })
+    const updated = await dbGetOne<any>('SELECT * FROM git_repositories WHERE id = ?', [Number(id)])
+    return NextResponse.json({ repository: rowToRepo(updated) })
   } catch (err) {
     logger.error({ err }, 'PUT /api/workspace/git-repositories/[id] error')
     return NextResponse.json({ error: 'Failed to update repository' }, { status: 500 })
@@ -121,19 +122,20 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
   try {
     const { id } = await params
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
 
     // Unlink any delivery flows using this repo before deleting
-    db.prepare(
-      'UPDATE delivery_flows SET git_repository_id = NULL WHERE git_repository_id = ? AND workspace_id = ?'
-    ).run(Number(id), workspaceId)
+    await dbRun(
+      'UPDATE delivery_flows SET git_repository_id = NULL WHERE git_repository_id = ? AND workspace_id = ?',
+      [Number(id), workspaceId]
+    )
 
-    const result = db.prepare(
-      'DELETE FROM git_repositories WHERE id = ? AND workspace_id = ?'
-    ).run(Number(id), workspaceId)
+    const result = await dbRun(
+      'DELETE FROM git_repositories WHERE id = ? AND workspace_id = ?',
+      [Number(id), workspaceId]
+    )
 
-    if (result.changes === 0) return NextResponse.json({ error: 'Repository not found' }, { status: 404 })
+    if (result.affectedRows === 0) return NextResponse.json({ error: 'Repository not found' }, { status: 404 })
     return NextResponse.json({ ok: true })
   } catch (err) {
     logger.error({ err }, 'DELETE /api/workspace/git-repositories/[id] error')

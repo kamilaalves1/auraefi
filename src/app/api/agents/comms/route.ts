@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server"
-import { getDatabase, Message } from "@/lib/db"
+import { dbGetAll, dbGetOne, Message } from "@/lib/db"
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 
@@ -12,7 +12,6 @@ export async function GET(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const { searchParams } = new URL(request.url)
     const workspaceId = auth.user.workspace_id ?? 1
 
@@ -63,7 +62,7 @@ export async function GET(request: NextRequest) {
     `
     messagesParams.push(limit, offset)
 
-    const messages = db.prepare(messagesQuery).all(...messagesParams) as Message[]
+    const messages = await dbGetAll<Message>(messagesQuery, messagesParams)
 
     // 2. Communication graph edges
     let graphQuery = `
@@ -85,7 +84,7 @@ export async function GET(request: NextRequest) {
     }
     graphQuery += " GROUP BY from_agent, to_agent ORDER BY message_count DESC"
 
-    const edges = db.prepare(graphQuery).all(...graphParams)
+    const edges = await dbGetAll<any>(graphQuery, graphParams)
 
     // 3. Per-agent sent/received stats
     const statsQuery = `
@@ -108,7 +107,7 @@ export async function GET(request: NextRequest) {
       ) GROUP BY agent ORDER BY (sent + received) DESC
     `
     const statsParams = [workspaceId, ...humanNames, ...humanNames, workspaceId, ...humanNames, ...humanNames]
-    const agentStats = db.prepare(statsQuery).all(...statsParams)
+    const agentStats = await dbGetAll<any>(statsQuery, statsParams)
 
     // 4. Total count
     let countQuery = `
@@ -125,7 +124,8 @@ export async function GET(request: NextRequest) {
       countQuery += " AND (from_agent = ? OR to_agent = ?)"
       countParams.push(agent, agent)
     }
-    const { total } = db.prepare(countQuery).get(...countParams) as { total: number }
+    const totalRow = await dbGetOne<{ total: number }>(countQuery, countParams)
+    const total = totalRow?.total ?? 0
 
     let seededCountQuery = `
       SELECT COUNT(*) as seeded FROM messages
@@ -142,9 +142,9 @@ export async function GET(request: NextRequest) {
       seededCountQuery += " AND (from_agent = ? OR to_agent = ?)"
       seededParams.push(agent, agent)
     }
-    const { seeded } = db.prepare(seededCountQuery).get(...seededParams) as { seeded: number }
+    const seededRow = await dbGetOne<{ seeded: number }>(seededCountQuery, seededParams)
+    const seededCount = seededRow?.seeded || 0
 
-    const seededCount = seeded || 0
     const liveCount = Math.max(0, total - seededCount)
     const source =
       total === 0 ? "empty" :

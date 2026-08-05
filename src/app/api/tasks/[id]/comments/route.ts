@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase, Comment, db_helpers } from '@/lib/db';
+import { Comment, db_helpers, dbGetOne, dbGetAll, dbRun } from '@/lib/db';
 import { requireRole } from '@/lib/auth';
 import { validateBody, createCommentSchema } from '@/lib/validation';
 import { mutationLimiter } from '@/lib/rate-limit';
@@ -17,7 +17,6 @@ export async function GET(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const db = getDatabase();
     const resolvedParams = await params;
     const taskId = parseInt(resolvedParams.id);
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -25,43 +24,42 @@ export async function GET(
     if (isNaN(taskId)) {
       return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 });
     }
-    
+
     // Verify task exists
-    const task = db
-      .prepare('SELECT id FROM tasks WHERE id = ? AND workspace_id = ?')
-      .get(taskId, workspaceId);
+    const task = await dbGetOne<{ id: number }>(
+      'SELECT id FROM tasks WHERE id = ? AND workspace_id = ?',
+      [taskId, workspaceId]
+    );
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
-    
+
     // Get comments ordered by creation time
-    const stmt = db.prepare(`
-      SELECT * FROM comments 
+    const comments = await dbGetAll<Comment>(`
+      SELECT * FROM comments
       WHERE task_id = ? AND workspace_id = ?
       ORDER BY created_at ASC
-    `);
-    
-    const comments = stmt.all(taskId, workspaceId) as Comment[];
-    
+    `, [taskId, workspaceId]);
+
     // Parse JSON fields and build thread structure
     const commentsWithParsedData = comments.map(comment => ({
       ...comment,
       mentions: comment.mentions ? JSON.parse(comment.mentions) : []
     }));
-    
+
     // Organize into thread structure (parent comments with replies)
     const commentMap = new Map();
     const topLevelComments: any[] = [];
-    
+
     // First pass: create all comment objects
     commentsWithParsedData.forEach(comment => {
       commentMap.set(comment.id, { ...comment, replies: [] });
     });
-    
+
     // Second pass: organize into threads
     commentsWithParsedData.forEach(comment => {
       const commentWithReplies = commentMap.get(comment.id);
-      
+
       if (comment.parent_id) {
         // This is a reply, add to parent's replies
         const parent = commentMap.get(comment.parent_id);
@@ -73,8 +71,8 @@ export async function GET(
         topLevelComments.push(commentWithReplies);
       }
     });
-    
-    return NextResponse.json({ 
+
+    return NextResponse.json({
       comments: topLevelComments,
       total: comments.length
     });
@@ -98,7 +96,6 @@ export async function POST(
   if (rateCheck) return rateCheck;
 
   try {
-    const db = getDatabase();
     const resolvedParams = await params;
     const taskId = parseInt(resolvedParams.id);
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -135,40 +132,40 @@ export async function POST(
     }
 
     // Verify task exists
-    const task = db
-      .prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?')
-      .get(taskId, workspaceId) as any;
+    const task = await dbGetOne<any>(
+      'SELECT * FROM tasks WHERE id = ? AND workspace_id = ?',
+      [taskId, workspaceId]
+    );
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
-    
+
     // Verify parent comment exists if specified
     if (parent_id) {
-      const parentComment = db
-        .prepare('SELECT id FROM comments WHERE id = ? AND task_id = ? AND workspace_id = ?')
-        .get(parent_id, taskId, workspaceId);
+      const parentComment = await dbGetOne<{ id: number }>(
+        'SELECT id FROM comments WHERE id = ? AND task_id = ? AND workspace_id = ?',
+        [parent_id, taskId, workspaceId]
+      );
       if (!parentComment) {
         return NextResponse.json({ error: 'Parent comment not found' }, { status: 404 });
       }
     }
-    
-    const mentionResolution = resolveMentionRecipients(content, db, workspaceId);
+
+    const mentionResolution = resolveMentionRecipients(content, workspaceId);
     if (mentionResolution.unresolved.length > 0) {
       return NextResponse.json({
         error: `Unknown mentions: ${mentionResolution.unresolved.map((m) => `@${m}`).join(', ')}`,
         missing_mentions: mentionResolution.unresolved
       }, { status: 400 });
     }
-    
+
     const now = Math.floor(Date.now() / 1000);
-    
+
     // Insert comment
-    const stmt = db.prepare(`
+    const insertResult = await dbRun(`
       INSERT INTO comments (task_id, author, content, created_at, parent_id, mentions, workspace_id)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `);
-    
-    const insertResult = stmt.run(
+    `, [
       taskId,
       author,
       content,
@@ -176,16 +173,16 @@ export async function POST(
       parent_id || null,
       mentionResolution.tokens.length > 0 ? JSON.stringify(mentionResolution.tokens) : null,
       workspaceId
-    );
+    ]);
 
-    const commentId = insertResult.lastInsertRowid as number;
-    
+    const commentId = insertResult.insertId;
+
     // Log activity
-    const activityDescription = parent_id 
+    const activityDescription = parent_id
       ? `Replied to comment on task: ${task.title}`
       : `Added comment to task: ${task.title}`;
-    
-    db_helpers.logActivity(
+
+    await db_helpers.logActivity(
       'comment_added',
       'comment',
       commentId,
@@ -199,8 +196,8 @@ export async function POST(
         content_preview: content.substring(0, 100)
       },
       workspaceId
-    );
-    
+    ).catch(() => {});
+
     // Ensure subscriptions for author, mentions, and assignee
     db_helpers.ensureTaskSubscription(taskId, author, workspaceId);
     const mentionRecipients = mentionResolution.recipients;
@@ -218,7 +215,7 @@ export async function POST(
 
     for (const subscriber of subscribers) {
       const isMention = mentionSet.has(subscriber);
-      db_helpers.createNotification(
+      await db_helpers.createNotification(
         subscriber,
         isMention ? 'mention' : 'comment',
         isMention ? 'You were mentioned' : 'New comment on a subscribed task',
@@ -230,16 +227,17 @@ export async function POST(
         workspaceId
       );
     }
-    
+
     // Fetch the created comment
-    const createdComment = db
-      .prepare('SELECT * FROM comments WHERE id = ? AND workspace_id = ?')
-      .get(commentId, workspaceId) as Comment;
-    
-    return NextResponse.json({ 
+    const createdComment = await dbGetOne<Comment>(
+      'SELECT * FROM comments WHERE id = ? AND workspace_id = ?',
+      [commentId, workspaceId]
+    );
+
+    return NextResponse.json({
       comment: {
         ...createdComment,
-        mentions: createdComment.mentions ? JSON.parse(createdComment.mentions) : [],
+        mentions: createdComment?.mentions ? JSON.parse(createdComment.mentions) : [],
         replies: [] // New comments have no replies initially
       }
     }, { status: 201 });

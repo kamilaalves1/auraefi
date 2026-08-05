@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbRun } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -34,11 +34,10 @@ export async function GET(request: NextRequest, { params }: Params) {
 
   try {
     const { id } = await params
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
-    const row = db.prepare('SELECT * FROM work_pipelines WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId)
+    const row = await dbGetOne<any>('SELECT * FROM work_pipelines WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId])
     if (!row) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
-    return NextResponse.json({ pipeline: rowToPipeline(row as any) })
+    return NextResponse.json({ pipeline: rowToPipeline(row) })
   } catch (err) {
     logger.error({ err }, 'GET /api/workspace/work-pipelines/[id] error')
     return NextResponse.json({ error: 'Failed to load pipeline' }, { status: 500 })
@@ -54,11 +53,10 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
   try {
     const { id } = await params
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const body = await request.json().catch(() => ({}))
 
-    const existing = db.prepare('SELECT * FROM work_pipelines WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId) as any
+    const existing = await dbGetOne<any>('SELECT * FROM work_pipelines WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId])
     if (!existing) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
 
     const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 120) : existing.name
@@ -85,13 +83,14 @@ export async function PUT(request: NextRequest, { params }: Params) {
       secretBlob = encryptWorkPipelineBlob(JSON.stringify(merged))
     }
 
-    db.prepare(
-      `UPDATE work_pipelines SET name=?, provider=?, enabled=?, client_id=?, config_json=?, secret_blob=?, updated_at=unixepoch()
-       WHERE id=? AND workspace_id=?`
-    ).run(name, provider, enabled, clientId, JSON.stringify(config), secretBlob, Number(id), workspaceId)
+    await dbRun(
+      `UPDATE work_pipelines SET name=?, provider=?, enabled=?, client_id=?, config_json=?, secret_blob=?, updated_at=UNIX_TIMESTAMP()
+       WHERE id=? AND workspace_id=?`,
+      [name, provider, enabled, clientId, JSON.stringify(config), secretBlob, Number(id), workspaceId]
+    )
 
-    const updated = db.prepare('SELECT * FROM work_pipelines WHERE id = ?').get(Number(id))
-    return NextResponse.json({ pipeline: rowToPipeline(updated as any) })
+    const updated = await dbGetOne<any>('SELECT * FROM work_pipelines WHERE id = ?', [Number(id)])
+    return NextResponse.json({ pipeline: rowToPipeline(updated) })
   } catch (err) {
     logger.error({ err }, 'PUT /api/workspace/work-pipelines/[id] error')
     return NextResponse.json({ error: 'Failed to update pipeline' }, { status: 500 })
@@ -107,12 +106,11 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
   try {
     const { id } = await params
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
 
-    db.prepare('DELETE FROM pipeline_columns WHERE pipeline_id = ? AND workspace_id = ?').run(Number(id), workspaceId)
-    const result = db.prepare('DELETE FROM work_pipelines WHERE id = ? AND workspace_id = ?').run(Number(id), workspaceId)
-    if (result.changes === 0) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
+    await dbRun('DELETE FROM pipeline_columns WHERE pipeline_id = ? AND workspace_id = ?', [Number(id), workspaceId])
+    const result = await dbRun('DELETE FROM work_pipelines WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId])
+    if (result.affectedRows === 0) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
     return NextResponse.json({ ok: true })
   } catch (err) {
     logger.error({ err }, 'DELETE /api/workspace/work-pipelines/[id] error')

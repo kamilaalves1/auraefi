@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, db_helpers } from '@/lib/db'
+import { db_helpers, dbGetOne, dbGetAll } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 
@@ -25,10 +25,10 @@ export async function POST(
       return NextResponse.json({ error: 'Message is required' }, { status: 400 })
     }
 
-    const db = getDatabase()
-    const task = db
-      .prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?')
-      .get(taskId, workspaceId) as any
+    const task = await dbGetOne<any>(
+      'SELECT * FROM tasks WHERE id = ? AND workspace_id = ?',
+      [taskId, workspaceId]
+    )
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
@@ -40,15 +40,18 @@ export async function POST(
       return NextResponse.json({ sent: 0, skipped: 0 })
     }
 
-    const agents = db
-      .prepare('SELECT name, session_key FROM agents WHERE workspace_id = ? AND name IN (' + Array.from(subscribers).map(() => '?').join(',') + ')')
-      .all(workspaceId, ...Array.from(subscribers)) as Array<{ name: string; session_key?: string }>
+    const subscriberNames = Array.from(subscribers)
+    const placeholders = subscriberNames.map(() => '?').join(',')
+    const agents = await dbGetAll<{ name: string; session_key?: string }>(
+      `SELECT name, session_key FROM agents WHERE workspace_id = ? AND name IN (${placeholders})`,
+      [workspaceId, ...subscriberNames]
+    )
 
     const results = await Promise.allSettled(
       agents.map(async (agent) => {
         if (!agent.session_key) return 'skipped'
         // Gateway CLI delivery removed — create notification only
-        db_helpers.createNotification(
+        await db_helpers.createNotification(
           agent.name,
           'message',
           'Task Broadcast',
@@ -68,7 +71,7 @@ export async function POST(
       else skipped++
     }
 
-    db_helpers.logActivity(
+    await db_helpers.logActivity(
       'task_broadcast',
       'task',
       taskId,
@@ -76,7 +79,7 @@ export async function POST(
       `Broadcasted message to ${sent} subscribers`,
       { sent, skipped },
       workspaceId
-    )
+    ).catch(() => {})
 
     return NextResponse.json({ sent, skipped })
   } catch (error) {

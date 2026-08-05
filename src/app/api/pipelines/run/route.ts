@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, db_helpers } from '@/lib/db'
+import { dbGetOne, dbGetAll, dbRun, db_helpers } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
@@ -58,7 +58,6 @@ export async function GET(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const { searchParams } = new URL(request.url)
     const workspaceId = auth.user.workspace_id ?? 1
     const pipelineId = searchParams.get('pipeline_id')
@@ -66,9 +65,10 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(parseInt(searchParams.get('limit') || '20'), 200)
 
     if (runId) {
-      const run = db
-        .prepare('SELECT * FROM pipeline_runs WHERE id = ? AND workspace_id = ?')
-        .get(parseInt(runId), workspaceId) as PipelineRun | undefined
+      const run = await dbGetOne<PipelineRun>(
+        'SELECT * FROM pipeline_runs WHERE id = ? AND workspace_id = ?',
+        [parseInt(runId), workspaceId]
+      )
       if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
       return NextResponse.json({ run: { ...run, steps_snapshot: JSON.parse(run.steps_snapshot) } })
     }
@@ -84,12 +84,15 @@ export async function GET(request: NextRequest) {
     query += ' ORDER BY created_at DESC LIMIT ?'
     params.push(limit)
 
-    const runs = db.prepare(query).all(...params) as PipelineRun[]
+    const runs = await dbGetAll<PipelineRun>(query, params)
 
     // Enrich with pipeline names
     const pipelineIds = [...new Set(runs.map(r => r.pipeline_id))]
     const pipelines = pipelineIds.length > 0
-      ? db.prepare(`SELECT id, name FROM workflow_pipelines WHERE workspace_id = ? AND id IN (${pipelineIds.map(() => '?').join(',')})`).all(workspaceId, ...pipelineIds) as Array<{ id: number; name: string }>
+      ? await dbGetAll<{ id: number; name: string }>(
+          `SELECT id, name FROM workflow_pipelines WHERE workspace_id = ? AND id IN (${pipelineIds.map(() => '?').join(',')})`,
+          [workspaceId, ...pipelineIds]
+        )
       : []
     const nameMap = new Map(pipelines.map(p => [p.id, p.name]))
 
@@ -114,17 +117,16 @@ export async function POST(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const body = await request.json()
     const { action, pipeline_id, run_id } = body
 
     if (action === 'start') {
-      return startPipeline(db, pipeline_id, auth.user?.username || 'system', workspaceId)
+      return startPipeline(pipeline_id, auth.user?.username || 'system', workspaceId)
     } else if (action === 'advance') {
-      return advanceRun(db, run_id, body.success ?? true, body.error, workspaceId)
+      return advanceRun(run_id, body.success ?? true, body.error, workspaceId)
     } else if (action === 'cancel') {
-      return cancelRun(db, run_id, workspaceId)
+      return cancelRun(run_id, workspaceId)
     }
 
     return NextResponse.json({ error: 'Invalid action. Use: start, advance, cancel' }, { status: 400 })
@@ -136,7 +138,6 @@ export async function POST(request: NextRequest) {
 
 /** Spawn a single pipeline step (gateway CLI removed — returns stub result) */
 async function spawnStep(
-  db: ReturnType<typeof getDatabase>,
   pipelineName: string,
   taskPromptResolved: string,
   timeoutSeconds: number,
@@ -147,25 +148,26 @@ async function spawnStep(
 ): Promise<{ success: boolean; stdout?: string; error?: string }> {
   // Gateway CLI spawn is not available in this build
   steps[stepIdx].error = 'Gateway CLI spawn is not available'
-  db.prepare('UPDATE pipeline_runs SET steps_snapshot = ? WHERE id = ? AND workspace_id = ?').run(JSON.stringify(steps), runId, workspaceId)
+  await dbRun('UPDATE pipeline_runs SET steps_snapshot = ? WHERE id = ? AND workspace_id = ?', [JSON.stringify(steps), runId, workspaceId])
   return { success: false, error: 'Gateway CLI spawn is not available' }
 }
 
-async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: number, triggeredBy: string, workspaceId: number) {
-  const pipeline = db.prepare('SELECT * FROM workflow_pipelines WHERE id = ? AND workspace_id = ?').get(pipelineId, workspaceId) as any
+async function startPipeline(pipelineId: number, triggeredBy: string, workspaceId: number) {
+  const pipeline = await dbGetOne<any>('SELECT * FROM workflow_pipelines WHERE id = ? AND workspace_id = ?', [pipelineId, workspaceId])
   if (!pipeline) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
 
   const steps: PipelineStep[] = JSON.parse(pipeline.steps || '[]')
   if (steps.length === 0) return NextResponse.json({ error: 'Pipeline has no steps' }, { status: 400 })
 
-  const { defDefaults, workspaceValues } = loadParameterResolutionBase(db, workspaceId)
+  const { defDefaults, workspaceValues } = await loadParameterResolutionBase(workspaceId)
   const pipelineParams = extractPipelineParameters(parseClientMetadata(pipeline.client_metadata_json))
 
   // Get template names for snapshot
   const templateIds = steps.map(s => s.template_id)
-  const templates = db.prepare(
-    `SELECT id, name, model, task_prompt, timeout_seconds FROM workflow_templates WHERE workspace_id = ? AND id IN (${templateIds.map(() => '?').join(',')})`
-  ).all(workspaceId, ...templateIds) as Array<{ id: number; name: string; model: string; task_prompt: string; timeout_seconds: number }>
+  const templates = await dbGetAll<{ id: number; name: string; model: string; task_prompt: string; timeout_seconds: number }>(
+    `SELECT id, name, model, task_prompt, timeout_seconds FROM workflow_templates WHERE workspace_id = ? AND id IN (${templateIds.map(() => '?').join(',')})`,
+    [workspaceId, ...templateIds]
+  )
   const templateMap = new Map(templates.map(t => [t.id, t]))
 
   // Build step snapshot
@@ -182,17 +184,17 @@ async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: num
   }))
 
   const now = Math.floor(Date.now() / 1000)
-  const result = db.prepare(`
+  const result = await dbRun(`
     INSERT INTO pipeline_runs (pipeline_id, status, current_step, steps_snapshot, started_at, triggered_by, workspace_id)
     VALUES (?, 'running', 0, ?, ?, ?, ?)
-  `).run(pipelineId, JSON.stringify(stepsSnapshot), now, triggeredBy, workspaceId)
+  `, [pipelineId, JSON.stringify(stepsSnapshot), now, triggeredBy, workspaceId])
 
-  const runId = Number(result.lastInsertRowid)
+  const runId = result.insertId
 
   // Update pipeline usage
-  db.prepare(`
+  await dbRun(`
     UPDATE workflow_pipelines SET use_count = use_count + 1, last_used_at = ?, updated_at = ? WHERE id = ? AND workspace_id = ?
-  `).run(now, now, pipelineId, workspaceId)
+  `, [now, now, pipelineId, workspaceId])
 
   // Spawn first step
   const firstTemplate = templateMap.get(steps[0].template_id)
@@ -201,7 +203,6 @@ async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: num
     const merged = mergeParameterLayers(defDefaults, workspaceValues, pipelineParams, steps[0].parameters ?? {})
     const resolvedPrompt = applyParameterSubstitution(firstTemplate.task_prompt, merged)
     spawnResult = await spawnStep(
-      db,
       pipeline.name,
       resolvedPrompt,
       firstTemplate.timeout_seconds,
@@ -212,7 +213,7 @@ async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: num
     )
   }
 
-  db_helpers.logActivity('pipeline_started', 'pipeline', pipelineId, triggeredBy, `Started pipeline: ${pipeline.name}`, { run_id: runId }, workspaceId)
+  await db_helpers.logActivity('pipeline_started', 'pipeline', pipelineId, triggeredBy, `Started pipeline: ${pipeline.name}`, { run_id: runId }, workspaceId).catch(() => {})
 
   eventBus.broadcast('activity.created', {
     type: 'pipeline_started',
@@ -234,10 +235,13 @@ async function startPipeline(db: ReturnType<typeof getDatabase>, pipelineId: num
   }, { status: 201 })
 }
 
-async function advanceRun(db: ReturnType<typeof getDatabase>, runId: number, success: boolean, errorMsg: string | undefined, workspaceId: number) {
+async function advanceRun(runId: number, success: boolean, errorMsg: string | undefined, workspaceId: number) {
   if (!runId) return NextResponse.json({ error: 'run_id required' }, { status: 400 })
 
-  const run = db.prepare('SELECT * FROM pipeline_runs WHERE id = ? AND workspace_id = ?').get(runId, workspaceId) as PipelineRun | undefined
+  const run = await dbGetOne<PipelineRun>(
+    'SELECT * FROM pipeline_runs WHERE id = ? AND workspace_id = ?',
+    [runId, workspaceId]
+  )
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
   if (run.status !== 'running') return NextResponse.json({ error: `Run is ${run.status}, not running` }, { status: 400 })
 
@@ -257,16 +261,20 @@ async function advanceRun(db: ReturnType<typeof getDatabase>, runId: number, suc
   if (!success && onFailure === 'stop') {
     // Mark remaining steps as skipped
     for (let i = nextIdx; i < steps.length; i++) steps[i].status = 'skipped'
-    db.prepare('UPDATE pipeline_runs SET status = ?, current_step = ?, steps_snapshot = ?, completed_at = ? WHERE id = ? AND workspace_id = ?')
-      .run('failed', currentIdx, JSON.stringify(steps), now, runId, workspaceId)
+    await dbRun(
+      'UPDATE pipeline_runs SET status = ?, current_step = ?, steps_snapshot = ?, completed_at = ? WHERE id = ? AND workspace_id = ?',
+      ['failed', currentIdx, JSON.stringify(steps), now, runId, workspaceId]
+    )
     return NextResponse.json({ run: { id: runId, status: 'failed', steps_snapshot: steps } })
   }
 
   if (nextIdx >= steps.length) {
     // Pipeline complete
     const finalStatus = steps.some(s => s.status === 'failed') ? 'completed' : 'completed'
-    db.prepare('UPDATE pipeline_runs SET status = ?, current_step = ?, steps_snapshot = ?, completed_at = ? WHERE id = ? AND workspace_id = ?')
-      .run(finalStatus, currentIdx, JSON.stringify(steps), now, runId, workspaceId)
+    await dbRun(
+      'UPDATE pipeline_runs SET status = ?, current_step = ?, steps_snapshot = ?, completed_at = ? WHERE id = ? AND workspace_id = ?',
+      [finalStatus, currentIdx, JSON.stringify(steps), now, runId, workspaceId]
+    )
 
     eventBus.broadcast('activity.created', {
       type: 'pipeline_completed',
@@ -282,25 +290,24 @@ async function advanceRun(db: ReturnType<typeof getDatabase>, runId: number, suc
   steps[nextIdx].status = 'running'
   steps[nextIdx].started_at = now
 
-  const template = db
-    .prepare('SELECT id, name, model, task_prompt, timeout_seconds FROM workflow_templates WHERE id = ? AND workspace_id = ?')
-    .get(steps[nextIdx].template_id, workspaceId) as
-    | { id: number; name: string; model: string; task_prompt: string; timeout_seconds: number }
-    | undefined
+  const template = await dbGetOne<{ id: number; name: string; model: string; task_prompt: string; timeout_seconds: number }>(
+    'SELECT id, name, model, task_prompt, timeout_seconds FROM workflow_templates WHERE id = ? AND workspace_id = ?',
+    [steps[nextIdx].template_id, workspaceId]
+  )
 
   let spawnResult: any = null
   if (template) {
-    const pipelineRow = db
-      .prepare('SELECT name, steps, client_metadata_json FROM workflow_pipelines WHERE id = ? AND workspace_id = ?')
-      .get(run.pipeline_id, workspaceId) as { name: string; steps: string; client_metadata_json: string | null } | undefined
+    const pipelineRow = await dbGetOne<{ name: string; steps: string; client_metadata_json: string | null }>(
+      'SELECT name, steps, client_metadata_json FROM workflow_pipelines WHERE id = ? AND workspace_id = ?',
+      [run.pipeline_id, workspaceId]
+    )
     const pipelineSteps: PipelineStep[] = JSON.parse(pipelineRow?.steps || '[]')
     const stepDef = pipelineSteps[nextIdx]
-    const { defDefaults, workspaceValues } = loadParameterResolutionBase(db, workspaceId)
+    const { defDefaults, workspaceValues } = await loadParameterResolutionBase(workspaceId)
     const pipelineParams = extractPipelineParameters(parseClientMetadata(pipelineRow?.client_metadata_json))
     const merged = mergeParameterLayers(defDefaults, workspaceValues, pipelineParams, stepDef?.parameters ?? {})
     const resolvedPrompt = applyParameterSubstitution(template.task_prompt, merged)
     spawnResult = await spawnStep(
-      db,
       pipelineRow?.name || '?',
       resolvedPrompt,
       template.timeout_seconds,
@@ -311,18 +318,23 @@ async function advanceRun(db: ReturnType<typeof getDatabase>, runId: number, suc
     )
   }
 
-  db.prepare('UPDATE pipeline_runs SET current_step = ?, steps_snapshot = ? WHERE id = ? AND workspace_id = ?')
-    .run(nextIdx, JSON.stringify(steps), runId, workspaceId)
+  await dbRun(
+    'UPDATE pipeline_runs SET current_step = ?, steps_snapshot = ? WHERE id = ? AND workspace_id = ?',
+    [nextIdx, JSON.stringify(steps), runId, workspaceId]
+  )
 
   return NextResponse.json({
     run: { id: runId, status: 'running', current_step: nextIdx, steps_snapshot: steps, spawn: spawnResult }
   })
 }
 
-function cancelRun(db: ReturnType<typeof getDatabase>, runId: number, workspaceId: number) {
+async function cancelRun(runId: number, workspaceId: number) {
   if (!runId) return NextResponse.json({ error: 'run_id required' }, { status: 400 })
 
-  const run = db.prepare('SELECT * FROM pipeline_runs WHERE id = ? AND workspace_id = ?').get(runId, workspaceId) as PipelineRun | undefined
+  const run = await dbGetOne<PipelineRun>(
+    'SELECT * FROM pipeline_runs WHERE id = ? AND workspace_id = ?',
+    [runId, workspaceId]
+  )
   if (!run) return NextResponse.json({ error: 'Run not found' }, { status: 404 })
   if (run.status !== 'running' && run.status !== 'pending') {
     return NextResponse.json({ error: `Run is ${run.status}, cannot cancel` }, { status: 400 })
@@ -338,8 +350,10 @@ function cancelRun(db: ReturnType<typeof getDatabase>, runId: number, workspaceI
     }
   }
 
-  db.prepare('UPDATE pipeline_runs SET status = ?, steps_snapshot = ?, completed_at = ? WHERE id = ? AND workspace_id = ?')
-    .run('cancelled', JSON.stringify(steps), now, runId, workspaceId)
+  await dbRun(
+    'UPDATE pipeline_runs SET status = ?, steps_snapshot = ?, completed_at = ? WHERE id = ? AND workspace_id = ?',
+    ['cancelled', JSON.stringify(steps), now, runId, workspaceId]
+  )
 
   return NextResponse.json({ run: { id: runId, status: 'cancelled', steps_snapshot: steps } })
 }

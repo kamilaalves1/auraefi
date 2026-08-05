@@ -3,7 +3,7 @@ import { execSync } from 'node:child_process'
 import path from 'node:path'
 import os from 'node:os'
 import { config } from '@/lib/config'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne } from '@/lib/db'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,11 +75,11 @@ const INSECURE_PASSWORDS = new Set([
   'admin', 'password', 'change-me-on-first-login', 'changeme', 'testpass123',
 ])
 
-export function runSecurityScan(): ScanResult {
+export async function runSecurityScan(): Promise<ScanResult> {
   const credentials = scanCredentials()
   const network = scanNetwork()
   const gateway = scanGateway()
-  const runtime = scanRuntime()
+  const runtime = await scanRuntime()
   const osLevel = scanOS()
 
   const categories = { credentials, network, gateway, runtime, os: osLevel }
@@ -479,7 +479,7 @@ function scanGateway(): Category {
 // Category: Runtime
 // ---------------------------------------------------------------------------
 
-function scanRuntime(): Category {
+async function scanRuntime(): Promise<Category> {
   const checks: Check[] = []
 
   try {
@@ -526,7 +526,7 @@ function scanRuntime(): Category {
   }
 
   try {
-    const backupDir = path.join(path.dirname(config.dbPath), 'backups')
+    const backupDir = config.backupDir
     if (existsSync(backupDir)) {
       const files = readdirSync(backupDir)
         .filter((f: string) => f.endsWith('.db'))
@@ -557,18 +557,17 @@ function scanRuntime(): Category {
   }
 
   try {
-    const db = getDatabase()
-    const result = db.prepare('PRAGMA integrity_check').get() as { integrity_check: string } | undefined
+    const result = await dbGetOne<{ '1': number }>('SELECT 1', [])
     checks.push({
       id: 'db_integrity',
-      name: 'Database integrity',
-      status: result?.integrity_check === 'ok' ? 'pass' : 'fail',
-      detail: result?.integrity_check === 'ok' ? 'Integrity check passed' : `Integrity: ${result?.integrity_check || 'unknown'}`,
-      fix: result?.integrity_check !== 'ok' ? 'Database may be corrupted — restore from backup' : '',
+      name: 'Database connectivity',
+      status: result ? 'pass' : 'fail',
+      detail: result ? 'Database connection healthy' : 'Database connection failed',
+      fix: !result ? 'Check database connection settings' : '',
       severity: 'critical',
     })
   } catch {
-    checks.push({ id: 'db_integrity', name: 'Database integrity', status: 'warn', detail: 'Could not run integrity check', fix: '', severity: 'critical' })
+    checks.push({ id: 'db_integrity', name: 'Database connectivity', status: 'warn', detail: 'Could not connect to database', fix: '', severity: 'critical' })
   }
 
   return scoreCategory(checks)

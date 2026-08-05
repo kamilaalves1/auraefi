@@ -1,21 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase, db_helpers } from '@/lib/db';
+import { dbGetOne, dbRun, db_helpers } from '@/lib/db';
 import { requireRole } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 import { statSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { resolveWithin } from '@/lib/paths';
 import { getAgentWorkspaceCandidates, readAgentWorkspaceFile } from '@/lib/agent-workspace';
-import type Database from 'better-sqlite3';
 
 // 512KB — generous but bounded. Prevents unbounded growth from append mode.
 const MAX_WORKING_MEMORY_SIZE = 512 * 1024;
 
-function getAgentByIdOrName(db: Database.Database, agentId: string, workspaceId: number): any {
+async function getAgentByIdOrName(agentId: string, workspaceId: number): Promise<any> {
   if (isNaN(Number(agentId))) {
-    return db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(agentId, workspaceId);
+    return await dbGetOne<any>('SELECT * FROM agents WHERE name = ? AND workspace_id = ?', [agentId, workspaceId]);
   }
-  return db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(agentId), workspaceId);
+  return await dbGetOne<any>('SELECT * FROM agents WHERE id = ? AND workspace_id = ?', [Number(agentId), workspaceId]);
 }
 
 function agentColumnName(agentId: string): 'name' | 'id' {
@@ -40,12 +39,11 @@ export async function GET(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const db = getDatabase();
     const resolvedParams = await params;
     const agentId = resolvedParams.id;
     const workspaceId = auth.user.workspace_id ?? 1;
 
-    const agent = getAgentByIdOrName(db, agentId, workspaceId);
+    const agent = await getAgentByIdOrName(agentId, workspaceId);
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
@@ -53,9 +51,10 @@ export async function GET(
     // Read DB working memory + updated_at for staleness comparison
     const col = agentColumnName(agentId);
     const val = agentColumnValue(agentId);
-    const dbResult = db.prepare(
-      `SELECT working_memory, updated_at FROM agents WHERE ${col} = ? AND workspace_id = ?`
-    ).get(val, workspaceId) as any;
+    const dbResult = await dbGetOne<any>(
+      `SELECT working_memory, updated_at FROM agents WHERE ${col} = ? AND workspace_id = ?`,
+      [val, workspaceId]
+    );
     const dbMemory = dbResult?.working_memory || '';
     const dbUpdatedAt = dbResult?.updated_at || 0;
 
@@ -114,14 +113,13 @@ export async function PUT(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const db = getDatabase();
     const resolvedParams = await params;
     const agentId = resolvedParams.id;
     const workspaceId = auth.user.workspace_id ?? 1;
     const body = await request.json();
     const { working_memory, append } = body;
 
-    const agent = getAgentByIdOrName(db, agentId, workspaceId);
+    const agent = await getAgentByIdOrName(agentId, workspaceId);
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
@@ -132,9 +130,10 @@ export async function PUT(
     if (append) {
       const col = agentColumnName(agentId);
       const val = agentColumnValue(agentId);
-      const current = db.prepare(
-        `SELECT working_memory FROM agents WHERE ${col} = ? AND workspace_id = ?`
-      ).get(val, workspaceId) as any;
+      const current = await dbGetOne<any>(
+        `SELECT working_memory FROM agents WHERE ${col} = ? AND workspace_id = ?`,
+        [val, workspaceId]
+      );
       const currentContent = current?.working_memory || '';
 
       const timestamp = new Date().toISOString();
@@ -170,14 +169,14 @@ export async function PUT(
     // Update working memory
     const col = agentColumnName(agentId);
     const val = agentColumnValue(agentId);
-    db.prepare(`
+    await dbRun(`
       UPDATE agents
       SET working_memory = ?, updated_at = ?
       WHERE ${col} = ? AND workspace_id = ?
-    `).run(newContent, now, val, workspaceId);
+    `, [newContent, now, val, workspaceId]);
 
     // Log activity
-    db_helpers.logActivity(
+    await db_helpers.logActivity(
       'agent_memory_updated',
       'agent',
       agent.id,
@@ -190,7 +189,7 @@ export async function PUT(
         saved_to_workspace: savedToWorkspace
       },
       workspaceId
-    );
+    ).catch(() => {});
 
     return NextResponse.json({
       success: true,
@@ -217,12 +216,11 @@ export async function DELETE(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const db = getDatabase();
     const resolvedParams = await params;
     const agentId = resolvedParams.id;
     const workspaceId = auth.user.workspace_id ?? 1;
 
-    const agent = getAgentByIdOrName(db, agentId, workspaceId);
+    const agent = await getAgentByIdOrName(agentId, workspaceId);
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
     }
@@ -246,14 +244,14 @@ export async function DELETE(
     // Clear working memory
     const col = agentColumnName(agentId);
     const val = agentColumnValue(agentId);
-    db.prepare(`
+    await dbRun(`
       UPDATE agents
       SET working_memory = '', updated_at = ?
       WHERE ${col} = ? AND workspace_id = ?
-    `).run(now, val, workspaceId);
+    `, [now, val, workspaceId]);
 
     // Log activity
-    db_helpers.logActivity(
+    await db_helpers.logActivity(
       'agent_memory_cleared',
       'agent',
       agent.id,
@@ -261,7 +259,7 @@ export async function DELETE(
       `Working memory cleared for agent ${agent.name}`,
       { timestamp: now },
       workspaceId
-    );
+    ).catch(() => {});
 
     return NextResponse.json({
       success: true,

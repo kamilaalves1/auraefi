@@ -6,7 +6,7 @@
  */
 
 import { createHash, randomUUID } from 'crypto'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbGetAll, dbRun } from '@/lib/db'
 import { eventBus } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
 
@@ -124,8 +124,7 @@ export function computeConfigHash(config: unknown): string {
 
 // --- CRUD ---
 
-export function createRun(run: AgentRun, workspaceId?: number): AgentRun {
-  const db = getDatabase()
+export async function createRun(run: AgentRun, workspaceId?: number): Promise<AgentRun> {
   const wsId = workspaceId ?? 1
 
   const id = run.id || randomUUID()
@@ -139,7 +138,7 @@ export function createRun(run: AgentRun, workspaceId?: number): AgentRun {
     trigger: run.trigger ?? undefined,
   })
 
-  db.prepare(`
+  await dbRun(`
     INSERT INTO runs (
       id, agent_id, agent_name, model, provider, runtime, runtime_version,
       trigger_type, parent_run_id, task_id, status, outcome,
@@ -161,7 +160,7 @@ export function createRun(run: AgentRun, workspaceId?: number): AgentRun {
       ?, ?, ?, ?, ?, ?, ?,
       ?, ?, ?, ?, ?, ?
     )
-  `).run(
+  `, [
     id, run.agent_id, run.agent_name ?? null, run.model ?? null, run.provider ?? null,
     run.runtime ?? 'mission-control', run.runtime_version ?? null,
     run.trigger ?? null, run.parent_run_id ?? null, run.task_id ?? null,
@@ -183,15 +182,14 @@ export function createRun(run: AgentRun, workspaceId?: number): AgentRun {
     run.eval?.benchmark_id ?? null,
     run.error ?? null, run.git_branch ?? null, run.git_commit ?? null,
     wsId, JSON.stringify(run.tags ?? []), JSON.stringify(run.metadata ?? {}),
-  )
+  ])
 
-  const created = getRun(id, wsId)!
+  const created = (await getRun(id, wsId))!
   eventBus.broadcast('run.created', created)
   return created
 }
 
-export function updateRun(id: string, updates: Partial<AgentRun>, workspaceId?: number): AgentRun | null {
-  const db = getDatabase()
+export async function updateRun(id: string, updates: Partial<AgentRun>, workspaceId?: number): Promise<AgentRun | null> {
   const wsId = workspaceId ?? 1
 
   const setClauses: string[] = []
@@ -236,9 +234,9 @@ export function updateRun(id: string, updates: Partial<AgentRun>, workspaceId?: 
   if (setClauses.length === 0) return getRun(id, wsId)
 
   params.push(id, wsId)
-  db.prepare(`UPDATE runs SET ${setClauses.join(', ')} WHERE id = ? AND workspace_id = ?`).run(...params)
+  await dbRun(`UPDATE runs SET ${setClauses.join(', ')} WHERE id = ? AND workspace_id = ?`, params as any[])
 
-  const updated = getRun(id, wsId)
+  const updated = await getRun(id, wsId)
   if (updated) {
     const eventType = updated.status === 'completed' || updated.status === 'failed'
       ? 'run.completed' as const
@@ -248,39 +246,36 @@ export function updateRun(id: string, updates: Partial<AgentRun>, workspaceId?: 
   return updated
 }
 
-export function attachEval(runId: string, evalResult: EvalResult, workspaceId?: number): AgentRun | null {
-  const db = getDatabase()
+export async function attachEval(runId: string, evalResult: EvalResult, workspaceId?: number): Promise<AgentRun | null> {
   const wsId = workspaceId ?? 1
 
-  db.prepare(`
+  await dbRun(`
     UPDATE runs SET
       eval_task_type = ?, eval_layer = ?, eval_pass = ?, eval_score = ?,
       eval_detail = ?, eval_metrics = ?, eval_benchmark_id = ?
     WHERE id = ? AND workspace_id = ?
-  `).run(
+  `, [
     evalResult.task_type ?? null, evalResult.eval_layer ?? null,
     evalResult.pass ? 1 : 0, evalResult.score,
     evalResult.detail ?? null,
     evalResult.metrics ? JSON.stringify(evalResult.metrics) : null,
     evalResult.benchmark_id ?? null,
     runId, wsId,
-  )
+  ])
 
-  const updated = getRun(runId, wsId)
+  const updated = await getRun(runId, wsId)
   if (updated) eventBus.broadcast('run.eval_attached', updated)
   return updated
 }
 
 // --- Queries ---
 
-export function getRun(id: string, workspaceId?: number): AgentRun | null {
-  const db = getDatabase()
-  const row = db.prepare('SELECT * FROM runs WHERE id = ? AND workspace_id = ?')
-    .get(id, workspaceId ?? 1) as any
+export async function getRun(id: string, workspaceId?: number): Promise<AgentRun | null> {
+  const row = await dbGetOne<any>('SELECT * FROM runs WHERE id = ? AND workspace_id = ?', [id, workspaceId ?? 1])
   return row ? rowToAgentRun(row) : null
 }
 
-export function listRuns(opts: {
+export async function listRuns(opts: {
   workspaceId?: number
   agentId?: string
   status?: string
@@ -288,8 +283,7 @@ export function listRuns(opts: {
   taskId?: string
   limit?: number
   offset?: number
-}): { runs: AgentRun[]; total: number } {
-  const db = getDatabase()
+}): Promise<{ runs: AgentRun[]; total: number }> {
   const wsId = opts.workspaceId ?? 1
   const limit = Math.min(opts.limit ?? 50, 200)
   const offset = opts.offset ?? 0
@@ -314,23 +308,23 @@ export function listRuns(opts: {
     params.push(opts.taskId)
   }
 
-  const total = (db.prepare(`SELECT COUNT(*) as c FROM runs ${where}`).get(...params) as any).c
-  const rows = db.prepare(`SELECT * FROM runs ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`)
-    .all(...params, limit, offset) as any[]
+  const totalRow = await dbGetOne<{ c: number }>(`SELECT COUNT(*) as c FROM runs ${where}`, params as any[])
+  const total = totalRow?.c ?? 0
+  const rows = await dbGetAll<any>(`SELECT * FROM runs ${where} ORDER BY created_at DESC LIMIT ? OFFSET ?`, [...params, limit, offset])
 
   return { runs: rows.map(rowToAgentRun), total }
 }
 
-export function getRunProvenance(id: string, workspaceId?: number): Provenance | null {
-  const run = getRun(id, workspaceId)
+export async function getRunProvenance(id: string, workspaceId?: number): Promise<Provenance | null> {
+  const run = await getRun(id, workspaceId)
   return run?.provenance ?? null
 }
 
-export function getLeaderboard(opts?: {
+export async function getLeaderboard(opts?: {
   benchmarkId?: string
   workspaceId?: number
   limit?: number
-}): Array<{
+}): Promise<Array<{
   agent_name: string
   model: string
   runtime: string
@@ -338,8 +332,7 @@ export function getLeaderboard(opts?: {
   pass_rate: number
   avg_cost_usd: number
   run_count: number
-}> {
-  const db = getDatabase()
+}>> {
   const wsId = opts?.workspaceId ?? 1
   const limit = opts?.limit ?? 50
 
@@ -351,7 +344,7 @@ export function getLeaderboard(opts?: {
     params.push(opts.benchmarkId)
   }
 
-  return db.prepare(`
+  return dbGetAll<any>(`
     SELECT
       COALESCE(agent_name, agent_id) as agent_name,
       COALESCE(model, 'unknown') as model,
@@ -364,7 +357,7 @@ export function getLeaderboard(opts?: {
     GROUP BY COALESCE(agent_name, agent_id), COALESCE(model, 'unknown'), COALESCE(runtime, 'unknown')
     ORDER BY avg_score DESC
     LIMIT ?
-  `).all(...params, limit) as any[]
+  `, [...params, limit])
 }
 
 // --- Row → AgentRun hydration ---

@@ -13,7 +13,9 @@ vi.mock('@/lib/config', () => ({
 }))
 
 vi.mock('@/lib/db', () => ({
-  getDatabase: vi.fn(),
+  dbGetOne: vi.fn(() => Promise.resolve(undefined)),
+  dbGetAll: vi.fn(() => Promise.resolve([])),
+  dbRun: vi.fn(() => Promise.resolve({ insertId: 0, affectedRows: 0 })),
 }))
 
 vi.mock('@/lib/logger', () => ({

@@ -7,7 +7,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGetAll, dbGetOne } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
   try {
     if (action === 'status') {
-      return handleStatus(workspaceId)
+      return await handleStatus(workspaceId)
     }
 
     if (action === 'issues') {
@@ -74,38 +74,35 @@ export async function POST(request: NextRequest) {
 
 // ── Handlers ─────────────────────────────────────────────────────────────────
 
-function handleStatus(workspaceId: number) {
-  const db = getDatabase()
-
-  const syncs = db.prepare(`
+async function handleStatus(workspaceId: number) {
+  const syncs = await dbGetAll(`
     SELECT gs.*, df.name as flow_name
     FROM git_syncs gs
     LEFT JOIN delivery_flows df ON df.id = gs.flow_id
     WHERE gs.workspace_id = ?
     ORDER BY gs.created_at DESC
     LIMIT 50
-  `).all(workspaceId)
+  `, [workspaceId])
 
-  const flows = db.prepare(`
+  const flows = await dbGetAll(`
     SELECT df.id, df.name, df.is_active,
            gr.provider AS git_provider, gr.repo_url AS git_repo_url, gr.branch AS git_branch, gr.name AS repo_name
     FROM delivery_flows df
     LEFT JOIN git_repositories gr ON gr.id = df.git_repository_id
     WHERE df.workspace_id = ?
     ORDER BY df.created_at ASC
-  `).all(workspaceId)
+  `, [workspaceId])
 
   return NextResponse.json({ syncs, flows })
 }
 
 async function handlePreviewIssues(flowId: number, state: 'open' | 'closed' | 'all', workspaceId: number) {
-  const db = getDatabase()
-  const row = db.prepare(`
+  const row = await dbGetOne<any>(`
     SELECT df.id, gr.provider AS git_provider, gr.repo_url AS git_repo_url, gr.branch AS git_branch
     FROM delivery_flows df
     LEFT JOIN git_repositories gr ON gr.id = df.git_repository_id
     WHERE df.id = ? AND df.workspace_id = ?
-  `).get(flowId, workspaceId) as any | undefined
+  `, [flowId, workspaceId])
 
   if (!row) return NextResponse.json({ error: 'Flow not found' }, { status: 404 })
   if (!row.git_provider || !row.git_repo_url) {
@@ -120,13 +117,12 @@ async function handlePreviewIssues(flowId: number, state: 'open' | 'closed' | 'a
 async function handleTrigger(flowId: number, workspaceId: number) {
   if (!flowId) return NextResponse.json({ error: 'flow_id required' }, { status: 400 })
 
-  const db = getDatabase()
-  const row = db.prepare(`
+  const row = await dbGetOne<any>(`
     SELECT df.id, df.name, gr.provider AS git_provider, gr.repo_url AS git_repo_url, gr.branch AS git_branch
     FROM delivery_flows df
     LEFT JOIN git_repositories gr ON gr.id = df.git_repository_id
     WHERE df.id = ? AND df.workspace_id = ?
-  `).get(flowId, workspaceId) as any | undefined
+  `, [flowId, workspaceId])
 
   if (!row) return NextResponse.json({ error: 'Flow not found' }, { status: 404 })
   if (!row.git_provider || !row.git_repo_url) {
@@ -146,8 +142,7 @@ async function handleTrigger(flowId: number, workspaceId: number) {
 }
 
 async function handleTriggerAll(workspaceId: number) {
-  const db = getDatabase()
-  const flows = db.prepare(`
+  const flows = await dbGetAll<any>(`
     SELECT df.id, df.name,
            gr.provider AS git_provider, gr.repo_url AS git_repo_url, gr.branch AS git_branch
     FROM delivery_flows df
@@ -155,7 +150,7 @@ async function handleTriggerAll(workspaceId: number) {
     WHERE df.workspace_id = ? AND df.is_active = 1
       AND gr.is_active = 1
       AND gr.repo_url IS NOT NULL AND gr.repo_url != ''
-  `).all(workspaceId) as any[]
+  `, [workspaceId])
 
   const results: Array<{ flowId: number; name: string; provider: string; repo: string; result: any }> = []
 

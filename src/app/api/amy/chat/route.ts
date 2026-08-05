@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbRun } from '@/lib/db'
 import { logger } from '@/lib/logger'
 
 /**
  * POST /api/amy/chat — Direct chat with Amy via Ollama
- * 
+ *
  * Body: { message: string, conversation_id?: string, model?: string }
  * Returns: { reply: string, model: string, conversation_id: string }
- * 
+ *
  * This is the Vertex-specific chat endpoint that bypasses the gateway
  * and talks directly to Ollama on the local machine.
  */
@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
         const searchData = await searchRes.json()
         if (searchData.results?.length > 0) {
           const topRefs = searchData.results.slice(0, 3)
-          knowledgeContext = '\n\n[Knowledge Base Context]\n' + 
+          knowledgeContext = '\n\n[Knowledge Base Context]\n' +
             topRefs.map((r: any) => `- ${r.title} (${r.domain}): ${r.snippet}`).join('\n')
         }
       }
@@ -107,26 +107,26 @@ export async function POST(request: NextRequest) {
 
     // Also save the exchange to the database
     try {
-      const db = getDatabase()
       const workspaceId = auth.user.workspace_id ?? 1
+      const now = Math.floor(Date.now() / 1000)
 
       // Ensure conversation exists
-      db.prepare(`
-        INSERT OR IGNORE INTO conversations (id, title, workspace_id, created_at) 
-        VALUES (?, ?, ?, ?)
-      `).run(convId, `Amy Chat`, workspaceId, Math.floor(Date.now() / 1000))
+      await dbRun(
+        `INSERT IGNORE INTO conversations (id, title, workspace_id, created_at) VALUES (?, ?, ?, ?)`,
+        [convId, `Amy Chat`, workspaceId, now]
+      )
 
       // Save user message
-      db.prepare(`
-        INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, workspace_id, created_at)
-        VALUES (?, 'human', 'amy', ?, 'text', ?, ?)
-      `).run(convId, message, workspaceId, Math.floor(Date.now() / 1000))
+      await dbRun(
+        `INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, workspace_id, created_at) VALUES (?, 'human', 'amy', ?, 'text', ?, ?)`,
+        [convId, message, workspaceId, now]
+      )
 
       // Save assistant reply
-      db.prepare(`
-        INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, workspace_id, created_at)
-        VALUES (?, 'amy', 'human', ?, 'text', ?, ?)
-      `).run(convId, reply, workspaceId, Math.floor(Date.now() / 1000))
+      await dbRun(
+        `INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, workspace_id, created_at) VALUES (?, 'amy', 'human', ?, 'text', ?, ?)`,
+        [convId, reply, workspaceId, now]
+      )
     } catch (dbErr) {
       logger.warn({ err: dbErr }, 'Could not persist Amy chat to database')
     }

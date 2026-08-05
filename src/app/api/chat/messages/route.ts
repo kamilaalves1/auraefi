@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, db_helpers, Message } from '@/lib/db'
+import { dbGetOne, dbGetAll, dbRun, db_helpers, Message } from '@/lib/db'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { eventBus } from '@/lib/event-bus'
 import { requireRole } from '@/lib/auth'
@@ -61,8 +61,7 @@ function safeParseMetadata(raw: string | null | undefined): any | null {
   }
 }
 
-function createChatReply(
-  db: ReturnType<typeof getDatabase>,
+async function createChatReply(
   workspaceId: number,
   conversationId: string,
   fromAgent: string,
@@ -71,29 +70,31 @@ function createChatReply(
   messageType: 'text' | 'status' | 'tool_call' = 'status',
   metadata: Record<string, any> | null = null
 ) {
-  const replyInsert = db
-    .prepare(`
-      INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, metadata, workspace_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `)
-    .run(
+  const replyInsert = await dbRun(
+    `INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, metadata, workspace_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
       conversationId,
       fromAgent,
       toAgent,
       content,
       messageType,
       metadata ? JSON.stringify(metadata) : null,
-      workspaceId
-    )
+      workspaceId,
+    ]
+  )
 
-  const row = db
-    .prepare('SELECT * FROM messages WHERE id = ? AND workspace_id = ?')
-    .get(replyInsert.lastInsertRowid, workspaceId) as Message
+  const row = await dbGetOne<Message>(
+    'SELECT * FROM messages WHERE id = ? AND workspace_id = ?',
+    [replyInsert.insertId, workspaceId]
+  )
 
-  eventBus.broadcast('chat.message', {
-    ...row,
-    metadata: safeParseMetadata(row.metadata),
-  })
+  if (row) {
+    eventBus.broadcast('chat.message', {
+      ...row,
+      metadata: safeParseMetadata(row.metadata),
+    })
+  }
 }
 
 function extractReplyText(waitPayload: any): string | null {
@@ -232,7 +233,6 @@ export async function GET(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const { searchParams } = new URL(request.url)
 
@@ -269,7 +269,7 @@ export async function GET(request: NextRequest) {
     query += ' ORDER BY created_at ASC LIMIT ? OFFSET ?'
     params.push(limit, offset)
 
-    const messages = db.prepare(query).all(...params) as Message[]
+    const messages = await dbGetAll<Message>(query, params)
 
     const parsed = messages.map((msg) => ({
       ...msg,
@@ -295,9 +295,9 @@ export async function GET(request: NextRequest) {
       countQuery += ' AND created_at > ?'
       countParams.push(parseInt(since))
     }
-    const countRow = db.prepare(countQuery).get(...countParams) as { total: number }
+    const countRow = await dbGetOne<{ total: number }>(countQuery, countParams)
 
-    return NextResponse.json({ messages: parsed, total: countRow.total, page: Math.floor(offset / limit) + 1, limit })
+    return NextResponse.json({ messages: parsed, total: countRow?.total ?? 0, page: Math.floor(offset / limit) + 1, limit })
   } catch (error) {
     logger.error({ err: error }, 'GET /api/chat/messages error')
     return NextResponse.json({ error: 'Failed to fetch messages' }, { status: 500 })
@@ -314,7 +314,6 @@ export async function POST(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const body = await request.json()
 
@@ -351,27 +350,26 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const stmt = db.prepare(`
-      INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, metadata, workspace_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `)
-
-    const result = stmt.run(
-      conversation_id,
-      from,
-      to,
-      content,
-      message_type,
-      metadata ? JSON.stringify(metadata) : null,
-      workspaceId
+    const result = await dbRun(
+      `INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, metadata, workspace_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        conversation_id,
+        from,
+        to,
+        content,
+        message_type,
+        metadata ? JSON.stringify(metadata) : null,
+        workspaceId,
+      ]
     )
 
-    const messageId = result.lastInsertRowid as number
+    const messageId = result.insertId
 
     let forwardInfo: ForwardInfo | null = null
 
     // Log activity
-    db_helpers.logActivity(
+    await db_helpers.logActivity(
       'chat_message',
       'message',
       messageId,
@@ -379,11 +377,11 @@ export async function POST(request: NextRequest) {
       `Sent ${message_type} message${to ? ` to ${to}` : ' (broadcast)'}`,
       { conversation_id, to, message_type },
       workspaceId
-    )
+    ).catch(() => {})
 
     // Create notification for recipient if specified
     if (to) {
-      db_helpers.createNotification(
+      await db_helpers.createNotification(
         to,
         'chat_message',
         `Message from ${from}`,
@@ -391,15 +389,16 @@ export async function POST(request: NextRequest) {
         'message',
         messageId,
         workspaceId
-      )
+      ).catch(() => {})
 
       // Optionally forward to agent via gateway
       if (body.forward) {
         forwardInfo = { attempted: true, delivered: false }
 
-        const agent = db
-          .prepare('SELECT * FROM agents WHERE lower(name) = lower(?) AND workspace_id = ?')
-          .get(to, workspaceId) as any
+        const agent = await dbGetOne<any>(
+          'SELECT * FROM agents WHERE lower(name) = lower(?) AND workspace_id = ?',
+          [to, workspaceId]
+        )
 
         const explicitSessionKey = typeof body.sessionKey === 'string' && body.sessionKey
           ? body.sessionKey
@@ -407,14 +406,16 @@ export async function POST(request: NextRequest) {
         const sessions = getAllGatewaySessions()
         const isCoordinatorSend = String(to).toLowerCase() === COORDINATOR_AGENT.toLowerCase()
         const allAgents = isCoordinatorSend
-          ? (db
-              .prepare('SELECT name, session_key, config FROM agents WHERE workspace_id = ?')
-              .all(workspaceId) as Array<{ name: string; session_key?: string | null; config?: string | null }>)
+          ? await dbGetAll<{ name: string; session_key?: string | null; config?: string | null }>(
+              'SELECT name, session_key, config FROM agents WHERE workspace_id = ?',
+              [workspaceId]
+            )
           : []
         const configuredCoordinatorTarget = isCoordinatorSend
-          ? (db
-              .prepare("SELECT value FROM settings WHERE key = 'chat.coordinator_target_agent'")
-              .get() as { value?: string } | undefined)?.value || null
+          ? ((await dbGetOne<{ value?: string }>(
+              "SELECT value FROM settings WHERE key = 'chat.coordinator_target_agent'",
+              []
+            ))?.value || null)
           : null
 
         const coordinatorResolution = resolveCoordinatorDeliveryTarget({
@@ -452,16 +453,15 @@ export async function POST(request: NextRequest) {
           // For coordinator messages, emit an immediate visible status reply
           if (typeof conversation_id === 'string' && conversation_id.startsWith('coord:')) {
             try {
-                createChatReply(
-                  db,
-                  workspaceId,
-                  conversation_id,
-                  COORDINATOR_AGENT,
-                  from,
-                  'I received your message, but my live coordinator session is offline right now. Start/restore the coordinator session and retry.',
-                  'status',
-                  { status: 'offline', reason: 'no_active_session' }
-                )
+              await createChatReply(
+                workspaceId,
+                conversation_id,
+                COORDINATOR_AGENT,
+                from,
+                'I received your message, but my live coordinator session is offline right now. Start/restore the coordinator session and retry.',
+                'status',
+                { status: 'offline', reason: 'no_active_session' }
+              )
             } catch (e) {
               logger.error({ err: e }, 'Failed to create offline status reply')
             }
@@ -474,8 +474,7 @@ export async function POST(request: NextRequest) {
 
           if (typeof conversation_id === 'string' && conversation_id.startsWith('coord:')) {
             try {
-              createChatReply(
-                db,
+              await createChatReply(
                 workspaceId,
                 conversation_id,
                 COORDINATOR_AGENT,
@@ -492,11 +491,14 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const created = db.prepare('SELECT * FROM messages WHERE id = ? AND workspace_id = ?').get(messageId, workspaceId) as Message
+    const created = await dbGetOne<Message>(
+      'SELECT * FROM messages WHERE id = ? AND workspace_id = ?',
+      [messageId, workspaceId]
+    )
     const parsedMessage = {
       ...created,
       metadata: {
-        ...(safeParseMetadata(created.metadata) || {}),
+        ...(safeParseMetadata(created?.metadata ?? null) || {}),
         forwardInfo: forwardInfo || undefined,
       },
     }

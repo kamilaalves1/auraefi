@@ -16,7 +16,7 @@ import { createReadStream, readdirSync, statSync } from 'fs'
 import { createInterface } from 'readline'
 import { join } from 'path'
 import { config } from './config'
-import { getDatabase } from './db'
+import { dbRun, dbGetAll, dbTransaction } from './db'
 import { logger } from './logger'
 
 // Skip JSONL files larger than this to avoid excessive I/O
@@ -310,47 +310,44 @@ export async function syncClaudeSessions(force = false): Promise<{ ok: boolean; 
       return lastSyncResult
     }
 
-    const db = getDatabase()
     const nowSec = Math.floor(Date.now() / 1000)
-
-    const upsert = db.prepare(`
-      INSERT INTO claude_sessions (
-        session_id, project_slug, project_path, model, git_branch,
-        user_messages, assistant_messages, tool_uses,
-        input_tokens, output_tokens, estimated_cost,
-        first_message_at, last_message_at, last_user_prompt,
-        is_active, scanned_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(session_id) DO UPDATE SET
-        model = excluded.model,
-        git_branch = excluded.git_branch,
-        user_messages = excluded.user_messages,
-        assistant_messages = excluded.assistant_messages,
-        tool_uses = excluded.tool_uses,
-        input_tokens = excluded.input_tokens,
-        output_tokens = excluded.output_tokens,
-        estimated_cost = excluded.estimated_cost,
-        last_message_at = excluded.last_message_at,
-        last_user_prompt = excluded.last_user_prompt,
-        is_active = excluded.is_active,
-        scanned_at = excluded.scanned_at,
-        updated_at = excluded.updated_at
-    `)
-
     let upserted = 0
     let removed = 0
-    db.transaction(() => {
+
+    await dbTransaction(async (conn) => {
       // Mark all sessions inactive before scanning
-      db.prepare('UPDATE claude_sessions SET is_active = 0').run()
+      await conn.execute('UPDATE claude_sessions SET is_active = 0', [])
 
       for (const s of sessions) {
-        upsert.run(
+        await conn.execute(`
+          INSERT INTO claude_sessions (
+            session_id, project_slug, project_path, model, git_branch,
+            user_messages, assistant_messages, tool_uses,
+            input_tokens, output_tokens, estimated_cost,
+            first_message_at, last_message_at, last_user_prompt,
+            is_active, scanned_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON DUPLICATE KEY UPDATE
+            model = VALUES(model),
+            git_branch = VALUES(git_branch),
+            user_messages = VALUES(user_messages),
+            assistant_messages = VALUES(assistant_messages),
+            tool_uses = VALUES(tool_uses),
+            input_tokens = VALUES(input_tokens),
+            output_tokens = VALUES(output_tokens),
+            estimated_cost = VALUES(estimated_cost),
+            last_message_at = VALUES(last_message_at),
+            last_user_prompt = VALUES(last_user_prompt),
+            is_active = VALUES(is_active),
+            scanned_at = VALUES(scanned_at),
+            updated_at = VALUES(updated_at)
+        `, [
           s.sessionId, s.projectSlug, s.projectPath, s.model, s.gitBranch,
           s.userMessages, s.assistantMessages, s.toolUses,
           s.inputTokens, s.outputTokens, s.estimatedCost,
           s.firstMessageAt, s.lastMessageAt, s.lastUserPrompt,
           s.isActive ? 1 : 0, nowSec, nowSec,
-        )
+        ])
         upserted++
       }
 
@@ -359,15 +356,15 @@ export async function syncClaudeSessions(force = false): Promise<{ ok: boolean; 
       // creates a new id) leave phantom rows that the API still surfaces as
       // "Active" via the derivedActive mtime fallback.
       const liveIds = new Set(sessions.map(s => s.sessionId))
-      const allRows = db.prepare('SELECT session_id FROM claude_sessions').all() as Array<{ session_id: string }>
-      const del = db.prepare('DELETE FROM claude_sessions WHERE session_id = ?')
+      const [allRowsResult] = await conn.execute('SELECT session_id FROM claude_sessions', [])
+      const allRows = allRowsResult as Array<{ session_id: string }>
       for (const row of allRows) {
         if (!liveIds.has(row.session_id)) {
-          del.run(row.session_id)
+          await conn.execute('DELETE FROM claude_sessions WHERE session_id = ?', [row.session_id])
           removed++
         }
       }
-    })()
+    })
 
     const active = sessions.filter(s => s.isActive).length
     lastSyncAt = Date.now()

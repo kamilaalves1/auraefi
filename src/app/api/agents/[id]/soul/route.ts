@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbRun } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 
-function getAgentByIdOrName(db: ReturnType<typeof getDatabase>, agentId: string, workspaceId: number) {
+async function getAgentByIdOrName(agentId: string, workspaceId: number) {
   if (isNaN(Number(agentId))) {
-    return db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(agentId, workspaceId)
+    return await dbGetOne<any>('SELECT * FROM agents WHERE name = ? AND workspace_id = ?', [agentId, workspaceId])
   }
-  return db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(agentId), workspaceId)
+  return await dbGetOne<any>('SELECT * FROM agents WHERE id = ? AND workspace_id = ?', [Number(agentId), workspaceId])
 }
 
 /**
@@ -21,11 +21,10 @@ export async function GET(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const { id: agentId } = await params
     const workspaceId = auth.user.workspace_id ?? 1
 
-    const agent = getAgentByIdOrName(db, agentId, workspaceId) as any
+    const agent = await getAgentByIdOrName(agentId, workspaceId)
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
     }
@@ -51,13 +50,12 @@ export async function PUT(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const { id: agentId } = await params
     const workspaceId = auth.user.workspace_id ?? 1
     const body = await request.json()
     const { soul_content } = body
 
-    const agent = getAgentByIdOrName(db, agentId, workspaceId) as any
+    const agent = await getAgentByIdOrName(agentId, workspaceId)
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
     }
@@ -66,8 +64,8 @@ export async function PUT(
     const col = isNaN(Number(agentId)) ? 'name' : 'id'
     const val = isNaN(Number(agentId)) ? agentId : Number(agentId)
 
-    db.prepare(`UPDATE agents SET soul_content = ?, updated_at = ? WHERE ${col} = ? AND workspace_id = ?`)
-      .run(soul_content ?? '', now, val, workspaceId)
+    await dbRun(`UPDATE agents SET soul_content = ?, updated_at = ? WHERE ${col} = ? AND workspace_id = ?`,
+      [soul_content ?? '', now, val, workspaceId])
 
     return NextResponse.json({ success: true, soul_content: soul_content ?? '' })
   } catch (error) {

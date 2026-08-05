@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from 'crypto'
 import { eventBus, type ServerEvent } from './event-bus'
 import { logger } from './logger'
+import { dbGetAll, dbGetOne, dbRun } from '@/lib/db'
 
 interface Webhook {
   id: number
@@ -132,12 +133,10 @@ async function fireWebhooksAsync(eventType: string, payload: Record<string, any>
     workspaceId ?? (typeof payload?.workspace_id === 'number' ? payload.workspace_id : 1)
   let webhooks: Webhook[]
   try {
-    // Lazy import to avoid circular dependency
-    const { getDatabase } = await import('./db')
-    const db = getDatabase()
-    webhooks = db.prepare(
-      'SELECT * FROM webhooks WHERE enabled = 1 AND workspace_id = ?'
-    ).all(resolvedWorkspaceId) as Webhook[]
+    webhooks = await dbGetAll<Webhook>(
+      'SELECT * FROM webhooks WHERE enabled = 1 AND workspace_id = ?',
+      [resolvedWorkspaceId]
+    )
   } catch {
     return // DB not ready or table doesn't exist yet
   }
@@ -229,13 +228,10 @@ async function deliverWebhook(
 
   // Log delivery attempt and handle retry/circuit-breaker logic
   try {
-    const { getDatabase } = await import('./db')
-    const db = getDatabase()
-
-    const insertResult = db.prepare(`
+    const insertResult = await dbRun(`
       INSERT INTO webhook_deliveries (webhook_id, event_type, payload, status_code, response_body, error, duration_ms, attempt, is_retry, parent_delivery_id, workspace_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
+    `, [
       webhook.id,
       eventType,
       body,
@@ -246,35 +242,50 @@ async function deliverWebhook(
       attempt,
       attempt > 0 ? 1 : 0,
       parentDeliveryId,
-      webhook.workspace_id ?? 1
-    )
-    deliveryId = Number(insertResult.lastInsertRowid)
+      webhook.workspace_id ?? 1,
+    ])
+    deliveryId = insertResult.insertId
 
     // Update webhook last_fired
-    db.prepare(`
-      UPDATE webhooks SET last_fired_at = unixepoch(), last_status = ?, updated_at = unixepoch()
+    await dbRun(`
+      UPDATE webhooks SET last_fired_at = UNIX_TIMESTAMP(), last_status = ?, updated_at = UNIX_TIMESTAMP()
       WHERE id = ? AND workspace_id = ?
-    `).run(statusCode ?? -1, webhook.id, webhook.workspace_id ?? 1)
+    `, [statusCode ?? -1, webhook.id, webhook.workspace_id ?? 1])
 
     // Circuit breaker + retry scheduling (skip for test deliveries)
     if (allowRetry) {
       if (success) {
         // Reset consecutive failures on success
-        db.prepare(`UPDATE webhooks SET consecutive_failures = 0 WHERE id = ? AND workspace_id = ?`).run(webhook.id, webhook.workspace_id ?? 1)
+        await dbRun(
+          `UPDATE webhooks SET consecutive_failures = 0 WHERE id = ? AND workspace_id = ?`,
+          [webhook.id, webhook.workspace_id ?? 1]
+        )
       } else {
         // Increment consecutive failures
-        db.prepare(`UPDATE webhooks SET consecutive_failures = consecutive_failures + 1 WHERE id = ? AND workspace_id = ?`).run(webhook.id, webhook.workspace_id ?? 1)
+        await dbRun(
+          `UPDATE webhooks SET consecutive_failures = consecutive_failures + 1 WHERE id = ? AND workspace_id = ?`,
+          [webhook.id, webhook.workspace_id ?? 1]
+        )
 
         if (attempt < MAX_RETRIES - 1) {
           // Schedule retry
           const delaySec = nextRetryDelay(attempt)
           const nextRetryAt = Math.floor(Date.now() / 1000) + delaySec
-          db.prepare(`UPDATE webhook_deliveries SET next_retry_at = ? WHERE id = ?`).run(nextRetryAt, deliveryId)
+          await dbRun(
+            `UPDATE webhook_deliveries SET next_retry_at = ? WHERE id = ?`,
+            [nextRetryAt, deliveryId]
+          )
         } else {
           // Exhausted retries — trip circuit breaker
-          const wh = db.prepare(`SELECT consecutive_failures FROM webhooks WHERE id = ? AND workspace_id = ?`).get(webhook.id, webhook.workspace_id ?? 1) as { consecutive_failures: number } | undefined
+          const wh = await dbGetOne<{ consecutive_failures: number }>(
+            `SELECT consecutive_failures FROM webhooks WHERE id = ? AND workspace_id = ?`,
+            [webhook.id, webhook.workspace_id ?? 1]
+          )
           if (wh && wh.consecutive_failures >= MAX_RETRIES) {
-            db.prepare(`UPDATE webhooks SET enabled = 0, updated_at = unixepoch() WHERE id = ? AND workspace_id = ?`).run(webhook.id, webhook.workspace_id ?? 1)
+            await dbRun(
+              `UPDATE webhooks SET enabled = 0, updated_at = UNIX_TIMESTAMP() WHERE id = ? AND workspace_id = ?`,
+              [webhook.id, webhook.workspace_id ?? 1]
+            )
             logger.warn({ webhookId: webhook.id, name: webhook.name }, 'Webhook circuit breaker tripped — disabled after exhausting retries')
           }
         }
@@ -282,12 +293,14 @@ async function deliverWebhook(
     }
 
     // Prune old deliveries (keep last 200 per webhook)
-    db.prepare(`
+    await dbRun(`
       DELETE FROM webhook_deliveries
       WHERE webhook_id = ? AND workspace_id = ? AND id NOT IN (
-        SELECT id FROM webhook_deliveries WHERE webhook_id = ? AND workspace_id = ? ORDER BY created_at DESC LIMIT 200
+        SELECT id FROM (
+          SELECT id FROM webhook_deliveries WHERE webhook_id = ? AND workspace_id = ? ORDER BY created_at DESC LIMIT 200
+        ) AS keep
       )
-    `).run(webhook.id, webhook.workspace_id ?? 1, webhook.id, webhook.workspace_id ?? 1)
+    `, [webhook.id, webhook.workspace_id ?? 1, webhook.id, webhook.workspace_id ?? 1])
   } catch (logErr) {
     logger.error({ err: logErr, webhookId: webhook.id }, 'Webhook delivery logging/pruning failed')
   }
@@ -301,12 +314,14 @@ async function deliverWebhook(
  */
 export async function processWebhookRetries(): Promise<{ ok: boolean; message: string }> {
   try {
-    const { getDatabase } = await import('./db')
-    const db = getDatabase()
     const now = Math.floor(Date.now() / 1000)
 
     // Find deliveries ready for retry (limit batch to 50)
-    const pendingRetries = db.prepare(`
+    const pendingRetries = await dbGetAll<{
+      id: number; webhook_id: number; event_type: string; payload: string; attempt: number
+      w_id: number; w_name: string; w_url: string; w_secret: string | null
+      w_events: string; w_enabled: number; w_consecutive_failures: number; wd_workspace_id: number
+    }>(`
       SELECT wd.id, wd.webhook_id, wd.event_type, wd.payload, wd.attempt,
              w.id as w_id, w.name as w_name, w.url as w_url, w.secret as w_secret,
              w.events as w_events, w.enabled as w_enabled, w.consecutive_failures as w_consecutive_failures,
@@ -315,20 +330,18 @@ export async function processWebhookRetries(): Promise<{ ok: boolean; message: s
       JOIN webhooks w ON w.id = wd.webhook_id AND w.workspace_id = wd.workspace_id AND w.enabled = 1
       WHERE wd.next_retry_at IS NOT NULL AND wd.next_retry_at <= ?
       LIMIT 50
-    `).all(now) as Array<{
-      id: number; webhook_id: number; event_type: string; payload: string; attempt: number
-      w_id: number; w_name: string; w_url: string; w_secret: string | null
-      w_events: string; w_enabled: number; w_consecutive_failures: number; wd_workspace_id: number
-    }>
+    `, [now])
 
     if (pendingRetries.length === 0) {
       return { ok: true, message: 'No pending retries' }
     }
 
     // Clear next_retry_at immediately to prevent double-processing
-    const clearStmt = db.prepare(`UPDATE webhook_deliveries SET next_retry_at = NULL WHERE id = ? AND workspace_id = ?`)
     for (const row of pendingRetries) {
-      clearStmt.run(row.id, row.wd_workspace_id)
+      await dbRun(
+        `UPDATE webhook_deliveries SET next_retry_at = NULL WHERE id = ? AND workspace_id = ?`,
+        [row.id, row.wd_workspace_id]
+      )
     }
 
     // Re-deliver each

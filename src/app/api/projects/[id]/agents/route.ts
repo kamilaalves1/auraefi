@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbGetAll, dbRun } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import {
-  ensureTenantWorkspaceAccess,
   ForbiddenError
 } from '@/lib/workspaces'
 
@@ -21,39 +20,41 @@ export async function GET(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const tenantId = auth.user.tenant_id ?? 1
-    const forwardedFor = (request.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() || null
-    ensureTenantWorkspaceAccess(db, tenantId, workspaceId, {
-      actor: auth.user.username,
-      actorId: auth.user.id,
-      route: '/api/projects/[id]/agents',
-      ipAddress: forwardedFor,
-      userAgent: request.headers.get('user-agent'),
-    })
+
+    // Verify workspace belongs to tenant
+    const wsCheck = await dbGetOne<{ id: number }>(
+      'SELECT id FROM workspaces WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [workspaceId, tenantId]
+    )
+    if (!wsCheck) {
+      return NextResponse.json({ error: 'Workspace not accessible for tenant' }, { status: 403 })
+    }
+
     const { id } = await params
     const projectId = toProjectId(id)
     if (Number.isNaN(projectId)) return NextResponse.json({ error: 'Invalid project ID' }, { status: 400 })
-    const projectScope = db.prepare(`
+
+    const projectScope = await dbGetOne<{ id: number }>(`
       SELECT p.id
       FROM projects p
       JOIN workspaces w ON w.id = p.workspace_id
       WHERE p.id = ? AND p.workspace_id = ? AND w.tenant_id = ?
       LIMIT 1
-    `).get(projectId, workspaceId, tenantId)
+    `, [projectId, workspaceId, tenantId])
     if (!projectScope) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
 
     // Verify project belongs to workspace
-    const project = db.prepare(`SELECT id FROM projects WHERE id = ? AND workspace_id = ?`).get(projectId, workspaceId)
+    const project = await dbGetOne<{ id: number }>(`SELECT id FROM projects WHERE id = ? AND workspace_id = ?`, [projectId, workspaceId])
     if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
 
-    const assignments = db.prepare(`
+    const assignments = await dbGetAll(`
       SELECT id, project_id, agent_name, role, assigned_at
       FROM project_agent_assignments
       WHERE project_id = ?
       ORDER BY assigned_at ASC
-    `).all(projectId)
+    `, [projectId])
 
     return NextResponse.json({ assignments })
   } catch (error) {
@@ -76,30 +77,32 @@ export async function POST(
   if (rateCheck) return rateCheck
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const tenantId = auth.user.tenant_id ?? 1
-    const forwardedFor = (request.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() || null
-    ensureTenantWorkspaceAccess(db, tenantId, workspaceId, {
-      actor: auth.user.username,
-      actorId: auth.user.id,
-      route: '/api/projects/[id]/agents',
-      ipAddress: forwardedFor,
-      userAgent: request.headers.get('user-agent'),
-    })
+
+    // Verify workspace belongs to tenant
+    const wsCheck = await dbGetOne<{ id: number }>(
+      'SELECT id FROM workspaces WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [workspaceId, tenantId]
+    )
+    if (!wsCheck) {
+      return NextResponse.json({ error: 'Workspace not accessible for tenant' }, { status: 403 })
+    }
+
     const { id } = await params
     const projectId = toProjectId(id)
     if (Number.isNaN(projectId)) return NextResponse.json({ error: 'Invalid project ID' }, { status: 400 })
-    const projectScope = db.prepare(`
+
+    const projectScope = await dbGetOne<{ id: number }>(`
       SELECT p.id
       FROM projects p
       JOIN workspaces w ON w.id = p.workspace_id
       WHERE p.id = ? AND p.workspace_id = ? AND w.tenant_id = ?
       LIMIT 1
-    `).get(projectId, workspaceId, tenantId)
+    `, [projectId, workspaceId, tenantId])
     if (!projectScope) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
 
-    const project = db.prepare(`SELECT id FROM projects WHERE id = ? AND workspace_id = ?`).get(projectId, workspaceId)
+    const project = await dbGetOne<{ id: number }>(`SELECT id FROM projects WHERE id = ? AND workspace_id = ?`, [projectId, workspaceId])
     if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
 
     const body = await request.json()
@@ -108,10 +111,10 @@ export async function POST(
 
     if (!agentName) return NextResponse.json({ error: 'agent_name is required' }, { status: 400 })
 
-    db.prepare(`
-      INSERT OR IGNORE INTO project_agent_assignments (project_id, agent_name, role)
+    await dbRun(`
+      INSERT IGNORE INTO project_agent_assignments (project_id, agent_name, role)
       VALUES (?, ?, ?)
-    `).run(projectId, agentName, role)
+    `, [projectId, agentName, role])
 
     return NextResponse.json({ success: true }, { status: 201 })
   } catch (error) {
@@ -134,39 +137,41 @@ export async function DELETE(
   if (rateCheck) return rateCheck
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const tenantId = auth.user.tenant_id ?? 1
-    const forwardedFor = (request.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() || null
-    ensureTenantWorkspaceAccess(db, tenantId, workspaceId, {
-      actor: auth.user.username,
-      actorId: auth.user.id,
-      route: '/api/projects/[id]/agents',
-      ipAddress: forwardedFor,
-      userAgent: request.headers.get('user-agent'),
-    })
+
+    // Verify workspace belongs to tenant
+    const wsCheck = await dbGetOne<{ id: number }>(
+      'SELECT id FROM workspaces WHERE id = ? AND tenant_id = ? LIMIT 1',
+      [workspaceId, tenantId]
+    )
+    if (!wsCheck) {
+      return NextResponse.json({ error: 'Workspace not accessible for tenant' }, { status: 403 })
+    }
+
     const { id } = await params
     const projectId = toProjectId(id)
     if (Number.isNaN(projectId)) return NextResponse.json({ error: 'Invalid project ID' }, { status: 400 })
-    const projectScope = db.prepare(`
+
+    const projectScope = await dbGetOne<{ id: number }>(`
       SELECT p.id
       FROM projects p
       JOIN workspaces w ON w.id = p.workspace_id
       WHERE p.id = ? AND p.workspace_id = ? AND w.tenant_id = ?
       LIMIT 1
-    `).get(projectId, workspaceId, tenantId)
+    `, [projectId, workspaceId, tenantId])
     if (!projectScope) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
 
-    const project = db.prepare(`SELECT id FROM projects WHERE id = ? AND workspace_id = ?`).get(projectId, workspaceId)
+    const project = await dbGetOne<{ id: number }>(`SELECT id FROM projects WHERE id = ? AND workspace_id = ?`, [projectId, workspaceId])
     if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
 
     const agentName = new URL(request.url).searchParams.get('agent_name')
     if (!agentName) return NextResponse.json({ error: 'agent_name query parameter is required' }, { status: 400 })
 
-    db.prepare(`
+    await dbRun(`
       DELETE FROM project_agent_assignments
       WHERE project_id = ? AND agent_name = ?
-    `).run(projectId, agentName)
+    `, [projectId, agentName])
 
     return NextResponse.json({ success: true })
   } catch (error) {

@@ -1,4 +1,4 @@
-import { getDatabase, logAuditEvent } from './db'
+import { dbGetOne, dbGetAll, dbRun, dbTransaction, logAuditEvent } from './db'
 import { syncAgentsFromConfig } from './agent-sync'
 import { config, ensureDirExists } from './config'
 import { join, dirname } from 'path'
@@ -14,7 +14,7 @@ import { dispatchAssignedTasks, runAegisReviews, requeueStaleTasks, autoRouteInb
 import { spawnRecurringTasks } from './recurring-tasks'
 import { tickPipelineEngine } from './pipeline-engine'
 
-const BACKUP_DIR = join(dirname(config.dbPath), 'backups')
+const BACKUP_DIR = config.backupDir
 
 interface ScheduledTask {
   name: string
@@ -30,10 +30,9 @@ const tasks: Map<string, ScheduledTask> = new Map()
 let tickInterval: ReturnType<typeof setInterval> | null = null
 
 /** Check if a setting is enabled (reads from settings table, falls back to default) */
-function isSettingEnabled(key: string, defaultValue: boolean): boolean {
+async function isSettingEnabled(key: string, defaultValue: boolean): Promise<boolean> {
   try {
-    const db = getDatabase()
-    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined
+    const row = await dbGetOne<{ value: string }>('SELECT value FROM settings WHERE key = ?', [key])
     if (row) return row.value === 'true'
     return defaultValue
   } catch {
@@ -41,10 +40,9 @@ function isSettingEnabled(key: string, defaultValue: boolean): boolean {
   }
 }
 
-function getSettingNumber(key: string, defaultValue: number): number {
+async function getSettingNumber(key: string, defaultValue: number): Promise<number> {
   try {
-    const db = getDatabase()
-    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined
+    const row = await dbGetOne<{ value: string }>('SELECT value FROM settings WHERE key = ?', [key])
     if (row) return parseInt(row.value) || defaultValue
     return defaultValue
   } catch {
@@ -54,48 +52,19 @@ function getSettingNumber(key: string, defaultValue: number): number {
 
 /** Run a database backup */
 async function runBackup(): Promise<{ ok: boolean; message: string }> {
-  ensureDirExists(BACKUP_DIR)
-
-  const timestamp = new Date().toISOString().replace(/[:.]/g, '-').replace('T', '_').slice(0, 19)
-  const backupPath = join(BACKUP_DIR, `mc-backup-${timestamp}.db`)
-
-  try {
-    const db = getDatabase()
-    await db.backup(backupPath)
-
-    const stat = statSync(backupPath)
-    logAuditEvent({
-      action: 'auto_backup',
-      actor: 'scheduler',
-      detail: { path: backupPath, size: stat.size },
-    })
-
-    // Prune old backups
-    const maxBackups = getSettingNumber('general.backup_retention_count', 10)
-    try {
-      const files = readdirSync(BACKUP_DIR)
-        .filter(f => f.startsWith('mc-backup-') && f.endsWith('.db'))
-        .map(f => ({ name: f, mtime: statSync(join(BACKUP_DIR, f)).mtimeMs }))
-        .sort((a, b) => b.mtime - a.mtime)
-
-      for (const file of files.slice(maxBackups)) {
-        unlinkSync(join(BACKUP_DIR, file.name))
-      }
-    } catch {
-      // Best-effort pruning
-    }
-
-    const sizeKB = Math.round(stat.size / 1024)
-    return { ok: true, message: `Backup created (${sizeKB}KB)` }
-  } catch (err: any) {
-    return { ok: false, message: `Backup failed: ${err.message}` }
-  }
+  // Aurora MySQL backups are managed at the infrastructure level (RDS snapshots / mysqldump).
+  // The SQLite file-copy approach does not apply to MySQL.
+  logAuditEvent({
+    action: 'auto_backup',
+    actor: 'scheduler',
+    detail: { note: 'Aurora MySQL — use RDS snapshots or mysqldump for backups' },
+  }).catch(() => {})
+  return { ok: true, message: 'Backup: Aurora MySQL — managed via RDS snapshots' }
 }
 
 /** Run data cleanup based on retention settings */
 async function runCleanup(): Promise<{ ok: boolean; message: string }> {
   try {
-    const db = getDatabase()
     const now = Math.floor(Date.now() / 1000)
     const ret = config.retention
     let totalDeleted = 0
@@ -111,8 +80,8 @@ async function runCleanup(): Promise<{ ok: boolean; message: string }> {
       if (days <= 0) continue
       const cutoff = now - days * 86400
       try {
-        const res = db.prepare(`DELETE FROM ${table} WHERE ${column} < ?`).run(cutoff)
-        totalDeleted += res.changes
+        const res = await dbRun(`DELETE FROM ${table} WHERE ${column} < ?`, [cutoff])
+        totalDeleted += res.affectedRows
       } catch {
         // Table might not exist
       }
@@ -147,7 +116,7 @@ async function runCleanup(): Promise<{ ok: boolean; message: string }> {
         action: 'auto_cleanup',
         actor: 'scheduler',
         detail: { total_deleted: totalDeleted },
-      })
+      }).catch(() => {})
     }
 
     return { ok: true, message: `Cleaned ${totalDeleted} stale record${totalDeleted === 1 ? '' : 's'}` }
@@ -159,61 +128,58 @@ async function runCleanup(): Promise<{ ok: boolean; message: string }> {
 /** Check agent liveness - mark agents offline if not seen recently */
 async function runHeartbeatCheck(): Promise<{ ok: boolean; message: string }> {
   try {
-    const db = getDatabase()
     const now = Math.floor(Date.now() / 1000)
-    const timeoutMinutes = getSettingNumber('general.agent_timeout_minutes', 10)
+    const timeoutMinutes = await getSettingNumber('general.agent_timeout_minutes', 10)
     const threshold = now - timeoutMinutes * 60
 
     // Find agents that are not offline but haven't been seen recently.
     // Exclude agents assigned to pipeline columns — those are managed by the pipeline engine.
-    const staleAgents = db.prepare(`
+    const staleAgents = await dbGetAll<{ id: number; name: string; status: string; last_seen: number | null }>(`
       SELECT id, name, status, last_seen FROM agents
       WHERE status != 'offline'
         AND (last_seen IS NULL OR last_seen < ?)
         AND id NOT IN (
-          SELECT DISTINCT CAST(json_extract(a.value, '$.agent_id') AS INTEGER)
-          FROM pipeline_columns pc, json_each(pc.assignments_json) a
-          WHERE json_extract(a.value, '$.agent_id') IS NOT NULL
+          SELECT DISTINCT CAST(jt.agent_id_val AS UNSIGNED)
+          FROM pipeline_columns pc,
+          JSON_TABLE(pc.assignments_json, '$[*]' COLUMNS (agent_id_val JSON PATH '$.agent_id')) AS jt
+          WHERE jt.agent_id_val IS NOT NULL
         )
-    `).all(threshold) as Array<{ id: number; name: string; status: string; last_seen: number | null }>
+    `, [threshold])
 
     if (staleAgents.length === 0) {
       return { ok: true, message: 'All agents healthy' }
     }
 
     // Mark stale agents as offline
-    const markOffline = db.prepare('UPDATE agents SET status = ?, updated_at = ? WHERE id = ?')
-    const logActivity = db.prepare(`
-      INSERT INTO activities (type, entity_type, entity_id, actor, description)
-      VALUES ('agent_status_change', 'agent', ?, 'heartbeat', ?)
-    `)
-
     const names: string[] = []
-    db.transaction(() => {
+    await dbTransaction(async (conn) => {
       for (const agent of staleAgents) {
-        markOffline.run('offline', now, agent.id)
-        logActivity.run(agent.id, `Agent "${agent.name}" marked offline (no heartbeat for ${timeoutMinutes}m)`)
+        await conn.execute('UPDATE agents SET status = ?, updated_at = ? WHERE id = ?', ['offline', now, agent.id])
+        await conn.execute(`
+          INSERT INTO activities (type, entity_type, entity_id, actor, description)
+          VALUES ('agent_status_change', 'agent', ?, 'heartbeat', ?)
+        `, [agent.id, `Agent "${agent.name}" marked offline (no heartbeat for ${timeoutMinutes}m)`])
         names.push(agent.name)
 
         // Create notification for each stale agent
         try {
-          db.prepare(`
+          await conn.execute(`
             INSERT INTO notifications (recipient, type, title, message, source_type, source_id)
             VALUES ('system', 'heartbeat', ?, ?, 'agent', ?)
-          `).run(
+          `, [
             `Agent offline: ${agent.name}`,
             `Agent "${agent.name}" was marked offline after ${timeoutMinutes} minutes without heartbeat`,
-            agent.id
-          )
+            agent.id,
+          ])
         } catch { /* notification creation failed */ }
       }
-    })()
+    })
 
     logAuditEvent({
       action: 'heartbeat_check',
       actor: 'scheduler',
       detail: { marked_offline: names },
-    })
+    }).catch(() => {})
 
     return { ok: true, message: `Marked ${staleAgents.length} agent(s) offline: ${names.join(', ')}` }
   } catch (err: any) {
@@ -226,17 +192,13 @@ async function syncAgentLiveStatuses(): Promise<number> {
   const liveStatuses = getAgentLiveStatuses()
   if (liveStatuses.size === 0) return 0
 
-  const db = getDatabase()
-  const agents = db.prepare('SELECT id, name, config FROM agents').all() as Array<{
-    id: number; name: string; config: string | null
-  }>
+  const agents = await dbGetAll<{ id: number; name: string; config: string | null }>('SELECT id, name, config FROM agents', [])
 
-  const update = db.prepare('UPDATE agents SET status = ?, last_seen = ?, last_activity = ?, updated_at = ? WHERE id = ?')
   let refreshed = 0
 
   const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')
 
-  db.transaction(() => {
+  await dbTransaction(async (conn) => {
     for (const agent of agents) {
       // Match by agent name or agent id from config
       let agentId: string | null = null
@@ -263,7 +225,8 @@ async function syncAgentLiveStatuses(): Promise<number> {
 
       const now = Math.floor(Date.now() / 1000)
       const activity = `Gateway session (${matched.channel || 'unknown'})`
-      update.run(matched.status, now, activity, now, agent.id)
+      await conn.execute('UPDATE agents SET status = ?, last_seen = ?, last_activity = ?, updated_at = ? WHERE id = ?',
+        [matched.status, now, activity, now, agent.id])
       refreshed++
 
       eventBus.broadcast('agent.status_changed', {
@@ -274,7 +237,7 @@ async function syncAgentLiveStatuses(): Promise<number> {
         last_activity: activity,
       })
     }
-  })()
+  })
 
   return refreshed
 }
@@ -453,7 +416,7 @@ async function tick() {
       : id === 'pipeline_engine' ? 'general.pipeline_engine'
       : 'general.agent_heartbeat'
     const defaultEnabled = id === 'agent_heartbeat' || id === 'webhook_retry' || id === 'claude_session_scan' || id === 'skill_sync' || id === 'local_agent_sync' || id === 'gateway_agent_sync' || id === 'task_dispatch' || id === 'aegis_review' || id === 'recurring_task_spawn' || id === 'stale_task_requeue' || id === 'pipeline_engine'
-    if (!isSettingEnabled(settingKey, defaultEnabled)) continue
+    if (!(await isSettingEnabled(settingKey, defaultEnabled))) continue
 
     task.running = true
     try {
@@ -489,7 +452,7 @@ async function tick() {
 }
 
 /** Get scheduler status (for API) */
-export function getSchedulerStatus() {
+export async function getSchedulerStatus() {
   const result: Array<{
     id: string
     name: string
@@ -518,7 +481,7 @@ export function getSchedulerStatus() {
     result.push({
       id,
       name: task.name,
-      enabled: isSettingEnabled(settingKey, defaultEnabled),
+      enabled: await isSettingEnabled(settingKey, defaultEnabled),
       lastRun: task.lastRun,
       nextRun: task.nextRun,
       running: task.running,

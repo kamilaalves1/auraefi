@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { getAgentWorkspaceCandidates, readAgentWorkspaceFile } from '@/lib/agent-workspace'
 
-function getAgentByIdOrName(db: ReturnType<typeof getDatabase>, agentId: string, workspaceId: number) {
+async function getAgentByIdOrName(agentId: string, workspaceId: number) {
   if (isNaN(Number(agentId))) {
-    return db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(agentId, workspaceId)
+    return await dbGetOne<any>('SELECT * FROM agents WHERE name = ? AND workspace_id = ?', [agentId, workspaceId])
   }
-  return db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(agentId), workspaceId)
+  return await dbGetOne<any>('SELECT * FROM agents WHERE id = ? AND workspace_id = ?', [Number(agentId), workspaceId])
 }
 
 /**
@@ -22,11 +22,10 @@ export async function GET(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const { id: agentId } = await params
     const workspaceId = auth.user.workspace_id ?? 1
 
-    const agent = getAgentByIdOrName(db, agentId, workspaceId) as any
+    const agent = await getAgentByIdOrName(agentId, workspaceId)
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
     }

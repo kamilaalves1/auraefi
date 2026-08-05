@@ -5,7 +5,7 @@
  * Trust scores are recalculated on each security event using weighted factors.
  */
 
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbGetAll, dbRun } from '@/lib/db'
 import { eventBus, type EventType } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
 
@@ -40,16 +40,15 @@ const TRUST_WEIGHTS: Record<string, { field: string; delta: number }> = {
   'task.failure': { field: 'failed_tasks', delta: -0.01 },
 }
 
-export function logSecurityEvent(event: SecurityEvent): number {
-  const db = getDatabase()
+export async function logSecurityEvent(event: SecurityEvent): Promise<number> {
   const severity = event.severity ?? 'info'
   const workspaceId = event.workspace_id ?? 1
   const tenantId = event.tenant_id ?? 1
 
-  const result = db.prepare(`
+  const result = await dbRun(`
     INSERT INTO security_events (event_type, severity, source, agent_name, detail, ip_address, workspace_id, tenant_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
+  `, [
     event.event_type,
     severity,
     event.source ?? null,
@@ -58,9 +57,9 @@ export function logSecurityEvent(event: SecurityEvent): number {
     event.ip_address ?? null,
     workspaceId,
     tenantId,
-  )
+  ])
 
-  const id = result.lastInsertRowid as number
+  const id = result.insertId
 
   eventBus.broadcast('security.event' as EventType, {
     id,
@@ -73,33 +72,33 @@ export function logSecurityEvent(event: SecurityEvent): number {
   return id
 }
 
-export function updateAgentTrustScore(
+export async function updateAgentTrustScore(
   agentName: string,
   eventType: string,
   workspaceId: number = 1,
-): void {
-  const db = getDatabase()
+): Promise<void> {
   const weight = TRUST_WEIGHTS[eventType]
 
   // Ensure row exists
-  db.prepare(`
-    INSERT OR IGNORE INTO agent_trust_scores (agent_name, workspace_id)
+  await dbRun(`
+    INSERT IGNORE INTO agent_trust_scores (agent_name, workspace_id)
     VALUES (?, ?)
-  `).run(agentName, workspaceId)
+  `, [agentName, workspaceId])
 
   if (weight) {
     // Increment the counter field
-    db.prepare(`
+    await dbRun(`
       UPDATE agent_trust_scores
       SET ${weight.field} = ${weight.field} + 1,
-          updated_at = unixepoch()
+          updated_at = UNIX_TIMESTAMP()
       WHERE agent_name = ? AND workspace_id = ?
-    `).run(agentName, workspaceId)
+    `, [agentName, workspaceId])
 
     // Recalculate trust score (clamped 0..1)
-    const row = db.prepare(`
-      SELECT * FROM agent_trust_scores WHERE agent_name = ? AND workspace_id = ?
-    `).get(agentName, workspaceId) as any
+    const row = await dbGetOne<any>(
+      `SELECT * FROM agent_trust_scores WHERE agent_name = ? AND workspace_id = ?`,
+      [agentName, workspaceId]
+    )
 
     if (row) {
       let score = 1.0
@@ -112,41 +111,40 @@ export function updateAgentTrustScore(
       score = Math.max(0, Math.min(1, score))
 
       const isAnomaly = weight.delta < 0
-      db.prepare(`
+      await dbRun(`
         UPDATE agent_trust_scores
         SET trust_score = ?,
-            last_anomaly_at = CASE WHEN ? THEN unixepoch() ELSE last_anomaly_at END,
-            updated_at = unixepoch()
+            last_anomaly_at = CASE WHEN ? THEN UNIX_TIMESTAMP() ELSE last_anomaly_at END,
+            updated_at = UNIX_TIMESTAMP()
         WHERE agent_name = ? AND workspace_id = ?
-      `).run(score, isAnomaly ? 1 : 0, agentName, workspaceId)
+      `, [score, isAnomaly ? 1 : 0, agentName, workspaceId])
     }
   }
 }
 
-export function getSecurityPosture(workspaceId: number = 1): SecurityPosture {
-  const db = getDatabase()
+export async function getSecurityPosture(workspaceId: number = 1): Promise<SecurityPosture> {
   const oneDayAgo = Math.floor(Date.now() / 1000) - 86400
 
-  const totals = db.prepare(`
+  const totals = await dbGetOne<{ total: number; critical: number; warning: number }>(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN severity = 'critical' THEN 1 ELSE 0 END) as critical,
       SUM(CASE WHEN severity = 'warning' THEN 1 ELSE 0 END) as warning
     FROM security_events
     WHERE workspace_id = ?
-  `).get(workspaceId) as any
+  `, [workspaceId])
 
-  const recent = db.prepare(`
+  const recent = await dbGetOne<{ count: number }>(`
     SELECT COUNT(*) as count
     FROM security_events
     WHERE workspace_id = ? AND severity IN ('warning', 'critical') AND created_at > ?
-  `).get(workspaceId, oneDayAgo) as any
+  `, [workspaceId, oneDayAgo])
 
-  const trustAvg = db.prepare(`
+  const trustAvg = await dbGetOne<{ avg_trust: number }>(`
     SELECT AVG(trust_score) as avg_trust
     FROM agent_trust_scores
     WHERE workspace_id = ?
-  `).get(workspaceId) as any
+  `, [workspaceId])
 
   const avgTrust = trustAvg?.avg_trust ?? 1.0
   const criticalCount = totals?.critical ?? 0

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { validateBody, softwareEngineeringPresetSchema } from '@/lib/validation'
@@ -29,7 +28,6 @@ export async function POST(request: NextRequest) {
   const resolvedLocale = resolvePresetLocale(bodyLocale || acceptLang || undefined)
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const ipAddress = request.headers.get('x-forwarded-for') || 'unknown'
     const ctx = {
@@ -46,7 +44,7 @@ export async function POST(request: NextRequest) {
     const warnings: string[] = []
 
     for (const m of members) {
-      const result = await createMcAgent(db, ctx, {
+      const result = await createMcAgent(ctx, {
         name: m.name,
         agent_id: (m.name || m.template || 'agent').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
         template: m.template,
@@ -73,11 +71,9 @@ export async function POST(request: NextRequest) {
     }
 
     if (errors.length === 0 && (created.length > 0 || skipped.length > 0)) {
-      try {
-        setWorkspaceSquadActive(db, workspaceId, true, auth.user.username)
-      } catch (e) {
-        logger.warn({ err: e }, 'Could not persist squad_active after preset')
-      }
+      await setWorkspaceSquadActive(workspaceId, true, auth.user.username).catch(e =>
+        logger.warn({ err: e }, 'Could not persist squad_active after preset'),
+      )
     }
 
     return NextResponse.json({

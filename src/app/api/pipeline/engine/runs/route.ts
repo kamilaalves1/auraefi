@@ -18,12 +18,12 @@ export async function GET(request: NextRequest) {
     const showMessages = searchParams.get('messages') === '1'
 
     if (runId && showMessages) {
-      const messages = getCardMessages(Number(runId))
+      const messages = await getCardMessages(Number(runId))
       return NextResponse.json({ messages })
     }
 
     const limit = Math.min(Number(searchParams.get('limit') ?? '50'), 200)
-    const runs = listCardRuns(workspaceId, limit)
+    const runs = await listCardRuns(workspaceId, limit)
     return NextResponse.json({ runs })
   } catch (error) {
     logger.error({ err: error }, 'GET /api/pipeline/engine/runs error')
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     if (!action || !run_id) return NextResponse.json({ error: 'action and run_id are required' }, { status: 400 })
 
     if (action === 'cancel') {
-      const ok = cancelCardRun(Number(run_id))
+      const ok = await cancelCardRun(Number(run_id))
       return NextResponse.json({ ok })
     }
 

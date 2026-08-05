@@ -17,11 +17,6 @@ const buildScratchRoot =
 const resolvedDataDir = isBuildPhase
   ? path.join(buildScratchRoot, `worker-${process.pid}`)
   : configuredDataDir
-const resolvedDbPath = isBuildPhase
-  ? (process.env.MISSION_CONTROL_BUILD_DB_PATH ||
-      path.join(resolvedDataDir, 'mission-control.db'))
-  : (process.env.MISSION_CONTROL_DB_PATH ||
-      path.join(resolvedDataDir, 'mission-control.db'))
 const resolvedTokensPath = isBuildPhase
   ? (process.env.MISSION_CONTROL_BUILD_TOKENS_PATH ||
       path.join(resolvedDataDir, 'mission-control-tokens.json'))
@@ -37,7 +32,7 @@ export const config = {
     process.env.MC_CLAUDE_HOME ||
     path.join(os.homedir(), '.claude'),
   dataDir: resolvedDataDir,
-  dbPath: resolvedDbPath,
+  backupDir: path.join(resolvedDataDir, 'backups'),
   tokensPath: resolvedTokensPath,
   gatewayHost: process.env.GATEWAY_HOST || '127.0.0.1',
   gatewayPort: clampInt(Number(process.env.GATEWAY_PORT || '18789'), 1, 65535, 18789),

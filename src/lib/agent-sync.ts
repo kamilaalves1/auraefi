@@ -1,7 +1,7 @@
 
 
 import { config } from './config'
-import { getDatabase, db_helpers, logAuditEvent } from './db'
+import { dbGetAll, dbTransaction, logAuditEvent } from './db'
 import { eventBus } from './event-bus'
 import { join, isAbsolute, resolve } from 'path'
 import { existsSync, readFileSync, statSync } from 'fs'
@@ -230,26 +230,21 @@ export async function syncAgentsFromConfig(actor: string = 'system'): Promise<Sy
     return { synced: 0, created: 0, updated: 0, agents: [] }
   }
 
-  const db = getDatabase()
   const now = Math.floor(Date.now() / 1000)
   let created = 0
   let updated = 0
   const results: SyncResult['agents'] = []
 
-  const findByName = db.prepare('SELECT id, name, role, config, soul_content FROM agents WHERE name = ?')
-  const insertAgent = db.prepare(`
-    INSERT INTO agents (name, role, soul_content, status, created_at, updated_at, config)
-    VALUES (?, ?, ?, 'offline', ?, ?, ?)
-  `)
-  const updateAgent = db.prepare(`
-    UPDATE agents SET role = ?, config = ?, soul_content = ?, updated_at = ? WHERE name = ?
-  `)
-
-  db.transaction(() => {
+  await dbTransaction(async (conn) => {
     for (const agent of agents) {
       const mapped = mapAgentToMC(agent)
       const configJson = JSON.stringify(mapped.config)
-      const existing = findByName.get(mapped.name) as any
+
+      const [existingRows] = await conn.execute(
+        'SELECT id, name, role, config, soul_content FROM agents WHERE name = ?',
+        [mapped.name]
+      )
+      const existing = (existingRows as any[])[0]
 
       if (existing) {
         // Check if config or soul_content actually changed
@@ -261,19 +256,26 @@ export async function syncAgentsFromConfig(actor: string = 'system'): Promise<Sy
         if (configChanged || soulChanged) {
           // Only overwrite soul_content if we read a new value from workspace
           const soulToWrite = mapped.soul_content ?? existingSoul
-          updateAgent.run(mapped.role, configJson, soulToWrite, now, mapped.name)
+          await conn.execute(
+            'UPDATE agents SET role = ?, config = ?, soul_content = ?, updated_at = ? WHERE name = ?',
+            [mapped.role, configJson, soulToWrite, now, mapped.name]
+          )
           results.push({ id: agent.id, name: mapped.name, action: 'updated' })
           updated++
         } else {
           results.push({ id: agent.id, name: mapped.name, action: 'unchanged' })
         }
       } else {
-        insertAgent.run(mapped.name, mapped.role, mapped.soul_content, now, now, configJson)
+        await conn.execute(
+          `INSERT INTO agents (name, role, soul_content, status, created_at, updated_at, config)
+           VALUES (?, ?, ?, 'offline', ?, ?, ?)`,
+          [mapped.name, mapped.role, mapped.soul_content, now, now, configJson]
+        )
         results.push({ id: agent.id, name: mapped.name, action: 'created' })
         created++
       }
     }
-  })()
+  })
 
   const synced = agents.length
 
@@ -283,7 +285,7 @@ export async function syncAgentsFromConfig(actor: string = 'system'): Promise<Sy
       action: 'agent_config_sync',
       actor,
       detail: { synced, created, updated, agents: results.filter(a => a.action !== 'unchanged').map(a => a.name) },
-    })
+    }).catch(() => {})
 
     // Broadcast sync event
     eventBus.broadcast('agent.created', { type: 'sync', synced, created, updated })
@@ -302,8 +304,10 @@ export async function previewSyncDiff(): Promise<SyncDiff> {
     return { inConfig: 0, inMC: 0, newAgents: [], updatedAgents: [], onlyInMC: [] }
   }
 
-  const db = getDatabase()
-  const allMCAgents = db.prepare('SELECT name, role, config FROM agents').all() as Array<{ name: string; role: string; config: string }>
+  const allMCAgents = await dbGetAll<{ name: string; role: string; config: string }>(
+    'SELECT name, role, config FROM agents',
+    []
+  )
   const mcNames = new Set(allMCAgents.map(a => a.name))
 
   const newAgents: string[] = []

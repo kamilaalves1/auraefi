@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { decryptPipelineSecrets, getWorkPipelineRow } from '@/lib/work-pipeline-config'
@@ -23,9 +22,8 @@ export async function POST(request: NextRequest) {
       secrets?: WorkPipelineSecrets
     }
 
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
-    const row = getWorkPipelineRow(db, workspaceId)
+    const row = await getWorkPipelineRow(workspaceId)
 
     const provider = (body.provider || row?.provider || 'none') as string
     const config = { ...(row?.config || {}), ...(body.config || {}) }

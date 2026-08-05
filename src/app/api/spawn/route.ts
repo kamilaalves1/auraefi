@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { config } from '@/lib/config'
 import { readdir, readFile, stat } from 'fs/promises'
@@ -7,7 +7,7 @@ import { heavyLimiter, extractClientIp } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { validateBody, spawnAgentSchema } from '@/lib/validation'
 import { scanForInjection } from '@/lib/injection-guard'
-import { logAuditEvent, getDatabase } from '@/lib/db'
+import { logAuditEvent } from '@/lib/db'
 import { applyParameterSubstitution, mergeParameterLayers } from '@/lib/parameter-substitution'
 import { loadParameterResolutionBase } from '@/lib/workspace-parameter-resolution'
 
@@ -28,8 +28,7 @@ export async function POST(request: NextRequest) {
     const { task, model, label, timeoutSeconds, parameters: spawnOverrides } = result.data
 
     const workspaceId = auth.user.workspace_id ?? 1
-    const db = getDatabase()
-    const { defDefaults, workspaceValues } = loadParameterResolutionBase(db, workspaceId)
+    const { defDefaults, workspaceValues } = await loadParameterResolutionBase(workspaceId)
     const merged = mergeParameterLayers(defDefaults, workspaceValues, {}, spawnOverrides ?? {})
     const resolvedTask = applyParameterSubstitution(task, merged)
     const resolvedLabel = applyParameterSubstitution(label, merged)
@@ -102,7 +101,7 @@ export async function POST(request: NextRequest) {
       }
 
       const ipAddress = extractClientIp(request)
-      logAuditEvent({
+      await logAuditEvent({
         action: 'agent_spawn',
         actor: auth.user.username,
         actor_id: auth.user.id,
@@ -115,7 +114,7 @@ export async function POST(request: NextRequest) {
           compatibilityFallbackUsed,
         },
         ip_address: ipAddress,
-      })
+      }).catch(() => {})
 
       return NextResponse.json({
         success: true,
@@ -171,7 +170,7 @@ export async function GET(request: NextRequest) {
 
     // In a real implementation, you'd store spawn history in a database
     // For now, we'll try to read recent spawn activity from logs
-    
+
     try {
       if (!config.logsDir) {
         return NextResponse.json({ history: [] })

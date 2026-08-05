@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server"
 import { requireRole } from "@/lib/auth"
-import { getDatabase } from "@/lib/db"
+import { dbGetAll, dbRun, dbTransaction } from "@/lib/db"
 
-function ensureGatewaysTable(db: ReturnType<typeof getDatabase>) {
-  db.exec(`
+async function ensureGatewaysTable() {
+  await dbRun(`
     CREATE TABLE IF NOT EXISTS gateways (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INT AUTO_INCREMENT PRIMARY KEY,
       name TEXT NOT NULL UNIQUE,
       host TEXT NOT NULL DEFAULT '127.0.0.1',
       port INTEGER NOT NULL DEFAULT 18789,
@@ -16,10 +16,10 @@ function ensureGatewaysTable(db: ReturnType<typeof getDatabase>) {
       latency INTEGER,
       sessions_count INTEGER NOT NULL DEFAULT 0,
       agents_count INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+      created_at INTEGER NOT NULL DEFAULT (UNIX_TIMESTAMP()),
+      updated_at INTEGER NOT NULL DEFAULT (UNIX_TIMESTAMP())
     )
-  `)
+  `, [])
 }
 
 interface GatewayEntry {
@@ -162,9 +162,8 @@ export async function POST(request: NextRequest) {
   const auth = requireRole(request, "viewer")
   if ("error" in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  const db = getDatabase()
-  ensureGatewaysTable(db)
-  const gateways = db.prepare("SELECT * FROM gateways ORDER BY is_primary DESC, name ASC").all() as GatewayEntry[]
+  await ensureGatewaysTable()
+  const gateways = await dbGetAll<GatewayEntry>("SELECT * FROM gateways ORDER BY is_primary DESC, name ASC")
 
   // Build set of user-configured gateway hosts so the SSRF filter allows them
   const configuredHosts = new Set<string>()
@@ -175,17 +174,6 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // Prepare update statements once (avoids N+1)
-  const updateOnlineStmt = db.prepare(
-    "UPDATE gateways SET status = ?, latency = ?, last_seen = (unixepoch()), updated_at = (unixepoch()) WHERE id = ?"
-  )
-  const updateOfflineStmt = db.prepare(
-    "UPDATE gateways SET status = ?, latency = NULL, updated_at = (unixepoch()) WHERE id = ?"
-  )
-  const insertLogStmt = db.prepare(
-    "INSERT INTO gateway_health_logs (gateway_id, status, latency, probed_at, error) VALUES (?, ?, ?, ?, ?)"
-  )
-
   const results: HealthResult[] = []
 
   for (const gw of gateways) {
@@ -193,14 +181,20 @@ export async function POST(request: NextRequest) {
     const probeUrl = buildGatewayProbeUrl(gw.host, gw.port)
     if (!probeUrl) {
       const error = 'Invalid gateway address'
-      insertLogStmt.run(gw.id, 'error', null, probedAt, error)
+      await dbRun(
+        "INSERT INTO gateway_health_logs (gateway_id, status, latency, probed_at, error) VALUES (?, ?, ?, ?, ?)",
+        [gw.id, 'error', null, probedAt, error]
+      )
       results.push({ id: gw.id, name: gw.name, status: 'error', latency: null, agents: [], sessions_count: 0, error })
       continue
     }
 
     if (isBlockedUrl(probeUrl, configuredHosts)) {
       const error = 'Blocked URL'
-      insertLogStmt.run(gw.id, 'error', null, probedAt, error)
+      await dbRun(
+        "INSERT INTO gateway_health_logs (gateway_id, status, latency, probed_at, error) VALUES (?, ?, ?, ?, ?)",
+        [gw.id, 'error', null, probedAt, error]
+      )
       results.push({ id: gw.id, name: gw.name, status: 'error', latency: null, agents: [], sessions_count: 0, error })
       continue
     }
@@ -223,7 +217,10 @@ export async function POST(request: NextRequest) {
         : undefined
 
       const errorMessage = res.ok ? null : `HTTP ${res.status}`
-      insertLogStmt.run(gw.id, status, latency, probedAt, errorMessage)
+      await dbRun(
+        "INSERT INTO gateway_health_logs (gateway_id, status, latency, probed_at, error) VALUES (?, ?, ?, ?, ?)",
+        [gw.id, status, latency, probedAt, errorMessage]
+      )
 
       results.push({
         id: gw.id,
@@ -238,7 +235,10 @@ export async function POST(request: NextRequest) {
       })
     } catch (err: any) {
       const errorMessage = err.name === "AbortError" ? "timeout" : (err.message || "connection failed")
-      insertLogStmt.run(gw.id, "offline", null, probedAt, errorMessage)
+      await dbRun(
+        "INSERT INTO gateway_health_logs (gateway_id, status, latency, probed_at, error) VALUES (?, ?, ?, ?, ?)",
+        [gw.id, "offline", null, probedAt, errorMessage]
+      )
       results.push({
         id: gw.id,
         name: gw.name,
@@ -252,15 +252,21 @@ export async function POST(request: NextRequest) {
   }
 
   // Persist all probe results in a single transaction
-  db.transaction(() => {
+  await dbTransaction(async (conn) => {
     for (const r of results) {
       if (r.status === 'online' || r.status === 'error') {
-        updateOnlineStmt.run(r.status, r.latency, r.id)
+        await conn.execute(
+          "UPDATE gateways SET status = ?, latency = ?, last_seen = (UNIX_TIMESTAMP()), updated_at = (UNIX_TIMESTAMP()) WHERE id = ?",
+          [r.status, r.latency, r.id]
+        )
       } else {
-        updateOfflineStmt.run(r.status, r.id)
+        await conn.execute(
+          "UPDATE gateways SET status = ?, latency = NULL, updated_at = (UNIX_TIMESTAMP()) WHERE id = ?",
+          [r.status, r.id]
+        )
       }
     }
-  })()
+  })
 
   return NextResponse.json({ results, probed_at: Date.now() })
 }

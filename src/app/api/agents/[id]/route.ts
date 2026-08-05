@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, db_helpers, logAuditEvent } from '@/lib/db'
+import { dbGetOne, dbRun, db_helpers, logAuditEvent } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { writeAgentToConfig, enrichAgentConfigFromWorkspace, removeAgentFromConfig } from '@/lib/agent-sync'
 import { eventBus } from '@/lib/event-bus'
@@ -17,15 +17,14 @@ export async function GET(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const { id } = await params
     const workspaceId = auth.user.workspace_id ?? 1;
 
     let agent
     if (isNaN(Number(id))) {
-      agent = db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(id, workspaceId)
+      agent = await dbGetOne('SELECT * FROM agents WHERE name = ? AND workspace_id = ?', [id, workspaceId])
     } else {
-      agent = db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId)
+      agent = await dbGetOne('SELECT * FROM agents WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId])
     }
 
     if (!agent) {
@@ -61,7 +60,6 @@ export async function PUT(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const { id } = await params
     const workspaceId = auth.user.workspace_id ?? 1;
     const body = await request.json()
@@ -69,9 +67,9 @@ export async function PUT(
 
     let agent
     if (isNaN(Number(id))) {
-      agent = db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(id, workspaceId) as any
+      agent = await dbGetOne<any>('SELECT * FROM agents WHERE name = ? AND workspace_id = ?', [id, workspaceId])
     } else {
-      agent = db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId) as any
+      agent = await dbGetOne<any>('SELECT * FROM agents WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId])
     }
 
     if (!agent) {
@@ -130,7 +128,7 @@ export async function PUT(
       }
 
       values.push(agent.id, workspaceId)
-      db.prepare(`UPDATE agents SET ${fields.join(', ')} WHERE id = ? AND workspace_id = ?`).run(...values)
+      await dbRun(`UPDATE agents SET ${fields.join(', ')} WHERE id = ? AND workspace_id = ?`, values)
     } catch (err: any) {
       return NextResponse.json({ error: `Save failed: ${err.message}` }, { status: 500 })
     }
@@ -148,7 +146,7 @@ export async function PUT(
           revertFields.push('config = ?')
           revertValues.push(agent.config || '{}')
           revertValues.push(agent.id, workspaceId)
-          db.prepare(`UPDATE agents SET ${revertFields.join(', ')} WHERE id = ? AND workspace_id = ?`).run(...revertValues)
+          await dbRun(`UPDATE agents SET ${revertFields.join(', ')} WHERE id = ? AND workspace_id = ?`, revertValues)
         } catch (revertErr: any) {
           logger.error({ err: revertErr, agent: agent.name }, 'Failed to revert DB after gateway write failure')
         }
@@ -161,7 +159,7 @@ export async function PUT(
 
     if (shouldWriteToGateway) {
       const ipAddress = extractClientIp(request)
-      logAuditEvent({
+      await logAuditEvent({
         action: 'agent_config_writeback',
         actor: auth.user.username,
         actor_id: auth.user.id,
@@ -169,11 +167,11 @@ export async function PUT(
         target_id: agent.id,
         detail: { agent_name: agent.name, agent_id: agentSlug, fields: Object.keys(gateway_config || {}) },
         ip_address: ipAddress,
-      })
+      }).catch(() => {})
     }
 
     // Log activity
-    db_helpers.logActivity(
+    await db_helpers.logActivity(
       'agent_config_updated',
       'agent',
       agent.id,
@@ -181,7 +179,7 @@ export async function PUT(
       `Config updated for agent ${agent.name}${shouldWriteToGateway ? ' (+ gateway)' : ''}`,
       { fields: Object.keys(gateway_config || {}), write_to_gateway: shouldWriteToGateway },
       workspaceId
-    )
+    ).catch(() => {})
 
     // Broadcast update
     eventBus.broadcast('agent.updated', {
@@ -215,7 +213,6 @@ export async function DELETE(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const { id } = await params
     const workspaceId = auth.user.workspace_id ?? 1;
     let removeWorkspace = false
@@ -228,9 +225,9 @@ export async function DELETE(
 
     let agent
     if (isNaN(Number(id))) {
-      agent = db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(id, workspaceId) as any
+      agent = await dbGetOne<any>('SELECT * FROM agents WHERE name = ? AND workspace_id = ?', [id, workspaceId])
     } else {
-      agent = db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId) as any
+      agent = await dbGetOne<any>('SELECT * FROM agents WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId])
     }
 
     if (!agent) {
@@ -256,9 +253,9 @@ export async function DELETE(
       logger.warn({ err, agent: agent.name }, 'Failed to remove agent from gateway config')
     }
 
-    db.prepare('DELETE FROM agents WHERE id = ? AND workspace_id = ?').run(agent.id, workspaceId)
+    await dbRun('DELETE FROM agents WHERE id = ? AND workspace_id = ?', [agent.id, workspaceId])
 
-    db_helpers.logActivity(
+    await db_helpers.logActivity(
       'agent_deleted',
       'agent',
       agent.id,
@@ -266,7 +263,7 @@ export async function DELETE(
       `Deleted agent: ${agent.name}`,
       { name: agent.name, role: agent.role, remove_workspace: removeWorkspace },
       workspaceId
-    )
+    ).catch(() => {})
 
     eventBus.broadcast('agent.deleted', { id: agent.id, name: agent.name, workspace_id: workspaceId })
 

@@ -1,7 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { NextRequest, NextResponse } from 'next/server'
-import Database from 'better-sqlite3'
 import { config } from '@/lib/config'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'

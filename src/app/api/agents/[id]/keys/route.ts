@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbGetAll, dbRun } from '@/lib/db'
 import { logger } from '@/lib/logger'
 
 const ALLOWED_SCOPES = new Set([
@@ -38,16 +38,18 @@ function hashApiKey(rawKey: string): string {
   return createHash('sha256').update(rawKey).digest('hex')
 }
 
-function resolveAgent(db: ReturnType<typeof getDatabase>, idParam: string, workspaceId: number): AgentRow | null {
+async function resolveAgent(idParam: string, workspaceId: number): Promise<AgentRow | null> {
   if (/^\d+$/.test(idParam)) {
-    return (db
-      .prepare(`SELECT id, name, workspace_id FROM agents WHERE id = ? AND workspace_id = ?`)
-      .get(Number(idParam), workspaceId) as AgentRow | undefined) || null
+    return await dbGetOne<AgentRow>(
+      `SELECT id, name, workspace_id FROM agents WHERE id = ? AND workspace_id = ?`,
+      [Number(idParam), workspaceId]
+    ) ?? null
   }
 
-  return (db
-    .prepare(`SELECT id, name, workspace_id FROM agents WHERE name = ? AND workspace_id = ?`)
-    .get(idParam, workspaceId) as AgentRow | undefined) || null
+  return await dbGetOne<AgentRow>(
+    `SELECT id, name, workspace_id FROM agents WHERE name = ? AND workspace_id = ?`,
+    [idParam, workspaceId]
+  ) ?? null
 }
 
 function parseScopes(rawScopes: unknown): string[] {
@@ -88,20 +90,17 @@ export async function GET(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const resolved = await params
     const workspaceId = auth.user.workspace_id ?? 1
-    const agent = resolveAgent(db, resolved.id, workspaceId)
+    const agent = await resolveAgent(resolved.id, workspaceId)
     if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
 
-    const rows = db
-      .prepare(`
+    const rows = await dbGetAll<AgentKeyRow>(`
         SELECT id, name, key_prefix, scopes, created_by, expires_at, revoked_at, last_used_at, created_at, updated_at
         FROM agent_api_keys
         WHERE agent_id = ? AND workspace_id = ?
         ORDER BY created_at DESC, id DESC
-      `)
-      .all(agent.id, workspaceId) as AgentKeyRow[]
+      `, [agent.id, workspaceId])
 
     return NextResponse.json({
       agent: { id: agent.id, name: agent.name },
@@ -131,10 +130,9 @@ export async function POST(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const resolved = await params
     const workspaceId = auth.user.workspace_id ?? 1
-    const agent = resolveAgent(db, resolved.id, workspaceId)
+    const agent = await resolveAgent(resolved.id, workspaceId)
     if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
 
     const body = await request.json().catch(() => ({}))
@@ -154,29 +152,27 @@ export async function POST(
     const keyHash = hashApiKey(rawKey)
     const keyPrefix = rawKey.slice(0, 12)
 
-    const result = db
-      .prepare(`
+    const result = await dbRun(`
         INSERT INTO agent_api_keys (
           agent_id, workspace_id, name, key_hash, key_prefix, scopes, expires_at, created_by, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `)
-      .run(
-        agent.id,
-        workspaceId,
-        name,
-        keyHash,
-        keyPrefix,
-        JSON.stringify(scopes),
-        expiresAt,
-        auth.user.username,
-        now,
-        now,
-      )
+      `, [
+      agent.id,
+      workspaceId,
+      name,
+      keyHash,
+      keyPrefix,
+      JSON.stringify(scopes),
+      expiresAt,
+      auth.user.username,
+      now,
+      now,
+    ])
 
     return NextResponse.json(
       {
         key: {
-          id: Number(result.lastInsertRowid),
+          id: result.insertId,
           name,
           key_prefix: keyPrefix,
           scopes,
@@ -201,10 +197,9 @@ export async function DELETE(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const resolved = await params
     const workspaceId = auth.user.workspace_id ?? 1
-    const agent = resolveAgent(db, resolved.id, workspaceId)
+    const agent = await resolveAgent(resolved.id, workspaceId)
     if (!agent) return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
 
     const body = await request.json().catch(() => ({}))
@@ -214,15 +209,13 @@ export async function DELETE(
     }
 
     const now = Math.floor(Date.now() / 1000)
-    const result = db
-      .prepare(`
+    const result = await dbRun(`
         UPDATE agent_api_keys
         SET revoked_at = ?, updated_at = ?
         WHERE id = ? AND agent_id = ? AND workspace_id = ? AND revoked_at IS NULL
-      `)
-      .run(now, now, keyId, agent.id, workspaceId)
+      `, [now, now, keyId, agent.id, workspaceId])
 
-    if (result.changes < 1) {
+    if (result.affectedRows < 1) {
       return NextResponse.json({ error: 'Active key not found for this agent' }, { status: 404 })
     }
 

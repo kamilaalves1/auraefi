@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbTransaction } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { agentTaskLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -50,7 +50,6 @@ export async function GET(request: NextRequest) {
   if (rateLimited) return rateLimited
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id
     const { searchParams } = new URL(request.url)
 
@@ -73,13 +72,13 @@ export async function GET(request: NextRequest) {
 
     const now = Math.floor(Date.now() / 1000)
 
-    const currentTask = db.prepare(`
+    const currentTask = await dbGetOne<any>(`
       SELECT *
       FROM tasks
       WHERE workspace_id = ? AND assigned_to = ? AND status = 'in_progress'
       ORDER BY updated_at DESC
       LIMIT 1
-    `).get(workspaceId, agent) as any | undefined
+    `, [workspaceId, agent])
 
     if (currentTask) {
       return NextResponse.json({
@@ -90,11 +89,12 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const inProgressCount = (db.prepare(`
+    const inProgressRow = await dbGetOne<{ c: number }>(`
       SELECT COUNT(*) as c
       FROM tasks
       WHERE workspace_id = ? AND assigned_to = ? AND status = 'in_progress'
-    `).get(workspaceId, agent) as { c: number }).c
+    `, [workspaceId, agent])
+    const inProgressCount = inProgressRow?.c ?? 0
 
     if (inProgressCount >= maxCapacity) {
       return NextResponse.json({
@@ -105,20 +105,30 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Atomic claim: single UPDATE with subquery to eliminate SELECT-UPDATE race condition.
-    const claimed = db.prepare(`
-      UPDATE tasks
-      SET status = 'in_progress', assigned_to = ?, updated_at = ?
-      WHERE id = (
+    // Atomic claim: SELECT FOR UPDATE then UPDATE to eliminate SELECT-UPDATE race condition.
+    const claimed = await dbTransaction(async (conn) => {
+      const [candidateRows] = await conn.execute<any[]>(`
         SELECT id FROM tasks
         WHERE workspace_id = ?
           AND status IN ('assigned', 'inbox')
           AND (assigned_to IS NULL OR assigned_to = ?)
-        ORDER BY ${priorityRankSql()} ASC, due_date ASC NULLS LAST, created_at ASC
+        ORDER BY ${priorityRankSql()} ASC, due_date IS NULL, due_date ASC, created_at ASC
         LIMIT 1
+        FOR UPDATE
+      `, [workspaceId, agent])
+
+      const candidate = (candidateRows as any[])[0]
+      if (!candidate) return undefined
+
+      const [updateResult] = await conn.execute(
+        'UPDATE tasks SET status = ?, assigned_to = ?, updated_at = ? WHERE id = ?',
+        ['in_progress', agent, now, candidate.id]
       )
-      RETURNING *
-    `).get(agent, now, workspaceId, agent) as any | undefined
+      if ((updateResult as any).affectedRows === 0) return undefined
+
+      const [taskRows] = await conn.execute<any[]>('SELECT * FROM tasks WHERE id = ?', [candidate.id])
+      return (taskRows as any[])[0] || undefined
+    })
 
     if (claimed) {
       return NextResponse.json({

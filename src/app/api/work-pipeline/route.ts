@@ -1,5 +1,5 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, logAuditEvent } from '@/lib/db'
+import { NextRequest, NextResponse } from 'next/server'
+import { logAuditEvent } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { extractClientIp } from '@/lib/rate-limit'
@@ -23,9 +23,8 @@ export async function GET(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
-    const row = getWorkPipelineRow(db, workspaceId)
+    const row = await getWorkPipelineRow(workspaceId)
     return NextResponse.json(toPublicPipelineDto(row))
   } catch (error) {
     logger.error({ err: error }, 'GET /api/work-pipeline error')
@@ -66,10 +65,9 @@ export async function PUT(request: NextRequest) {
       secretsPatch.azurePat = (secretsBody as { azurePat: string }).azurePat
     }
 
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
 
-    upsertWorkPipeline(db, workspaceId, {
+    await upsertWorkPipeline(workspaceId, {
       provider,
       enabled,
       config,
@@ -78,7 +76,7 @@ export async function PUT(request: NextRequest) {
     })
 
     const ipAddress = extractClientIp(request)
-    logAuditEvent({
+    await logAuditEvent({
       action: 'work_pipeline_update',
       actor: auth.user.username,
       actor_id: auth.user.id,
@@ -86,7 +84,7 @@ export async function PUT(request: NextRequest) {
       ip_address: ipAddress,
     })
 
-    const row = getWorkPipelineRow(db, workspaceId)
+    const row = await getWorkPipelineRow(workspaceId)
     return NextResponse.json(toPublicPipelineDto(row))
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to save'

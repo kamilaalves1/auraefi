@@ -1,6 +1,6 @@
-﻿import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getUserFromRequest, updateUser, requireRole, destroyAllUserSessions, createSession } from '@/lib/auth'
-import { logAuditEvent } from '@/lib/db'
+import { logAuditEvent, dbGetOne } from '@/lib/db'
 import { verifyPassword } from '@/lib/password'
 import { getMcSessionCookieName, getMcSessionCookieOptions, isRequestSecure } from '@/lib/session-cookie'
 import { mutationLimiter, extractClientIp } from '@/lib/rate-limit'
@@ -65,9 +65,7 @@ export async function PATCH(request: NextRequest) {
       }
 
       // Verify current password by fetching stored hash
-      const { getDatabase } = await import('@/lib/db')
-      const db = getDatabase()
-      const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id) as any
+      const row = await dbGetOne<any>('SELECT password_hash FROM users WHERE id = ?', [user.id])
       if (!row || !verifyPassword(current_password, row.password_hash)) {
         return NextResponse.json({ error: 'Current password is incorrect' }, { status: 403 })
       }
@@ -95,12 +93,12 @@ export async function PATCH(request: NextRequest) {
     const ipAddress = extractClientIp(request)
     const userAgent = request.headers.get('user-agent') || undefined
     if (updates.password) {
-      logAuditEvent({ action: 'password_change', actor: user.username, actor_id: user.id, ip_address: ipAddress })
+      await logAuditEvent({ action: 'password_change', actor: user.username, actor_id: user.id, ip_address: ipAddress }).catch(() => {})
       // Revoke all existing sessions and issue a fresh one for this request
       destroyAllUserSessions(user.id)
     }
     if (updates.display_name) {
-      logAuditEvent({ action: 'profile_update', actor: user.username, actor_id: user.id, detail: { display_name: updates.display_name }, ip_address: ipAddress })
+      await logAuditEvent({ action: 'profile_update', actor: user.username, actor_id: user.id, detail: { display_name: updates.display_name }, ip_address: ipAddress }).catch(() => {})
     }
 
     const response = NextResponse.json({

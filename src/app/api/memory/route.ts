@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { readdir, readFile, stat, writeFile, mkdir, unlink } from 'fs/promises'
 import { existsSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
-import { db_helpers, getDatabase } from '@/lib/db'
+import { db_helpers } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -227,10 +227,8 @@ export async function POST(request: NextRequest) {
 
       await writeFile(fullPath, content, 'utf-8')
       // Incrementally update FTS index
-      try { indexFile(getDatabase(), MEMORY_PATH, path) } catch { /* best-effort */ }
-      try {
-        db_helpers.logActivity('memory_file_saved', 'memory', 0, auth.user.username || 'unknown', `Updated ${path}`, { path, size: content.length })
-      } catch { /* best-effort */ }
+      indexFile(MEMORY_PATH, path).catch(() => {})
+      db_helpers.logActivity('memory_file_saved', 'memory', 0, auth.user.username || 'unknown', `Updated ${path}`, { path, size: content.length }).catch(() => {})
       return NextResponse.json({
         success: true,
         message: 'File saved successfully',
@@ -258,10 +256,8 @@ export async function POST(request: NextRequest) {
       }
 
       await writeFile(fullPath, content || '', 'utf-8')
-      try { indexFile(getDatabase(), MEMORY_PATH, path) } catch { /* best-effort */ }
-      try {
-        db_helpers.logActivity('memory_file_created', 'memory', 0, auth.user.username || 'unknown', `Created ${path}`, { path })
-      } catch { /* best-effort */ }
+      indexFile(MEMORY_PATH, path).catch(() => {})
+      db_helpers.logActivity('memory_file_created', 'memory', 0, auth.user.username || 'unknown', `Created ${path}`, { path }).catch(() => {})
       return NextResponse.json({ success: true, message: 'File created successfully' })
     }
 
@@ -304,10 +300,8 @@ export async function DELETE(request: NextRequest) {
       }
 
       await unlink(fullPath)
-      try { removeFromIndex(getDatabase(), path) } catch { /* best-effort */ }
-      try {
-        db_helpers.logActivity('memory_file_deleted', 'memory', 0, auth.user.username || 'unknown', `Deleted ${path}`, { path })
-      } catch { /* best-effort */ }
+      removeFromIndex(path).catch(() => {})
+      db_helpers.logActivity('memory_file_deleted', 'memory', 0, auth.user.username || 'unknown', `Deleted ${path}`, { path }).catch(() => {})
       return NextResponse.json({ success: true, message: 'File deleted successfully' })
     }
 

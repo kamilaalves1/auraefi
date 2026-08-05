@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, db_helpers } from '@/lib/db'
+import { dbGetOne, db_helpers } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { validateBody, createMessageSchema } from '@/lib/validation'
 import { mutationLimiter } from '@/lib/rate-limit'
@@ -50,11 +50,11 @@ export async function POST(request: NextRequest) {
       try { logSecurityEvent({ event_type: 'secret_exposure', severity: 'critical', source: 'agent-message', agent_name: from, detail: JSON.stringify({ count: secretHits.length, types: secretHits.map(s => s.type) }), workspace_id: auth.user.workspace_id ?? 1, tenant_id: 1 }) } catch {}
     }
 
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1;
-    const agent = db
-      .prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?')
-      .get(to, workspaceId) as any
+    const agent = await dbGetOne<any>(
+      'SELECT * FROM agents WHERE name = ? AND workspace_id = ?',
+      [to, workspaceId]
+    )
     if (!agent) {
       return NextResponse.json({ error: 'Recipient agent not found' }, { status: 404 })
     }
@@ -68,7 +68,7 @@ export async function POST(request: NextRequest) {
     // Gateway CLI delivery removed — log the request and create notification only
     logger.info({ agent: agent.name, session_key: agent.session_key }, 'Agent message delivery attempted (gateway CLI unavailable)')
 
-    db_helpers.createNotification(
+    await db_helpers.createNotification(
       to,
       'message',
       'Direct Message',
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
       workspaceId
     )
 
-    db_helpers.logActivity(
+    await db_helpers.logActivity(
       'agent_message',
       'agent',
       agent.id,
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
       `Sent message to ${to}`,
       { to },
       workspaceId
-    )
+    ).catch(() => {})
 
     return NextResponse.json({ success: true })
   } catch (error) {

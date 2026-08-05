@@ -5,7 +5,7 @@
  * to produce actionable recommendations for reducing agent cost and latency.
  */
 
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbGetAll } from '@/lib/db'
 
 export interface TokenEfficiency {
   agentName: string
@@ -43,15 +43,14 @@ export interface Recommendation {
   metric?: number
 }
 
-export function analyzeTokenEfficiency(
+export async function analyzeTokenEfficiency(
   agentName: string,
   hours: number = 24,
   workspaceId: number = 1,
-): TokenEfficiency {
-  const db = getDatabase()
+): Promise<TokenEfficiency> {
   const since = Math.floor(Date.now() / 1000) - hours * 3600
 
-  const row = db.prepare(`
+  const row = await dbGetOne<any>(`
     SELECT
       COUNT(*) as sessions,
       COALESCE(SUM(input_tokens), 0) as input_tokens,
@@ -59,7 +58,7 @@ export function analyzeTokenEfficiency(
       COALESCE(SUM(cost_usd), 0) as total_cost
     FROM token_usage
     WHERE agent_name = ? AND created_at > ?
-  `).get(agentName, since) as any
+  `, [agentName, since])
 
   const sessions = row?.sessions ?? 0
   const inputTokens = row?.input_tokens ?? 0
@@ -78,35 +77,35 @@ export function analyzeTokenEfficiency(
   }
 }
 
-export function analyzeToolPatterns(
+export async function analyzeToolPatterns(
   agentName: string,
   hours: number = 24,
   workspaceId: number = 1,
-): ToolPatterns {
-  const db = getDatabase()
+): Promise<ToolPatterns> {
   const since = Math.floor(Date.now() / 1000) - hours * 3600
 
-  const totals = db.prepare(`
-    SELECT
-      COUNT(*) as total,
-      COUNT(DISTINCT tool_name) as unique_tools,
-      SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failures,
-      AVG(duration_ms) as avg_duration
-    FROM mcp_call_log
-    WHERE agent_name = ? AND workspace_id = ? AND created_at > ?
-  `).get(agentName, workspaceId, since) as any
-
-  const topTools = db.prepare(`
-    SELECT
-      tool_name,
-      COUNT(*) as count,
-      SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as success_rate
-    FROM mcp_call_log
-    WHERE agent_name = ? AND workspace_id = ? AND created_at > ?
-    GROUP BY tool_name
-    ORDER BY count DESC
-    LIMIT 10
-  `).all(agentName, workspaceId, since) as any[]
+  const [totals, topTools] = await Promise.all([
+    dbGetOne<any>(`
+      SELECT
+        COUNT(*) as total,
+        COUNT(DISTINCT tool_name) as unique_tools,
+        SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failures,
+        AVG(duration_ms) as avg_duration
+      FROM mcp_call_log
+      WHERE agent_name = ? AND workspace_id = ? AND created_at > ?
+    `, [agentName, workspaceId, since]),
+    dbGetAll<any>(`
+      SELECT
+        tool_name,
+        COUNT(*) as count,
+        SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as success_rate
+      FROM mcp_call_log
+      WHERE agent_name = ? AND workspace_id = ? AND created_at > ?
+      GROUP BY tool_name
+      ORDER BY count DESC
+      LIMIT 10
+    `, [agentName, workspaceId, since]),
+  ])
 
   const total = totals?.total ?? 0
 
@@ -124,10 +123,8 @@ export function analyzeToolPatterns(
   }
 }
 
-export function getFleetBenchmarks(workspaceId: number = 1): FleetBenchmark[] {
-  const db = getDatabase()
-
-  const rows = db.prepare(`
+export async function getFleetBenchmarks(workspaceId: number = 1): Promise<FleetBenchmark[]> {
+  const rows = await dbGetAll<any>(`
     SELECT
       a.agent_name,
       COALESCE(t.tokens_per_task, 0) as tokens_per_task,
@@ -164,7 +161,7 @@ export function getFleetBenchmarks(workspaceId: number = 1): FleetBenchmark[] {
       WHERE workspace_id = ?
       GROUP BY agent_name
     ) m ON m.agent_name = a.agent_name
-  `).all(workspaceId, workspaceId, workspaceId) as any[]
+  `, [workspaceId, workspaceId, workspaceId])
 
   return rows.map((r: any) => ({
     agentName: r.agent_name,
@@ -176,17 +173,16 @@ export function getFleetBenchmarks(workspaceId: number = 1): FleetBenchmark[] {
   }))
 }
 
-export function generateRecommendations(
+export async function generateRecommendations(
   agentName: string,
   workspaceId: number = 1,
-): Recommendation[] {
+): Promise<Recommendation[]> {
   const recommendations: Recommendation[] = []
-  const db = getDatabase()
 
   // Check trust score
-  const trust = db.prepare(`
+  const trust = await dbGetOne<any>(`
     SELECT * FROM agent_trust_scores WHERE agent_name = ? AND workspace_id = ?
-  `).get(agentName, workspaceId) as any
+  `, [agentName, workspaceId])
 
   if (trust) {
     if (trust.trust_score < 0.5) {
@@ -216,13 +212,13 @@ export function generateRecommendations(
   }
 
   // Check tool failure rate
-  const toolStats = db.prepare(`
+  const toolStats = await dbGetOne<any>(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failures
     FROM mcp_call_log
     WHERE agent_name = ? AND workspace_id = ? AND created_at > ?
-  `).get(agentName, workspaceId, Math.floor(Date.now() / 1000) - 86400) as any
+  `, [agentName, workspaceId, Math.floor(Date.now() / 1000) - 86400])
 
   if (toolStats && toolStats.total > 10) {
     const failRate = toolStats.failures / toolStats.total
@@ -237,20 +233,21 @@ export function generateRecommendations(
   }
 
   // Check token efficiency vs fleet average
-  const agentCost = db.prepare(`
-    SELECT COALESCE(SUM(cost_usd), 0) as cost, COUNT(DISTINCT task_id) as tasks
-    FROM token_usage
-    WHERE agent_name = ? AND task_id IS NOT NULL
-  `).get(agentName) as any
-
-  const fleetAvg = db.prepare(`
-    SELECT AVG(cost_per_task) as avg_cost FROM (
-      SELECT SUM(COALESCE(cost_usd, 0)) * 1.0 / NULLIF(COUNT(DISTINCT task_id), 0) as cost_per_task
+  const [agentCost, fleetAvg] = await Promise.all([
+    dbGetOne<any>(`
+      SELECT COALESCE(SUM(cost_usd), 0) as cost, COUNT(DISTINCT task_id) as tasks
       FROM token_usage
-      WHERE agent_name IS NOT NULL AND task_id IS NOT NULL
-      GROUP BY agent_name
-    )
-  `).get() as any
+      WHERE agent_name = ? AND task_id IS NOT NULL
+    `, [agentName]),
+    dbGetOne<any>(`
+      SELECT AVG(cost_per_task) as avg_cost FROM (
+        SELECT SUM(COALESCE(cost_usd, 0)) * 1.0 / NULLIF(COUNT(DISTINCT task_id), 0) as cost_per_task
+        FROM token_usage
+        WHERE agent_name IS NOT NULL AND task_id IS NOT NULL
+        GROUP BY agent_name
+      ) sub
+    `, []),
+  ])
 
   if (agentCost?.tasks > 0 && fleetAvg?.avg_cost > 0) {
     const agentCostPerTask = agentCost.cost / agentCost.tasks

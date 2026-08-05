@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { loadBacklogForWorkspace } from '@/lib/work-pipeline-config'
@@ -17,9 +16,8 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(Math.max(parseInt(searchParams.get('limit') || '50', 10) || 50, 1), 100)
     const includeRaw = searchParams.get('include_raw') === '1'
 
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
-    const { provider, items } = await loadBacklogForWorkspace(db, workspaceId, limit)
+    const { provider, items } = await loadBacklogForWorkspace(workspaceId, limit)
 
     const payload = includeRaw
       ? items

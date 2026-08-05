@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbRun } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { nextIncompleteStepIndex, parseCompletedSteps, shouldShowOnboarding, markStepCompleted } from '@/lib/onboarding-state'
 
@@ -26,36 +26,34 @@ function scopedOnboardingKey(key: OnboardingSettingKey, username: string): strin
   return `user.${username}.${key}`
 }
 
-function getOnboardingSetting(key: string): string {
+async function getOnboardingSetting(key: string): Promise<string> {
   try {
-    const db = getDatabase()
-    const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined
+    const row = await dbGetOne<{ value: string }>('SELECT value FROM settings WHERE key = ?', [key])
     return row?.value ?? ''
   } catch {
     return ''
   }
 }
 
-function setOnboardingSetting(key: string, value: string, actor: string) {
-  const db = getDatabase()
-  db.prepare(`
+async function setOnboardingSetting(key: string, value: string, actor: string): Promise<void> {
+  await dbRun(`
     INSERT INTO settings (key, value, description, category, updated_by, updated_at)
-    VALUES (?, ?, ?, 'onboarding', ?, unixepoch())
-    ON CONFLICT(key) DO UPDATE SET
-      value = excluded.value,
-      updated_by = excluded.updated_by,
-      updated_at = unixepoch()
-  `).run(key, value, `Onboarding: ${key}`, actor)
+    VALUES (?, ?, ?, 'onboarding', ?, UNIX_TIMESTAMP())
+    ON DUPLICATE KEY UPDATE
+      value = VALUES(value),
+      updated_by = VALUES(updated_by),
+      updated_at = UNIX_TIMESTAMP()
+  `, [key, value, `Onboarding: ${key}`, actor])
 }
 
-function readUserOnboardingSetting(key: OnboardingSettingKey, username: string): string {
-  const scopedValue = getOnboardingSetting(scopedOnboardingKey(key, username))
+async function readUserOnboardingSetting(key: OnboardingSettingKey, username: string): Promise<string> {
+  const scopedValue = await getOnboardingSetting(scopedOnboardingKey(key, username))
   if (scopedValue !== '') return scopedValue
   return getOnboardingSetting(key)
 }
 
-function writeUserOnboardingSetting(key: OnboardingSettingKey, value: string, actor: string) {
-  setOnboardingSetting(scopedOnboardingKey(key, actor), value, actor)
+async function writeUserOnboardingSetting(key: OnboardingSettingKey, value: string, actor: string): Promise<void> {
+  await setOnboardingSetting(scopedOnboardingKey(key, actor), value, actor)
 }
 
 export async function GET(request: NextRequest) {
@@ -63,14 +61,20 @@ export async function GET(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const completed = readUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completed, auth.user.username) === 'true'
-    const skipped = readUserOnboardingSetting(ONBOARDING_SETTING_KEYS.skipped, auth.user.username) === 'true'
-    const checklistDismissed = readUserOnboardingSetting(ONBOARDING_SETTING_KEYS.checklistDismissed, auth.user.username) === 'true'
-    const completedStepsRaw = readUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completedSteps, auth.user.username)
+    const [completed, skipped, checklistDismissed, completedStepsRaw] = await Promise.all([
+      readUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completed, auth.user.username),
+      readUserOnboardingSetting(ONBOARDING_SETTING_KEYS.skipped, auth.user.username),
+      readUserOnboardingSetting(ONBOARDING_SETTING_KEYS.checklistDismissed, auth.user.username),
+      readUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completedSteps, auth.user.username),
+    ])
+
+    const isCompleted = completed === 'true'
+    const isSkipped = skipped === 'true'
+    const isChecklistDismissed = checklistDismissed === 'true'
     const completedSteps = parseCompletedSteps(completedStepsRaw, ONBOARDING_STEPS)
 
     const isAdmin = auth.user.role === 'admin'
-    const showOnboarding = shouldShowOnboarding({ completed, skipped, isAdmin })
+    const showOnboarding = shouldShowOnboarding({ completed: isCompleted, skipped: isSkipped, isAdmin })
 
     const steps = ONBOARDING_STEPS.map((s) => ({
       ...s,
@@ -81,9 +85,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       showOnboarding,
-      completed,
-      skipped,
-      checklistDismissed,
+      completed: isCompleted,
+      skipped: isSkipped,
+      checklistDismissed: isChecklistDismissed,
       isAdmin,
       currentStep: currentStep === -1 ? steps.length - 1 : currentStep,
       steps,
@@ -108,36 +112,36 @@ export async function POST(request: NextRequest) {
         const valid = ONBOARDING_STEPS.some(s => s.id === step)
         if (!valid) return NextResponse.json({ error: 'Invalid step' }, { status: 400 })
 
-        const raw = readUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completedSteps, auth.user.username)
+        const raw = await readUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completedSteps, auth.user.username)
         const parsed = parseCompletedSteps(raw, ONBOARDING_STEPS)
         const steps = markStepCompleted(parsed, step, ONBOARDING_STEPS)
-        writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completedSteps, JSON.stringify(steps), auth.user.username)
+        await writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completedSteps, JSON.stringify(steps), auth.user.username)
         return NextResponse.json({ ok: true, completedSteps: steps })
       }
 
       case 'complete': {
-        writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completed, 'true', auth.user.username)
-        writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completedAt, String(Date.now()), auth.user.username)
+        await writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completed, 'true', auth.user.username)
+        await writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completedAt, String(Date.now()), auth.user.username)
         return NextResponse.json({ ok: true })
       }
 
       case 'skip': {
-        writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.skipped, 'true', auth.user.username)
-        writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completedAt, String(Date.now()), auth.user.username)
+        await writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.skipped, 'true', auth.user.username)
+        await writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completedAt, String(Date.now()), auth.user.username)
         return NextResponse.json({ ok: true })
       }
 
       case 'dismiss_checklist': {
-        writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.checklistDismissed, 'true', auth.user.username)
+        await writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.checklistDismissed, 'true', auth.user.username)
         return NextResponse.json({ ok: true })
       }
 
       case 'reset': {
-        writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completed, 'false', auth.user.username)
-        writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completedAt, '', auth.user.username)
-        writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.skipped, 'false', auth.user.username)
-        writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completedSteps, '[]', auth.user.username)
-        writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.checklistDismissed, 'false', auth.user.username)
+        await writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completed, 'false', auth.user.username)
+        await writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completedAt, '', auth.user.username)
+        await writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.skipped, 'false', auth.user.username)
+        await writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.completedSteps, '[]', auth.user.username)
+        await writeUserOnboardingSetting(ONBOARDING_SETTING_KEYS.checklistDismissed, 'false', auth.user.username)
         return NextResponse.json({ ok: true })
       }
 

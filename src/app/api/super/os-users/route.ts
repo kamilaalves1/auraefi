@@ -4,7 +4,7 @@ import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { requireRole, getUserFromRequest } from '@/lib/auth'
-import { getDatabase, logAuditEvent } from '@/lib/db'
+import { dbGetOne, dbRun, logAuditEvent } from '@/lib/db'
 import { logger } from '@/lib/logger'
 
 export interface OsUser {
@@ -208,7 +208,7 @@ export async function GET(request: NextRequest) {
   try {
     const { listTenants } = await import('@/lib/super-admin')
     const tenants = listTenants()
-    const tenantByLinuxUser = new Map(tenants.map(t => [t.linux_user, t.id]))
+    const tenantByLinuxUser = new Map(tenants.map((t: any) => [t.linux_user, t.id]))
     for (const user of users) {
       user.linked_tenant_id = tenantByLinuxUser.get(user.username) ?? null
     }
@@ -260,8 +260,10 @@ export async function POST(request: NextRequest) {
   const alreadyExists = existingUsers.some(u => u.username === username)
 
   // Check if already registered as tenant
-  const db = getDatabase()
-  const existingTenant = db.prepare('SELECT id FROM tenants WHERE linux_user = ? OR slug = ?').get(username, username) as any
+  const existingTenant = await dbGetOne<{ id: number }>(
+    'SELECT id FROM tenants WHERE linux_user = ? OR slug = ?',
+    [username, username]
+  )
   if (existingTenant) {
     return NextResponse.json({ error: 'This user is already registered as an organization' }, { status: 409 })
   }
@@ -350,22 +352,22 @@ export async function POST(request: NextRequest) {
     const workspaceRoot = path.posix.join(homeDir, 'workspace')
 
     // Register as tenant in DB
-    const tenantRes = db.prepare(`
+    const tenantRes = await dbRun(`
       INSERT INTO tenants (slug, display_name, linux_user, plan_tier, status, gateway_home, workspace_root, gateway_port, dashboard_port, config, created_by, owner_gateway)
       VALUES (?, ?, ?, 'local', 'active', ?, ?, NULL, NULL, '{}', ?, 'local')
-    `).run(username, displayName, username, gatewayHome, workspaceRoot, actor)
+    `, [username, displayName, username, gatewayHome, workspaceRoot, actor])
 
-    const tenantId = Number(tenantRes.lastInsertRowid)
+    const tenantId = tenantRes.insertId
 
-    logAuditEvent({
+    await logAuditEvent({
       action: 'tenant_local_created',
       actor,
       target_type: 'tenant',
       target_id: tenantId,
       detail: { username, display_name: displayName, os_user_existed: alreadyExists, platform },
-    })
+    }).catch(() => {})
 
-    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId)
+    const tenant = await dbGetOne<any>('SELECT * FROM tenants WHERE id = ?', [tenantId])
 
     // Install requested tools (non-fatal)
     const installResults: Record<string, { success: boolean; error?: string }> = {}
@@ -393,7 +395,7 @@ export async function POST(request: NextRequest) {
       message: installSummary ? `${baseMsg} ${installSummary}.` : baseMsg,
     }, { status: 201 })
   } catch (e: any) {
-    if (String(e?.message || '').includes('UNIQUE')) {
+    if (String(e?.message || '').includes('UNIQUE') || String(e?.message || '').includes('Duplicate entry')) {
       return NextResponse.json({ error: 'Organization slug or user already exists' }, { status: 409 })
     }
     logger.error({ err: e }, 'POST /api/super/os-users error')

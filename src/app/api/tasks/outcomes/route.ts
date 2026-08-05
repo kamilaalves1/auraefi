@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbGetAll } from '@/lib/db'
 import { logger } from '@/lib/logger'
 
 type Outcome = 'success' | 'failed' | 'partial' | 'abandoned'
@@ -40,8 +40,16 @@ export async function GET(request: NextRequest) {
     const timeframe = (searchParams.get('timeframe') || 'all').trim().toLowerCase()
     const since = resolveSince(timeframe)
 
-    const db = getDatabase()
-    const rows = db.prepare(`
+    const rows = await dbGetAll<{
+      id: number
+      assigned_to?: string | null
+      priority?: string | null
+      outcome?: string | null
+      error_message?: string | null
+      retry_count?: number | null
+      created_at?: number | null
+      completed_at?: number | null
+    }>(`
       SELECT
         id,
         assigned_to,
@@ -55,16 +63,7 @@ export async function GET(request: NextRequest) {
       WHERE workspace_id = ?
         AND status = 'done'
         AND (? = 0 OR COALESCE(completed_at, updated_at) >= ?)
-    `).all(workspaceId, since, since) as Array<{
-      id: number
-      assigned_to?: string | null
-      priority?: string | null
-      outcome?: string | null
-      error_message?: string | null
-      retry_count?: number | null
-      created_at?: number | null
-      completed_at?: number | null
-    }>
+    `, [workspaceId, since, since])
 
     const summary = {
       total_done: rows.length,

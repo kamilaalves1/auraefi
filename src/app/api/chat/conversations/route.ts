@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGetAll, dbGetOne } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 
@@ -12,7 +12,6 @@ export async function GET(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const { searchParams } = new URL(request.url)
     const workspaceId = auth.user.workspace_id ?? 1
 
@@ -56,18 +55,15 @@ export async function GET(request: NextRequest) {
       params.push(workspaceId, limit, offset)
     }
 
-    const conversations = db.prepare(query).all(...params) as any[]
+    const conversations = await dbGetAll<any>(query, params)
 
-    // Prepare last message statement once (avoids N+1)
-    const lastMsgStmt = db.prepare(`
-      SELECT * FROM messages
-      WHERE conversation_id = ? AND workspace_id = ?
-      ORDER BY created_at DESC
-      LIMIT 1
-    `);
-
-    const withLastMessage = conversations.map((conv) => {
-      const lastMsg = lastMsgStmt.get(conv.conversation_id, workspaceId) as any;
+    const withLastMessage = await Promise.all(conversations.map(async (conv) => {
+      const lastMsg = await dbGetOne<any>(`
+        SELECT * FROM messages
+        WHERE conversation_id = ? AND workspace_id = ?
+        ORDER BY created_at DESC
+        LIMIT 1
+      `, [conv.conversation_id, workspaceId])
 
       return {
         ...conv,
@@ -78,7 +74,7 @@ export async function GET(request: NextRequest) {
             }
           : null
       }
-    })
+    }))
 
     // Get total count for pagination
     let countQuery: string
@@ -93,9 +89,9 @@ export async function GET(request: NextRequest) {
     } else {
       countQuery = 'SELECT COUNT(DISTINCT conversation_id) as total FROM messages WHERE workspace_id = ?'
     }
-    const countRow = db.prepare(countQuery).get(...countParams) as { total: number }
+    const countRow = await dbGetOne<{ total: number }>(countQuery, countParams)
 
-    return NextResponse.json({ conversations: withLastMessage, total: countRow.total, page: Math.floor(offset / limit) + 1, limit })
+    return NextResponse.json({ conversations: withLastMessage, total: countRow?.total ?? 0, page: Math.floor(offset / limit) + 1, limit })
   } catch (error) {
     logger.error({ err: error }, 'GET /api/chat/conversations error')
     return NextResponse.json({ error: 'Failed to fetch conversations' }, { status: 500 })

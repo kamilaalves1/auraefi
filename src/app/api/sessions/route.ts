@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { syncClaudeSessions } from '@/lib/claude-sessions'
-import { getDatabase, db_helpers } from '@/lib/db'
+import { db_helpers, dbGetAll } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -18,7 +18,7 @@ export async function GET(request: NextRequest) {
 
     // Always include local sessions alongside gateway sessions
     await syncClaudeSessions()
-    const claudeSessions = getLocalClaudeSessions()
+    const claudeSessions = await getLocalClaudeSessions()
     const localMerged = mergeLocalSessions(claudeSessions)
 
     if (mappedGatewaySessions.length === 0 && localMerged.length === 0) {
@@ -94,14 +94,14 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Invalid action. Must be: set-thinking, set-verbose, set-reasoning, set-label' }, { status: 400 })
     }
 
-    db_helpers.logActivity(
+    await db_helpers.logActivity(
       'session_control',
       'session',
       0,
       auth.user.username,
       logDetail,
       { session_key: sessionKey, action }
-    )
+    ).catch(() => {})
 
     return NextResponse.json({ success: true, action, sessionKey, result: null })
   } catch (error: any) {
@@ -125,14 +125,14 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid session key' }, { status: 400 })
     }
 
-    db_helpers.logActivity(
+    await db_helpers.logActivity(
       'session_control',
       'session',
       0,
       auth.user.username,
       `Deleted session ${sessionKey}`,
       { session_key: sessionKey, action: 'delete' }
-    )
+    ).catch(() => {})
 
     return NextResponse.json({ success: true, sessionKey, result: null })
   } catch (error: any) {
@@ -176,13 +176,13 @@ function mapGatewaySessions(gatewaySessions: ReturnType<typeof getAllGatewaySess
   })
 }
 
-/** Read Claude Code sessions from the local SQLite database */
-function getLocalClaudeSessions() {
+/** Read Claude Code sessions from the local database */
+async function getLocalClaudeSessions() {
   try {
-    const db = getDatabase()
-    const rows = db.prepare(
-      'SELECT * FROM claude_sessions ORDER BY last_message_at DESC LIMIT 50'
-    ).all() as Array<Record<string, any>>
+    const rows = await dbGetAll<Record<string, any>>(
+      'SELECT * FROM claude_sessions ORDER BY last_message_at DESC LIMIT 50',
+      []
+    )
 
     return rows.map((s) => {
       const total = (s.input_tokens || 0) + (s.output_tokens || 0)

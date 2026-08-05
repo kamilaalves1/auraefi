@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase, Agent, db_helpers } from '@/lib/db';
+import { dbGetAll, dbGetOne, dbRun, Agent, db_helpers } from '@/lib/db';
 import { eventBus } from '@/lib/event-bus';
 import { enrichAgentConfigFromWorkspace } from '@/lib/agent-sync';
 import { requireRole } from '@/lib/auth';
@@ -17,10 +17,9 @@ export async function GET(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase();
     const { searchParams } = new URL(request.url);
     const workspaceId = auth.user.workspace_id ?? 1;
-    
+
     // Parse query parameters
     const status = searchParams.get('status');
     const role = searchParams.get('role');
@@ -35,36 +34,42 @@ export async function GET(request: NextRequest) {
     if (!showHidden) {
       query += ' AND hidden = 0';
     }
-    
+
     if (status) {
       query += ' AND status = ?';
       params.push(status);
     }
-    
+
     if (role) {
       query += ' AND role = ?';
       params.push(role);
     }
-    
+
     query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
     params.push(limit, offset);
-    
-    const stmt = db.prepare(query);
-    const agents = stmt.all(...params) as Agent[];
-    
+
+    const agents = await dbGetAll<Agent>(query, params);
+
     // Parse JSON config field
     const agentsWithParsedData = agents.map(agent => ({
       ...agent,
       config: enrichAgentConfigFromWorkspace(agent.config ? JSON.parse(agent.config) : {})
     }));
-    
+
     // Get task counts for all listed agents in one query (avoids N+1 queries)
     const agentNames = agentsWithParsedData.map(agent => agent.name).filter(Boolean)
     const taskStatsByAgent = new Map<string, { total: number; assigned: number; in_progress: number; quality_review: number; done: number }>()
 
     if (agentNames.length > 0) {
       const placeholders = agentNames.map(() => '?').join(', ')
-      const groupedTaskStats = db.prepare(`
+      const groupedTaskStats = await dbGetAll<{
+        assigned_to: string
+        total: number | null
+        assigned: number | null
+        in_progress: number | null
+        quality_review: number | null
+        done: number | null
+      }>(`
         SELECT
           assigned_to,
           COUNT(*) as total,
@@ -75,14 +80,7 @@ export async function GET(request: NextRequest) {
         FROM tasks
         WHERE workspace_id = ? AND assigned_to IN (${placeholders})
         GROUP BY assigned_to
-      `).all(workspaceId, ...agentNames) as Array<{
-        assigned_to: string
-        total: number | null
-        assigned: number | null
-        in_progress: number | null
-        quality_review: number | null
-        done: number | null
-      }>
+      `, [workspaceId, ...agentNames])
 
       for (const row of groupedTaskStats) {
         taskStatsByAgent.set(row.assigned_to, {
@@ -112,7 +110,7 @@ export async function GET(request: NextRequest) {
         }
       };
     });
-    
+
     // Get total count for pagination
     let countQuery = 'SELECT COUNT(*) as total FROM agents WHERE workspace_id = ?';
     const countParams: any[] = [workspaceId];
@@ -127,11 +125,11 @@ export async function GET(request: NextRequest) {
       countQuery += ' AND role = ?';
       countParams.push(role);
     }
-    const countRow = db.prepare(countQuery).get(...countParams) as { total: number };
+    const countRow = await dbGetOne<{ total: number }>(countQuery, countParams);
 
     return NextResponse.json({
       agents: agentsWithStats,
-      total: countRow.total,
+      total: countRow?.total ?? 0,
       page: Math.floor(offset / limit) + 1,
       limit
     });
@@ -152,14 +150,13 @@ export async function POST(request: NextRequest) {
   if (rateCheck) return rateCheck;
 
   try {
-    const db = getDatabase();
     const workspaceId = auth.user.workspace_id ?? 1;
     const validated = await validateBody(request, createAgentSchema);
     if ('error' in validated) return validated.error;
     const body = validated.data;
 
     const ipAddress = request.headers.get('x-forwarded-for') || 'unknown';
-    const result = await createMcAgent(db, {
+    const result = await createMcAgent({
       workspaceId,
       actorUsername: auth.user.username,
       actorUserId: auth.user.id,
@@ -192,7 +189,6 @@ export async function PUT(request: NextRequest) {
   if (rateCheck) return rateCheck;
 
   try {
-    const db = getDatabase();
     const workspaceId = auth.user.workspace_id ?? 1;
     const body = await request.json();
 
@@ -200,72 +196,68 @@ export async function PUT(request: NextRequest) {
     if (body.name) {
       // Single agent update
       const { name, status, last_activity, config, session_key, soul_content, role } = body;
-      
-      const agent = db
-        .prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?')
-        .get(name, workspaceId) as Agent;
+
+      const agent = await dbGetOne<Agent>('SELECT * FROM agents WHERE name = ? AND workspace_id = ?', [name, workspaceId]);
       if (!agent) {
         return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
       }
-      
+
       const now = Math.floor(Date.now() / 1000);
-      
+
       // Build dynamic update query
       const fieldsToUpdate = [];
       const params: any[] = [];
-      
+
       if (status !== undefined) {
         fieldsToUpdate.push('status = ?');
         params.push(status);
-        
+
         fieldsToUpdate.push('last_seen = ?');
         params.push(now);
       }
-      
+
       if (last_activity !== undefined) {
         fieldsToUpdate.push('last_activity = ?');
         params.push(last_activity);
       }
-      
+
       if (config !== undefined) {
         fieldsToUpdate.push('config = ?');
         params.push(JSON.stringify(config));
       }
-      
+
       if (session_key !== undefined) {
         fieldsToUpdate.push('session_key = ?');
         params.push(session_key);
       }
-      
+
       if (soul_content !== undefined) {
         fieldsToUpdate.push('soul_content = ?');
         params.push(soul_content);
       }
-      
+
       if (role !== undefined) {
         fieldsToUpdate.push('role = ?');
         params.push(role);
       }
-      
+
       fieldsToUpdate.push('updated_at = ?');
       params.push(now);
       params.push(name, workspaceId);
-      
+
       if (fieldsToUpdate.length === 1) { // Only updated_at
         return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
       }
-      
-      const stmt = db.prepare(`
-        UPDATE agents 
+
+      await dbRun(`
+        UPDATE agents
         SET ${fieldsToUpdate.join(', ')}
         WHERE name = ? AND workspace_id = ?
-      `);
-      
-      stmt.run(...params);
-      
+      `, params);
+
       // Log status change if status was updated
       if (status !== undefined && status !== agent.status) {
-        db_helpers.logActivity(
+        await db_helpers.logActivity(
           'agent_status_change',
           'agent',
           agent.id,
@@ -277,7 +269,7 @@ export async function PUT(request: NextRequest) {
             last_activity
           },
           workspaceId
-        );
+        ).catch(() => {});
       }
 
       // Broadcast update to SSE clients

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase } from '@/lib/db';
+import { dbGetOne, dbGetAll } from '@/lib/db';
 import { requireRole } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 
@@ -30,7 +30,6 @@ export async function GET(
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const db = getDatabase();
     const resolvedParams = await params;
     const agentId = resolvedParams.id;
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -38,9 +37,9 @@ export async function GET(
     // Resolve agent
     let agent: any;
     if (/^\d+$/.test(agentId)) {
-      agent = db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(agentId), workspaceId);
+      agent = await dbGetOne<any>('SELECT * FROM agents WHERE id = ? AND workspace_id = ?', [Number(agentId), workspaceId]);
     } else {
-      agent = db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(agentId, workspaceId);
+      agent = await dbGetOne<any>('SELECT * FROM agents WHERE name = ? AND workspace_id = ?', [agentId, workspaceId]);
     }
 
     if (!agent) {
@@ -81,19 +80,19 @@ export async function GET(
     };
 
     if (sections.sections.has('identity')) {
-      result.identity = buildIdentity(db, agent, workspaceId);
+      result.identity = await buildIdentity(agent, workspaceId);
     }
 
     if (sections.sections.has('audit')) {
-      result.audit = buildAuditTrail(db, agent.name, workspaceId, since);
+      result.audit = await buildAuditTrail(agent.name, workspaceId, since);
     }
 
     if (sections.sections.has('mutations')) {
-      result.mutations = buildMutations(db, agent.name, workspaceId, since);
+      result.mutations = await buildMutations(agent.name, workspaceId, since);
     }
 
     if (sections.sections.has('cost')) {
-      result.cost = buildCostAttribution(db, agent.name, workspaceId, since);
+      result.cost = await buildCostAttribution(agent.name, workspaceId, since);
     }
 
     return NextResponse.json(result);
@@ -104,22 +103,24 @@ export async function GET(
 }
 
 /** Agent identity and profile info */
-function buildIdentity(db: any, agent: any, workspaceId: number) {
+async function buildIdentity(agent: any, workspaceId: number) {
   const config = safeParseJson(agent.config, {});
 
   // Count total tasks ever assigned
-  const taskStats = db.prepare(`
+  const taskStats = await dbGetOne<any>(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as completed,
       SUM(CASE WHEN status IN ('assigned', 'in_progress') THEN 1 ELSE 0 END) as active
     FROM tasks WHERE assigned_to = ? AND workspace_id = ?
-  `).get(agent.name, workspaceId) as any;
+  `, [agent.name, workspaceId]);
 
   // Count comments authored
-  const commentCount = (db.prepare(
-    `SELECT COUNT(*) as c FROM comments WHERE author = ? AND workspace_id = ?`
-  ).get(agent.name, workspaceId) as any).c;
+  const commentRow = await dbGetOne<any>(
+    `SELECT COUNT(*) as c FROM comments WHERE author = ? AND workspace_id = ?`,
+    [agent.name, workspaceId]
+  );
+  const commentCount = commentRow?.c ?? 0;
 
   return {
     id: agent.id,
@@ -142,26 +143,26 @@ function buildIdentity(db: any, agent: any, workspaceId: number) {
 }
 
 /** Audit trail — all activities attributed to this agent */
-function buildAuditTrail(db: any, agentName: string, workspaceId: number, since: number) {
+async function buildAuditTrail(agentName: string, workspaceId: number, since: number) {
   // Activities where this agent is the actor
-  const activities = db.prepare(`
+  const activities = await dbGetAll<any>(`
     SELECT id, type, entity_type, entity_id, description, data, created_at
     FROM activities
     WHERE actor = ? AND workspace_id = ? AND created_at >= ?
     ORDER BY created_at DESC
     LIMIT 200
-  `).all(agentName, workspaceId, since) as any[];
+  `, [agentName, workspaceId, since]);
 
   // Audit log entries (system-wide, may reference agent)
   let auditEntries: any[] = [];
   try {
-    auditEntries = db.prepare(`
+    auditEntries = await dbGetAll<any>(`
       SELECT id, action, actor, detail, created_at
       FROM audit_log
       WHERE (actor = ? OR detail LIKE ?) AND created_at >= ?
       ORDER BY created_at DESC
       LIMIT 100
-    `).all(agentName, `%${agentName}%`, since) as any[];
+    `, [agentName, `%${agentName}%`, since]);
   } catch {
     // audit_log table may not exist
   }
@@ -187,9 +188,9 @@ function buildAuditTrail(db: any, agentName: string, workspaceId: number, since:
 }
 
 /** Mutations — task changes, comments, status transitions */
-function buildMutations(db: any, agentName: string, workspaceId: number, since: number) {
+async function buildMutations(agentName: string, workspaceId: number, since: number) {
   // Task mutations (created, updated, status changes)
-  const taskMutations = db.prepare(`
+  const taskMutations = await dbGetAll<any>(`
     SELECT id, type, entity_type, entity_id, description, data, created_at
     FROM activities
     WHERE actor = ? AND workspace_id = ? AND created_at >= ?
@@ -197,20 +198,20 @@ function buildMutations(db: any, agentName: string, workspaceId: number, since: 
       AND type IN ('task_created', 'task_updated', 'task_status_change', 'task_assigned')
     ORDER BY created_at DESC
     LIMIT 100
-  `).all(agentName, workspaceId, since) as any[];
+  `, [agentName, workspaceId, since]);
 
   // Comments authored
-  const comments = db.prepare(`
+  const comments = await dbGetAll<any>(`
     SELECT c.id, c.task_id, c.content, c.created_at, c.mentions, t.title as task_title
     FROM comments c
     LEFT JOIN tasks t ON c.task_id = t.id AND t.workspace_id = ?
     WHERE c.author = ? AND c.workspace_id = ? AND c.created_at >= ?
     ORDER BY c.created_at DESC
     LIMIT 50
-  `).all(workspaceId, agentName, workspaceId, since) as any[];
+  `, [workspaceId, agentName, workspaceId, since]);
 
   // Agent status changes (by heartbeat or others)
-  const statusChanges = db.prepare(`
+  const statusChanges = await dbGetAll<any>(`
     SELECT id, type, description, data, created_at
     FROM activities
     WHERE entity_type = 'agent' AND workspace_id = ?
@@ -218,7 +219,7 @@ function buildMutations(db: any, agentName: string, workspaceId: number, since: 
       AND (actor = ? OR description LIKE ?)
     ORDER BY created_at DESC
     LIMIT 50
-  `).all(workspaceId, since, agentName, `%${agentName}%`) as any[];
+  `, [workspaceId, since, agentName, `%${agentName}%`]);
 
   return {
     task_mutations: taskMutations.map(m => ({
@@ -243,9 +244,11 @@ function buildMutations(db: any, agentName: string, workspaceId: number, since: 
 }
 
 /** Cost attribution — token usage per model */
-function buildCostAttribution(db: any, agentName: string, workspaceId: number, since: number) {
+async function buildCostAttribution(agentName: string, workspaceId: number, since: number) {
   try {
-    const byModel = db.prepare(`
+    const byModel = await dbGetAll<{
+      model: string; request_count: number; input_tokens: number; output_tokens: number
+    }>(`
       SELECT model,
         COUNT(*) as request_count,
         SUM(input_tokens) as input_tokens,
@@ -254,12 +257,12 @@ function buildCostAttribution(db: any, agentName: string, workspaceId: number, s
       WHERE session_id = ? AND workspace_id = ? AND created_at >= ?
       GROUP BY model
       ORDER BY (input_tokens + output_tokens) DESC
-    `).all(agentName, workspaceId, since) as Array<{
-      model: string; request_count: number; input_tokens: number; output_tokens: number
-    }>;
+    `, [agentName, workspaceId, since]);
 
     // Also check session IDs that contain the agent name (e.g. "agentname:cli")
-    const byModelAlt = db.prepare(`
+    const byModelAlt = await dbGetAll<{
+      model: string; request_count: number; input_tokens: number; output_tokens: number
+    }>(`
       SELECT model,
         COUNT(*) as request_count,
         SUM(input_tokens) as input_tokens,
@@ -268,9 +271,7 @@ function buildCostAttribution(db: any, agentName: string, workspaceId: number, s
       WHERE session_id LIKE ? AND session_id != ? AND workspace_id = ? AND created_at >= ?
       GROUP BY model
       ORDER BY (input_tokens + output_tokens) DESC
-    `).all(`${agentName}:%`, agentName, workspaceId, since) as Array<{
-      model: string; request_count: number; input_tokens: number; output_tokens: number
-    }>;
+    `, [`${agentName}:%`, agentName, workspaceId, since]);
 
     // Merge results
     const merged = new Map<string, { model: string; request_count: number; input_tokens: number; output_tokens: number }>();
@@ -293,7 +294,7 @@ function buildCostAttribution(db: any, agentName: string, workspaceId: number, s
     }), { input_tokens: 0, output_tokens: 0, requests: 0 });
 
     // Daily breakdown for trend
-    const daily = db.prepare(`
+    const daily = await dbGetAll<any>(`
       SELECT (created_at / 86400) * 86400 as day_bucket,
         SUM(input_tokens) as input_tokens,
         SUM(output_tokens) as output_tokens,
@@ -302,7 +303,7 @@ function buildCostAttribution(db: any, agentName: string, workspaceId: number, s
       WHERE (session_id = ? OR session_id LIKE ?) AND workspace_id = ? AND created_at >= ?
       GROUP BY day_bucket
       ORDER BY day_bucket ASC
-    `).all(agentName, `${agentName}:%`, workspaceId, since) as any[];
+    `, [agentName, `${agentName}:%`, workspaceId, since]);
 
     return {
       by_model: models,

@@ -5,7 +5,7 @@ import { config, ensureDirExists } from '@/lib/config'
 import { requireRole } from '@/lib/auth'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { logger } from '@/lib/logger'
-import { getDatabase } from '@/lib/db'
+import { dbGetAll, dbGetOne } from '@/lib/db'
 import { calculateTokenCost } from '@/lib/token-pricing'
 import { getProviderSubscriptionFlags } from '@/lib/provider-subscriptions'
 import { buildTaskCostReport, type TaskCostMetadata } from '@/lib/task-costs'
@@ -63,16 +63,15 @@ interface DbTokenUsageRow {
   created_at: number
 }
 
-function loadTokenDataFromDb(workspaceId: number, providerSubscriptions: Record<string, boolean>): TokenUsageRecord[] {
+async function loadTokenDataFromDb(workspaceId: number, providerSubscriptions: Record<string, boolean>): Promise<TokenUsageRecord[]> {
   try {
-    const db = getDatabase()
-    const rows = db.prepare(`
+    const rows = await dbGetAll<DbTokenUsageRow>(`
       SELECT id, model, session_id, input_tokens, output_tokens, task_id, workspace_id, created_at
       FROM token_usage
       WHERE workspace_id = ?
       ORDER BY created_at DESC, id DESC
       LIMIT 10000
-    `).all(workspaceId) as DbTokenUsageRow[]
+    `, [workspaceId])
 
     return rows.map((row) => {
       const totalTokens = row.input_tokens + row.output_tokens
@@ -175,7 +174,7 @@ async function loadTokenDataFromFile(workspaceId: number, providerSubscriptions:
  */
 async function loadTokenData(workspaceId: number): Promise<TokenUsageRecord[]> {
   const providerSubscriptions = getProviderSubscriptionFlags()
-  const dbRecords = loadTokenDataFromDb(workspaceId, providerSubscriptions)
+  const dbRecords = await loadTokenDataFromDb(workspaceId, providerSubscriptions)
   const fileRecords = await loadTokenDataFromFile(workspaceId, providerSubscriptions)
   const sessionRecords = deriveFromSessions(workspaceId, providerSubscriptions)
   return dedupeTokenRecords([...dbRecords, ...fileRecords, ...sessionRecords])
@@ -271,11 +270,10 @@ function filterByTimeframe(records: TokenUsageRecord[], timeframe: string): Toke
   return records.filter(record => record.timestamp >= cutoffTime)
 }
 
-function loadTaskMetadataById(workspaceId: number, taskIds: number[]): Record<number, TaskCostMetadata> {
+async function loadTaskMetadataById(workspaceId: number, taskIds: number[]): Promise<Record<number, TaskCostMetadata>> {
   if (taskIds.length === 0) return {}
-  const db = getDatabase()
   const placeholders = taskIds.map(() => '?').join(', ')
-  const rows = db.prepare(`
+  const rows = await dbGetAll<TaskMetadataRow>(`
     SELECT
       t.id,
       t.title,
@@ -292,7 +290,7 @@ function loadTaskMetadataById(workspaceId: number, taskIds: number[]): Record<nu
       ON p.id = t.project_id AND p.workspace_id = t.workspace_id
     WHERE t.workspace_id = ?
       AND t.id IN (${placeholders})
-  `).all(workspaceId, ...taskIds) as TaskMetadataRow[]
+  `, [workspaceId, ...taskIds])
 
   const out: Record<number, TaskCostMetadata> = {}
   for (const row of rows) {
@@ -444,7 +442,7 @@ export async function GET(request: NextRequest) {
           .filter((taskId): taskId is number => Number.isFinite(taskId) && Number(taskId) > 0)
           .map((taskId) => Number(taskId))
       )]
-      const taskMetadataById = loadTaskMetadataById(workspaceId, attributedTaskIds)
+      const taskMetadataById = await loadTaskMetadataById(workspaceId, attributedTaskIds)
       const report = buildTaskCostReport(
         filteredData.map((record) => ({
           model: record.model,
@@ -595,10 +593,10 @@ export async function POST(request: NextRequest) {
 
     let validatedTaskId: number | null = null
     if (parsedTaskId) {
-      const db = getDatabase()
-      const taskRow = db.prepare(
-        'SELECT id FROM tasks WHERE id = ? AND workspace_id = ?'
-      ).get(parsedTaskId, workspaceId) as { id?: number } | undefined
+      const taskRow = await dbGetOne<{ id?: number }>(
+        'SELECT id FROM tasks WHERE id = ? AND workspace_id = ?',
+        [parsedTaskId, workspaceId]
+      )
       if (taskRow?.id) validatedTaskId = taskRow.id
     }
 

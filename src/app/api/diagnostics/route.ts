@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import net from 'node:net'
-import { existsSync, statSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { requireRole } from '@/lib/auth'
 import { config } from '@/lib/config'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbGetAll } from '@/lib/db'
 import { logger } from '@/lib/logger'
 import { APP_VERSION } from '@/lib/version'
 
@@ -114,49 +114,37 @@ function getSecurityInfo() {
   return { score, checks }
 }
 
-function getDatabaseInfo() {
+async function getDatabaseInfo() {
   try {
-    const db = getDatabase()
-
-    let sizeBytes = 0
-    try {
-      sizeBytes = statSync(config.dbPath).size
-    } catch {
-      // ignore
-    }
-
-    const journalRow = db.prepare('PRAGMA journal_mode').get() as { journal_mode: string } | undefined
-    const walMode = journalRow?.journal_mode === 'wal'
-
     let migrationVersion: string | null = null
     try {
-      const row = db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='migrations'"
-      ).get() as { name?: string } | undefined
-      if (row?.name) {
-        const latest = db.prepare(
-          'SELECT version FROM migrations ORDER BY rowid DESC LIMIT 1'
-        ).get() as { version: string } | undefined
-        migrationVersion = latest?.version ?? null
-      }
+      const row = await dbGetOne<{ id: string }>(
+        `SELECT id FROM schema_migrations ORDER BY applied_at DESC LIMIT 1`
+      )
+      migrationVersion = row?.id ?? null
     } catch {
       // migrations table may not exist
     }
 
-    return { sizeBytes, walMode, migrationVersion }
+    return {
+      sizeBytes: 0,  // Aurora MySQL: size managed by AWS, not directly accessible
+      walMode: false, // Not applicable to MySQL
+      migrationVersion,
+      engine: 'Aurora MySQL',
+      host: process.env.MYSQL_HOST || 'localhost',
+      database: process.env.MYSQL_DATABASE || 'vertex_control',
+    }
   } catch (err) {
     logger.error({ err }, 'Diagnostics: database info error')
-    return { sizeBytes: 0, walMode: false, migrationVersion: null }
+    return { sizeBytes: 0, walMode: false, migrationVersion: null, engine: 'Aurora MySQL' }
   }
 }
 
-function getAgentInfo() {
+async function getAgentInfo() {
   try {
-    const db = getDatabase()
-    const rows = db.prepare(
+    const rows = await dbGetAll<{ status: string; count: number }>(
       'SELECT status, COUNT(*) as count FROM agents GROUP BY status'
-    ).all() as Array<{ status: string; count: number }>
-
+    )
     const byStatus: Record<string, number> = {}
     let total = 0
     for (const row of rows) {
@@ -169,13 +157,12 @@ function getAgentInfo() {
   }
 }
 
-function getSessionInfo() {
+async function getSessionInfo() {
   try {
-    const db = getDatabase()
-    const totalRow = db.prepare('SELECT COUNT(*) as c FROM claude_sessions').get() as { c: number } | undefined
-    const activeRow = db.prepare(
-      "SELECT COUNT(*) as c FROM claude_sessions WHERE is_active = 1"
-    ).get() as { c: number } | undefined
+    const totalRow = await dbGetOne<{ c: number }>('SELECT COUNT(*) as c FROM claude_sessions')
+    const activeRow = await dbGetOne<{ c: number }>(
+      'SELECT COUNT(*) as c FROM claude_sessions WHERE is_active = 1'
+    )
     return { active: activeRow?.c ?? 0, total: totalRow?.c ?? 0 }
   } catch {
     return { active: 0, total: 0 }

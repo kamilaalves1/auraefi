@@ -1,6 +1,5 @@
 
-import BetterSqlite3 from 'better-sqlite3'
-import { db_helpers, logAuditEvent, type Agent } from '@/lib/db'
+import { dbGetOne, dbRun, db_helpers, logAuditEvent, type Agent } from '@/lib/db'
 import { eventBus } from '@/lib/event-bus'
 import { getTemplate, buildAgentConfig } from '@/lib/agent-templates'
 import { writeAgentToConfig, enrichAgentConfigFromWorkspace } from '@/lib/agent-sync'
@@ -52,13 +51,7 @@ export type CreateMcAgentContext = {
   ipAddress: string
 }
 
-/**
- * Shared create-agent logic for POST /api/agents and bulk presets.
- */
-type SqliteDatabase = InstanceType<typeof BetterSqlite3>
-
 export async function createMcAgent(
-  db: SqliteDatabase,
   ctx: CreateMcAgentContext,
   body: CreateMcAgentBody,
 ): Promise<CreateMcAgentResult> {
@@ -75,7 +68,7 @@ export async function createMcAgent(
     write_to_gateway,
     provision_workspace,
     workspace_path,
-    model = 'claude-sonnet-4-6',
+    model = '',
     instructions = '',
   } = body
 
@@ -119,9 +112,10 @@ export async function createMcAgent(
     return { ok: false, status: 400, error: 'Name and role are required' }
   }
 
-  const existingAgent = db
-    .prepare('SELECT id FROM agents WHERE name = ? AND workspace_id = ?')
-    .get(name, ctx.workspaceId)
+  const existingAgent = await dbGetOne<{ id: number }>(
+    'SELECT id FROM agents WHERE name = ? AND workspace_id = ?',
+    [name, ctx.workspaceId],
+  )
   if (existingAgent) {
     return { ok: false, status: 409, error: 'Agent name already exists' }
   }
@@ -133,28 +127,27 @@ export async function createMcAgent(
 
   const now = Math.floor(Date.now() / 1000)
 
-  const stmt = db.prepare(`
-      INSERT INTO agents (
+  const dbResult = await dbRun(
+    `INSERT INTO agents (
         name, role, session_key, soul_content, status,
         created_at, updated_at, config, workspace_id, model, instructions
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-
-  const dbResult = stmt.run(
-    name,
-    finalRole,
-    session_key ?? null,
-    soul_content ?? null,
-    status,
-    now,
-    now,
-    JSON.stringify(finalConfig),
-    ctx.workspaceId,
-    model,
-    instructions,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      name,
+      finalRole,
+      session_key ?? null,
+      soul_content ?? null,
+      status,
+      now,
+      now,
+      JSON.stringify(finalConfig),
+      ctx.workspaceId,
+      model,
+      instructions,
+    ],
   )
 
-  const agentId = dbResult.lastInsertRowid as number
+  const agentId = dbResult.insertId
 
   db_helpers.logActivity(
     'agent_created',
@@ -170,15 +163,16 @@ export async function createMcAgent(
       template: template || null,
     },
     ctx.workspaceId,
+  ).catch(() => {})
+
+  const createdAgent = await dbGetOne<Agent>(
+    'SELECT * FROM agents WHERE id = ? AND workspace_id = ?',
+    [agentId, ctx.workspaceId],
   )
 
-  const createdAgent = db
-    .prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?')
-    .get(agentId, ctx.workspaceId) as Agent
-
   const parsedAgent = {
-    ...createdAgent,
-    config: enrichAgentConfigFromWorkspace(JSON.parse(createdAgent.config || '{}')),
+    ...createdAgent!,
+    config: enrichAgentConfigFromWorkspace(JSON.parse(createdAgent?.config || '{}')),
     taskStats: {
       total: 0,
       assigned: 0,
@@ -205,7 +199,7 @@ export async function createMcAgent(
         ...(fc.memorySearch && { memorySearch: fc.memorySearch }),
       })
 
-      logAuditEvent({
+      await logAuditEvent({
         action: 'agent_gateway_create',
         actor: ctx.actorUsername,
         actor_id: ctx.actorUserId,
@@ -213,7 +207,7 @@ export async function createMcAgent(
         target_id: agentId,
         detail: { name, agent_id: agentSlug, template: template || null },
         ip_address: ctx.ipAddress,
-      })
+      }).catch(() => {})
     } catch (gwErr: unknown) {
       logger.error({ err: gwErr }, 'Gateway write-back failed')
       const msg = gwErr instanceof Error ? gwErr.message : 'Gateway write failed'

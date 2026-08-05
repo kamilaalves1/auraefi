@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { readLimiter } from '@/lib/rate-limit'
-import { getDatabase } from '@/lib/db'
+import { dbGetAll } from '@/lib/db'
 import { logger } from '@/lib/logger'
 
 interface RegressionTaskRow {
@@ -139,8 +139,7 @@ export async function GET(request: NextRequest) {
     const baselineEnd = betaStart
     const baselineStart = Math.max(0, baselineEnd - baselineDuration)
 
-    const db = getDatabase()
-    const rows = db.prepare(`
+    const rows = await dbGetAll<RegressionTaskRow>(`
       SELECT
         id,
         created_at,
@@ -154,7 +153,7 @@ export async function GET(request: NextRequest) {
         AND completed_at IS NOT NULL
         AND completed_at >= ?
         AND completed_at < ?
-    `).all(workspaceId, baselineStart, postEnd) as RegressionTaskRow[]
+    `, [workspaceId, baselineStart, postEnd])
 
     const baseline = buildWindowStats('baseline', baselineStart, baselineEnd, rows)
     const post = buildWindowStats('post', postStart, postEnd, rows)

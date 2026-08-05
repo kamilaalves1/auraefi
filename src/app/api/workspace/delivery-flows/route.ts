@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne, dbGetAll, dbRun } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { parseDeliveryFlowJson, type DeliveryFlow, type GitRepository } from '@/lib/delivery-flow-types'
@@ -34,9 +34,9 @@ function rowToFlow(row: any, repoRow?: any): DeliveryFlow {
   }
 }
 
-function loadFlowWithRepo(db: ReturnType<typeof getDatabase>, flowRow: any): DeliveryFlow {
+async function loadFlowWithRepo(flowRow: any): Promise<DeliveryFlow> {
   const repoRow = flowRow.git_repository_id
-    ? db.prepare('SELECT * FROM git_repositories WHERE id = ?').get(flowRow.git_repository_id)
+    ? await dbGetOne('SELECT * FROM git_repositories WHERE id = ?', [flowRow.git_repository_id])
     : null
   return rowToFlow(flowRow, repoRow)
 }
@@ -47,13 +47,14 @@ export async function GET(request: NextRequest) {
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
-    const rows = db.prepare(
-      'SELECT * FROM delivery_flows WHERE workspace_id = ? ORDER BY created_at ASC'
-    ).all(workspaceId) as any[]
+    const rows = await dbGetAll<any>(
+      'SELECT * FROM delivery_flows WHERE workspace_id = ? ORDER BY created_at ASC',
+      [workspaceId]
+    )
 
-    return NextResponse.json({ flows: rows.map(r => loadFlowWithRepo(db, r)) })
+    const flows = await Promise.all(rows.map(r => loadFlowWithRepo(r)))
+    return NextResponse.json({ flows })
   } catch (error) {
     logger.error({ err: error }, 'GET /api/workspace/delivery-flows error')
     return NextResponse.json({ error: 'Failed to load delivery flows' }, { status: 500 })
@@ -71,7 +72,6 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}))
     const workspaceId = auth.user.workspace_id ?? 1
-    const db = getDatabase()
 
     const name = typeof body.name === 'string' && body.name.trim()
       ? body.name.trim().slice(0, 120)
@@ -80,13 +80,14 @@ export async function POST(request: NextRequest) {
     const definition_json = body.definition ? JSON.stringify(body.definition) : '{}'
     const now = Math.floor(Date.now() / 1000)
 
-    const result = db.prepare(
+    const result = await dbRun(
       `INSERT INTO delivery_flows (workspace_id, name, git_repository_id, definition_json, created_at, updated_at, updated_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(workspaceId, name, git_repository_id, definition_json, now, now, auth.user.username)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [workspaceId, name, git_repository_id, definition_json, now, now, auth.user.username]
+    )
 
-    const row = db.prepare('SELECT * FROM delivery_flows WHERE id = ?').get(result.lastInsertRowid) as any
-    return NextResponse.json({ flow: loadFlowWithRepo(db, row) }, { status: 201 })
+    const row = await dbGetOne<any>('SELECT * FROM delivery_flows WHERE id = ?', [result.insertId])
+    return NextResponse.json({ flow: await loadFlowWithRepo(row) }, { status: 201 })
   } catch (error) {
     logger.error({ err: error }, 'POST /api/workspace/delivery-flows error')
     return NextResponse.json({ error: 'Failed to create delivery flow' }, { status: 500 })

@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGetOne } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { getEffectiveEnvValue } from '@/lib/runtime-env'
@@ -28,12 +28,12 @@ export async function POST(request: NextRequest, { params }: Params) {
 
   try {
     const { id } = await params
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
 
-    const row = db.prepare(
-      'SELECT * FROM git_repositories WHERE id = ? AND workspace_id = ?'
-    ).get(Number(id), workspaceId) as any | undefined
+    const row = await dbGetOne<any>(
+      'SELECT * FROM git_repositories WHERE id = ? AND workspace_id = ?',
+      [Number(id), workspaceId]
+    )
 
     if (!row) return NextResponse.json({ error: 'Repository not found' }, { status: 404 })
 
