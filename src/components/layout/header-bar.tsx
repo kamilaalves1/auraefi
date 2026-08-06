@@ -363,6 +363,7 @@ export function HeaderBar() {
             <SearchIcon />
           </Button>
 
+          <LogoutButton />
         </div>
       </div>
 
@@ -616,5 +617,33 @@ function BellIcon() {
     <svg className="w-4 h-4" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <path d="M6 13h4M3.5 10c0-1-1-2-1-4a5.5 5.5 0 0111 0c0 2-1 3-1 4H3.5z" />
     </svg>
+  )
+}
+
+function LogoutButton() {
+  const th = useTranslations('header')
+  const [busy, setBusy] = useState(false)
+
+  const handleLogout = async () => {
+    setBusy(true)
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' })
+    } finally {
+      window.location.href = '/login'
+    }
+  }
+
+  return (
+    <button
+      onClick={handleLogout}
+      disabled={busy}
+      title={th('logout')}
+      className="flex items-center gap-1.5 px-2 py-1 rounded-md text-2xs text-muted-foreground/60 hover:text-foreground hover:bg-muted/60 border border-transparent hover:border-border/50 transition-all duration-150 disabled:opacity-50"
+    >
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 shrink-0">
+        <path d="M10 2h3a1 1 0 011 1v10a1 1 0 01-1 1h-3M7 11l3-3-3-3M10 8H2" />
+      </svg>
+      <span className="hidden sm:inline">{th('logout')}</span>
+    </button>
   )
 }
