@@ -26,6 +26,20 @@ interface Activity {
 interface TokenSummary {
   total_cost: number; total_tokens: number; agent_count: number
 }
+interface CompactGroup {
+  agents: string[]
+  avg_output_per_req: number | null
+  total_output_tokens: number
+  request_count: number
+  total_cost: number
+}
+interface CompactModeData {
+  days: number
+  compact: CompactGroup
+  standard: CompactGroup
+  savings: { output_tokens_pct: number | null; output_tokens_saved: number | null }
+  per_agent: Array<{ name: string; compact: boolean; request_count: number; avg_output_per_req: number; cost: number }>
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function formatCost(usd: number): string {
@@ -116,21 +130,193 @@ const CustomTooltip = ({ active, payload, label, prefix = '' }: any) => {
   )
 }
 
+// ── Compact Mode Widget ───────────────────────────────────────────────────────
+function fmtTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
+  return String(n)
+}
+
+function CompactModeWidget({ data }: { data: CompactModeData }) {
+  const hasData = (data.compact.request_count + data.standard.request_count) > 0
+  const hasComparison = data.compact.request_count > 0 && data.standard.request_count > 0
+  const savingsPct = data.savings.output_tokens_pct
+
+  const agentBars = data.per_agent
+    .filter(a => a.request_count > 0 && a.avg_output_per_req > 0)
+    .slice(0, 14)
+    .map(a => ({
+      name: a.name.length > 20 ? a.name.slice(0, 18) + '…' : a.name,
+      'Tokens/req': a.avg_output_per_req,
+      compact: a.compact,
+    }))
+
+  const groupBars = [
+    { modo: 'Padrão',   'Tokens/req': data.standard.avg_output_per_req ?? 0, fill: '#6b7280' },
+    { modo: 'Compacto', 'Tokens/req': data.compact.avg_output_per_req ?? 0,  fill: '#34d399' },
+  ]
+
+  const CustomBarLabel = (props: any) => {
+    const { x, y, width, value, compact } = props
+    if (!value) return null
+    return (
+      <text x={x + width + 6} y={y + 9} fill={compact ? '#34d399' : '#6b7280'} fontSize={9} alignmentBaseline="middle">
+        {fmtTokens(value)}
+      </text>
+    )
+  }
+
+  const AgentBar = (props: any) => {
+    const { x, y, width, height, compact } = props
+    return <rect x={x} y={y} width={width} height={height} fill={compact ? '#34d399' : '#6b7280'} rx={2} ry={2} opacity={0.85} />
+  }
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 shrink-0">
+
+      {/* Per-agent breakdown */}
+      <div className="lg:col-span-2 rounded-xl border border-border/60 bg-card p-4 flex flex-col gap-3">
+        <div className="flex items-center justify-between shrink-0">
+          <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
+            Modo Econômico — Tokens de Output por Requisição
+          </p>
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <span className="w-2 h-2 rounded-sm bg-emerald-400" /> Compacto ativo
+            </span>
+            <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <span className="w-2 h-2 rounded-sm bg-zinc-500" /> Padrão
+            </span>
+          </div>
+        </div>
+
+        {!hasData ? (
+          <p className="text-xs text-muted-foreground/40 text-center py-8">
+            Sem dados de token nos últimos {data.days} dias
+          </p>
+        ) : agentBars.length === 0 ? (
+          <p className="text-xs text-muted-foreground/40 text-center py-8">
+            Nenhum agente com uso registrado
+          </p>
+        ) : (
+          <div style={{ height: Math.max(120, agentBars.length * 22 + 16) }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={agentBars}
+                layout="vertical"
+                margin={{ top: 0, right: 56, left: 4, bottom: 0 }}
+                barCategoryGap="20%"
+              >
+                <XAxis type="number" tick={{ fontSize: 9, fill: '#6b7280' }} tickLine={false} axisLine={false} allowDecimals={false} />
+                <YAxis type="category" dataKey="name" tick={{ fontSize: 9, fill: '#9ca3af' }} tickLine={false} axisLine={false} width={112} />
+                <Tooltip
+                  formatter={(v: any) => [`${Number(v).toLocaleString('pt-BR')} tokens/req`, 'Média output']}
+                  contentStyle={{ fontSize: 11 }}
+                />
+                <Bar dataKey="Tokens/req" maxBarSize={14} shape={<AgentBar />} label={<CustomBarLabel />} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* KPI card */}
+      <div className="rounded-xl border border-border/60 bg-card p-4 flex flex-col gap-4">
+        <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground shrink-0">
+          Impacto do Modo Econômico
+        </p>
+
+        {!hasData ? (
+          <p className="text-xs text-muted-foreground/40 text-center my-auto">Sem dados ainda</p>
+        ) : (
+          <>
+            {hasComparison && savingsPct !== null ? (
+              <div className="flex flex-col gap-0.5">
+                <p className={`text-3xl font-black tabular-nums leading-none ${savingsPct > 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {savingsPct > 0 ? '-' : '+'}{Math.abs(savingsPct).toFixed(1)}%
+                </p>
+                <p className="text-[10px] text-muted-foreground/50">tokens de output por req vs padrão</p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-0.5">
+                <p className="text-xs text-muted-foreground/40">
+                  {data.compact.request_count === 0
+                    ? 'Nenhum agente compacto com uso registrado'
+                    : 'Ative o modo compacto em mais agentes para comparar'}
+                </p>
+              </div>
+            )}
+
+            {data.savings.output_tokens_saved !== null && data.savings.output_tokens_saved > 0 && (
+              <div className="flex flex-col gap-0.5">
+                <p className="text-2xl font-black tabular-nums leading-none text-violet-400">
+                  {fmtTokens(data.savings.output_tokens_saved)}
+                </p>
+                <p className="text-[10px] text-muted-foreground/50">tokens poupados (últimos {data.days}d)</p>
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2 mt-auto">
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-muted-foreground/60">Compacto</span>
+                <span className="font-semibold text-emerald-400">
+                  {data.compact.avg_output_per_req !== null ? `${fmtTokens(data.compact.avg_output_per_req)} t/req` : '—'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-[11px]">
+                <span className="text-muted-foreground/60">Padrão</span>
+                <span className="font-semibold text-muted-foreground">
+                  {data.standard.avg_output_per_req !== null ? `${fmtTokens(data.standard.avg_output_per_req)} t/req` : '—'}
+                </span>
+              </div>
+
+              {hasComparison && (
+                <div className="mt-1">
+                  <div className="flex items-center justify-between text-[10px] text-muted-foreground/40 mb-1">
+                    <span>Redução relativa</span>
+                    <span>{savingsPct !== null ? `${Math.abs(savingsPct).toFixed(1)}%` : '—'}</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-border/40 rounded-full overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-emerald-400 transition-all"
+                      style={{ width: `${Math.min(100, Math.max(0, savingsPct ?? 0))}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between text-[11px] pt-1 border-t border-border/30">
+                <span className="text-muted-foreground/60">Agentes compactos</span>
+                <span className="font-semibold text-foreground">
+                  {data.compact.agents.length} de {data.compact.agents.length + data.standard.agents.length}
+                </span>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+
+    </div>
+  )
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 export function OverviewPanel() {
-  const [agents, setAgents]   = useState<Agent[]>([])
-  const [runs,   setRuns]     = useState<CardRun[]>([])
-  const [acts,   setActs]     = useState<Activity[]>([])
-  const [tokens, setTokens]   = useState<TokenSummary>({ total_cost: 0, total_tokens: 0, agent_count: 0 })
-  const [loading, setLoading] = useState(true)
-  const [ts, setTs]           = useState(Date.now())
+  const [agents, setAgents]         = useState<Agent[]>([])
+  const [runs,   setRuns]           = useState<CardRun[]>([])
+  const [acts,   setActs]           = useState<Activity[]>([])
+  const [tokens, setTokens]         = useState<TokenSummary>({ total_cost: 0, total_tokens: 0, agent_count: 0 })
+  const [compactData, setCompactData] = useState<CompactModeData | null>(null)
+  const [loading, setLoading]       = useState(true)
+  const [ts, setTs]                 = useState(Date.now())
 
   const load = useCallback(async () => {
-    const [ar, rr, acr, tokr] = await Promise.allSettled([
+    const [ar, rr, acr, tokr, cmr] = await Promise.allSettled([
       fetch('/api/agents').then(r => r.ok ? r.json() : ({} as any)),
       fetch('/api/pipeline/engine/runs?limit=500').then(r => r.ok ? r.json() : ({} as any)),
       fetch('/api/activities?limit=80').then(r => r.ok ? r.json() : ({} as any)),
       fetch('/api/tokens/by-agent?timeframe=month').then(r => r.ok ? r.json() : ({} as any)),
+      fetch('/api/tokens/compact-mode?days=30').then(r => r.ok ? r.json() : null),
     ])
     if (ar.status === 'fulfilled') setAgents(ar.value.agents ?? [])
     if (rr.status === 'fulfilled') setRuns(rr.value.runs ?? [])
@@ -140,6 +326,7 @@ export function OverviewPanel() {
       setActs(all.filter(a => !isNoise(a.description ?? '')))
     }
     if (tokr.status === 'fulfilled') setTokens(tokr.value.summary ?? { total_cost: 0, total_tokens: 0, agent_count: 0 })
+    if (cmr.status === 'fulfilled' && cmr.value) setCompactData(cmr.value)
     setLoading(false)
     setTs(Date.now())
   }, [])
@@ -432,6 +619,11 @@ const STATUS_PT: Record<string, string> = {
           )}
         </div>
       </div>
+
+      {/* ── Modo Econômico ── */}
+      {compactData && (
+        <CompactModeWidget data={compactData} />
+      )}
 
       {/* ── Bottom row: Agentes + Atividade recente ── */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 shrink-0">
