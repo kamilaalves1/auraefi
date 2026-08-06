@@ -1,4 +1,4 @@
-﻿'use client'
+'use client'
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
@@ -1068,7 +1068,13 @@ function AgentDetailModalPhase3({
           )}
 
           {activeTab === 'instructions' && (
-            <InstructionsTab agent={agentState} onSaved={(patch) => setAgentState(prev => ({ ...prev, ...patch }))} />
+            <InstructionsTab
+              agent={agentState}
+              onSaved={(patch) => {
+                setAgentState(prev => ({ ...prev, ...patch }))
+                setFormData(prev => ({ ...prev, ...patch }))
+              }}
+            />
           )}
 
           {activeTab === 'persona' && (
@@ -1084,7 +1090,7 @@ function AgentDetailModalPhase3({
   )
 }
 
-// Quick Spawn Modal Component
+// Quick Spawn Modal
 function QuickSpawnModal({
   agent,
   onClose,
@@ -1255,51 +1261,241 @@ function QuickSpawnModal({
   )
 }
 
-function InstructionsTab({
-  agent,
-  onSaved,
-}: {
-  agent: Agent & { model?: string; instructions?: string }
-  onSaved: (patch: { instructions?: string }) => void
-}) {
-  const [instructions, setInstructions] = useState(agent.instructions || '')
+const COMPACT_MODE_BLOCK = `
+
+## Modo de Saída Compacto
+- Seja direto. Elimine preâmbulos, redundâncias e meta-comentários.
+- Nunca explique o que vai fazer — apenas faça.
+- Prefira frases curtas a parágrafos longos.
+- Blocos de código permanecem íntegros e sem alterações.
+- Uma ideia = uma frase. Sem bullets para itens únicos.`
+
+function parseSkillRefs(soul: string): string[] {
+  const matches = soul.match(/skills\/([a-zA-Z0-9._-]+)\/SKILL\.md/g) || []
+  return [...new Set(matches.map(m => m.split('/')[1]))]
+}
+
+function SkillViewer({ name }: { name: string }) {
+  const [content, setContent] = useState<string | null>(null)
+  const [draft, setDraft] = useState<string>('')
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const load = async () => {
+    if (content !== null) { setOpen(o => !o); return }
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/project-skills?name=${encodeURIComponent(name)}`)
+      const data = await res.json()
+      const text = res.ok ? data.content : `Erro: ${data.error}`
+      setContent(text)
+      setDraft(text)
+      setOpen(true)
+    } catch {
+      setContent('Não foi possível carregar o skill.')
+      setOpen(true)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   const handleSave = async () => {
     setSaving(true)
     try {
-      const res = await fetch(`/api/agents/${agent.id}`, {
+      const res = await fetch('/api/project-skills', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instructions }),
+        body: JSON.stringify({ name, content: draft }),
       })
       if (!res.ok) throw new Error((await res.json()).error || 'Erro ao salvar')
-      onSaved({ instructions })
-      setFeedback({ ok: true, text: 'Salvo com sucesso' })
+      setContent(draft)
+      setEditing(false)
+      setFeedback({ ok: true, text: 'Skill salvo' })
+      setTimeout(() => setFeedback(null), 2500)
     } catch (err: any) {
       setFeedback({ ok: false, text: err.message || 'Erro ao salvar' })
+      setTimeout(() => setFeedback(null), 3000)
     } finally {
       setSaving(false)
-      setTimeout(() => setFeedback(null), 3000)
+    }
+  }
+
+  const handleCancel = () => {
+    setDraft(content || '')
+    setEditing(false)
+  }
+
+  return (
+    <div className="rounded-md border border-border/60 overflow-hidden">
+      <button
+        type="button"
+        onClick={load}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs font-mono text-muted-foreground hover:text-foreground hover:bg-secondary/30 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-primary/70">
+            <path d="M13 2H3a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V3a1 1 0 0 0-1-1zM9 2v12M3 6h6" />
+          </svg>
+          <span>skills/{name}/SKILL.md</span>
+        </span>
+        <span className="text-muted-foreground/50 text-[10px]">
+          {loading ? '...' : open ? '▲' : '▼'}
+        </span>
+      </button>
+
+      {open && content !== null && (
+        <div className="border-t border-border/40">
+          {!editing ? (
+            <>
+              <pre className="px-3 py-3 text-[11px] font-mono text-muted-foreground bg-black/20 whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto">
+                {content}
+              </pre>
+              <div className="flex items-center justify-between px-3 py-1.5 bg-black/10 border-t border-border/30">
+                {feedback && (
+                  <span className={`text-[11px] ${feedback.ok ? 'text-green-400' : 'text-red-400'}`}>{feedback.text}</span>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  className="ml-auto text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors"
+                >
+                  Editar
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <textarea
+                value={draft}
+                onChange={e => setDraft(e.target.value)}
+                rows={12}
+                className="w-full px-3 py-2 text-[11px] font-mono text-foreground bg-black/30 resize-y focus:outline-none"
+              />
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-black/10 border-t border-border/30">
+                {feedback && (
+                  <span className={`text-[11px] ${feedback.ok ? 'text-green-400' : 'text-red-400'}`}>{feedback.text}</span>
+                )}
+                <div className="ml-auto flex gap-2">
+                  <button type="button" onClick={handleCancel} className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors">
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={saving}
+                    className="text-[11px] px-2.5 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/80 disabled:opacity-50 transition-colors"
+                  >
+                    {saving ? 'Salvando...' : 'Salvar'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function InstructionsTab({
+  agent,
+  onSaved,
+}: {
+  agent: Agent & { model?: string; soul_content?: string }
+  onSaved: (patch: { soul_content?: string }) => void
+}) {
+  const [content, setContent] = useState(agent.soul_content || '')
+  const [saving, setSaving] = useState(false)
+  const [activating, setActivating] = useState(false)
+  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const compactActive = content.includes('## Modo de Saída Compacto')
+  const skillRefs = parseSkillRefs(content)
+
+  const showFeedback = (ok: boolean, text: string) => {
+    setFeedback({ ok, text })
+    setTimeout(() => setFeedback(null), 3000)
+  }
+
+  const handleSave = async (valueToSave = content) => {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/agents/${agent.id}/soul`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ soul_content: valueToSave }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Erro ao salvar')
+      onSaved({ soul_content: valueToSave })
+      showFeedback(true, 'Salvo com sucesso')
+    } catch (err: any) {
+      showFeedback(false, err.message || 'Erro ao salvar')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleToggleCompact = async () => {
+    let next: string
+    if (compactActive) {
+      next = content.replace(/\n*## Modo de Saída Compacto[\s\S]*?(?=\n## |\n*$)/, '').trimEnd()
+    } else {
+      next = content.trimEnd() + COMPACT_MODE_BLOCK
+    }
+    setContent(next)
+    setActivating(true)
+    try {
+      await handleSave(next)
+    } finally {
+      setActivating(false)
     }
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="space-y-2">
-        <label className="block text-sm font-medium text-foreground">Instruções (system prompt)</label>
-        <p className="text-xs text-muted-foreground">
-          Descreva o comportamento, responsabilidades e contexto deste agente. Será usado como system prompt em todas as tarefas.
-        </p>
-        <textarea
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-          rows={12}
-          className="w-full px-3 py-2 bg-surface-1 border border-border rounded text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50 text-sm font-mono resize-y"
-          placeholder={`Exemplo:\nVocê é um desenvolvedor backend sênior especialista em TypeScript e Node.js.\nSua responsabilidade é analisar os requisitos do card, implementar a solução e descrever as mudanças realizadas de forma clara.\nSempre siga as boas práticas de código limpo e escreva código testável.`}
-        />
+    <div className="p-6 space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <label className="block text-sm font-medium text-foreground">Soul (system prompt ativo)</label>
+          <p className="text-xs text-muted-foreground">
+            Este é o prompt de sistema que o motor de pipeline usa em todas as tarefas deste agente.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={handleToggleCompact}
+          disabled={activating || saving}
+          className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium border transition-colors disabled:opacity-50 ${
+            compactActive
+              ? 'bg-primary/15 border-primary/40 text-primary hover:bg-primary/10'
+              : 'bg-secondary/40 border-border/70 text-muted-foreground hover:bg-secondary/60 hover:text-foreground'
+          }`}
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+            <path d="M2 5h12M2 8h8M2 11h5" />
+          </svg>
+          {activating ? 'Aplicando...' : compactActive ? 'Modo compacto ativo' : 'Ativar modo compacto'}
+        </button>
       </div>
+
+      <textarea
+        value={content}
+        onChange={(e) => setContent(e.target.value)}
+        rows={10}
+        className="w-full px-3 py-2 bg-surface-1 border border-border rounded text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50 text-sm font-mono resize-y"
+        placeholder="O soul_content deste agente ainda não foi definido."
+      />
+
+      {skillRefs.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[11px] text-muted-foreground/60 uppercase tracking-wide font-medium">Skills referenciados</p>
+          {skillRefs.map(name => (
+            <SkillViewer key={name} name={name} />
+          ))}
+        </div>
+      )}
 
       {feedback && (
         <div className={`rounded-md px-3 py-2 text-xs font-medium ${feedback.ok ? 'bg-green-500/10 text-green-400' : 'bg-red-500/10 text-red-400'}`}>
@@ -1307,7 +1503,7 @@ function InstructionsTab({
         </div>
       )}
 
-      <Button onClick={handleSave} disabled={saving} size="sm">
+      <Button onClick={() => handleSave()} disabled={saving} size="sm">
         {saving ? 'Salvando...' : 'Salvar'}
       </Button>
     </div>

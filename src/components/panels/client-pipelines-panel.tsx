@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -185,22 +185,70 @@ function LLMComplexityCard({
     }
   }
 
-  // Group options by provider for <optgroup>
+  // Group options by provider for custom dropdown
   const grouped = llmOptions.reduce<Record<string, LLMOption[]>>((acc, o) => {
     ;(acc[o.provider] ??= []).push(o)
     return acc
   }, {})
 
-  const ModelSelect = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => (
-    <select value={value} onChange={e => onChange(e.target.value)} className={`${sel} w-full`}>
-      <option value="">— Sem regra —</option>
-      {Object.entries(grouped).map(([provider, opts]) => (
-        <optgroup key={provider} label={provider}>
-          {opts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-        </optgroup>
-      ))}
-    </select>
-  )
+  const ModelSelect = ({ value, onChange }: { value: string; onChange: (v: string) => void }) => {
+    const [open, setOpen] = useState(false)
+    const ref = useRef<HTMLDivElement>(null)
+    const selected = llmOptions.find(o => o.value === value)
+    const label = selected ? selected.label : '— Sem regra —'
+
+    useEffect(() => {
+      const handler = (e: MouseEvent) => {
+        if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+      }
+      document.addEventListener('mousedown', handler)
+      return () => document.removeEventListener('mousedown', handler)
+    }, [])
+
+    return (
+      <div ref={ref} className="relative w-full">
+        <button
+          type="button"
+          onClick={() => setOpen(v => !v)}
+          className="w-full h-8 px-2.5 rounded-md bg-secondary/40 border border-border/70 text-xs text-foreground focus:outline-none focus:border-primary/50 flex items-center justify-between gap-1.5 hover:bg-secondary/60 transition-colors"
+        >
+          <span className={value ? 'text-foreground' : 'text-muted-foreground/60'}>{label}</span>
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className={`w-3 h-3 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}>
+            <path d="M4 6l4 4 4-4" strokeLinecap="round" strokeLinejoin="round"/>
+          </svg>
+        </button>
+
+        {open && (
+          <div className="absolute z-50 mt-1 w-full rounded-md border border-gray-200 bg-white shadow-lg shadow-black/20 overflow-hidden">
+            <div className="max-h-52 overflow-y-auto py-1">
+              <button
+                type="button"
+                onClick={() => { onChange(''); setOpen(false) }}
+                className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${!value ? 'bg-primary/10 text-primary' : 'text-gray-400 hover:bg-gray-50 hover:text-gray-700'}`}
+              >
+                — Sem regra —
+              </button>
+              {Object.entries(grouped).map(([provider, opts]) => (
+                <div key={provider}>
+                  <div className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-400">{provider}</div>
+                  {opts.map(o => (
+                    <button
+                      key={o.value}
+                      type="button"
+                      onClick={() => { onChange(o.value); setOpen(false) }}
+                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${value === o.value ? 'bg-primary/10 text-primary' : 'text-gray-700 hover:bg-gray-50'}`}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <div className="rounded-xl border border-border/60 bg-card p-4 space-y-4">

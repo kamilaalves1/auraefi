@@ -56,8 +56,8 @@
     --card-foreground: 210 20% 92%;
     --popover: 220 30% 8%;
     --popover-foreground: 210 20% 92%;
-    --primary: 270 75% 60%;
-    --primary-foreground: 220 30% 6%;
+    --primary: 25 91% 54%;
+    --primary-foreground: 0 0% 8%;
     --secondary: 220 25% 11%;
     --secondary-foreground: 210 20% 92%;
     --muted: 220 20% 14%;
@@ -68,13 +68,13 @@
     --destructive-foreground: 0 0% 98%;
     --border: 220 20% 14%;
     --input: 220 20% 14%;
-    --ring: 270 75% 60%;
+    --ring: 25 91% 54%;
 
-    /* Void accent colors */
-    --void-purple: 270 75% 60%;
+    /* Efí accent colors */
+    --void-purple: 25 91% 54%;
     --void-mint: 160 60% 52%;
     --void-amber: 38 92% 50%;
-    --void-violet: 263 90% 66%;
+    --void-violet: 25 91% 65%;
     --void-crimson: 0 72% 51%;
 
     /* Void status */
@@ -82,7 +82,7 @@
     --success-foreground: 0 0% 98%;
     --warning: 38 92% 50%;
     --warning-foreground: 0 0% 9%;
-    --info: 270 75% 60%;
+    --info: 217 91% 60%;
     --info-foreground: 0 0% 98%;
 
     /* Void surface hierarchy */
@@ -400,7 +400,7 @@
 
   /* ── Panel entrance ── */
   .panel-enter {
-    animation: panelEnter 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: panelEnter 0.2s cubic-bezier(0.16, 1, 0.3, 1) backwards;
   }
   @keyframes panelEnter {
     from { opacity: 0; transform: translateY(8px); }
