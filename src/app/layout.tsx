@@ -52,34 +52,34 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
-  title: 'Vertex Control Center — AI Operations Dashboard',
-  description: 'AI agent orchestration dashboard by Silver Snow Studios. Manage agents, dispatch tasks, track costs, and coordinate workflows. Self-hosted, sovereign, SQLite-powered.',
+  title: 'AURA — Plataforma de Operações de IA',
+  description: 'Plataforma de orquestração de agentes de IA do Banco Efí. Gerencie agentes, distribua tarefas, monitore custos e coordene fluxos de trabalho inteligentes.',
   metadataBase,
   icons: {
     icon: [
-      { url: '/icon.png', type: 'image/png', sizes: '256x256' },
+      { url: '/brand/aura-icon.svg', type: 'image/svg+xml' },
       { url: '/brand/mc-logo-128.png', type: 'image/png', sizes: '128x128' },
     ],
     apple: [{ url: '/apple-icon.png', sizes: '180x180', type: 'image/png' }],
-    shortcut: ['/icon.png'],
+    shortcut: ['/brand/aura-icon.svg'],
   },
   openGraph: {
-    title: 'Vertex Control Center — AI Operations Dashboard',
-    description: 'AI agent orchestration dashboard by Silver Snow Studios. Manage agents, dispatch tasks, track costs, and coordinate workflows.',
-    images: [{ url: '/brand/mc-logo-512.png', width: 512, height: 512, alt: 'Vertex Control Center — AI operations dashboard by Silver Snow Studios' }],
+    title: 'AURA — Plataforma de Operações de IA',
+    description: 'Plataforma de orquestração de agentes de IA do Banco Efí.',
+    images: [{ url: '/brand/mc-logo-512.png', width: 512, height: 512, alt: 'AURA — Plataforma de Operações de IA do Banco Efí' }],
     type: 'website',
-    siteName: 'Vertex Control Center',
+    siteName: 'AURA',
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Vertex Control Center — AI Operations Dashboard',
-    description: 'AI agent orchestration dashboard by Silver Snow Studios. Manage agents, dispatch tasks, track costs, and coordinate workflows.',
+    title: 'AURA — Plataforma de Operações de IA',
+    description: 'Plataforma de orquestração de agentes de IA do Banco Efí.',
     images: ['/brand/mc-logo-512.png'],
   },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'default',
-    title: 'Vertex Control Center',
+    title: 'AURA',
   },
 }
 

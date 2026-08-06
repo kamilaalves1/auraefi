@@ -231,10 +231,10 @@ export function NavRail() {
       >
         {/* Header: Logo + toggle */}
         <div className={`flex items-center shrink-0 ${sidebarExpanded ? 'px-3 py-3 gap-2.5' : 'flex-col py-3 gap-2'}`}>
-          <div className="w-9 h-9 rounded-lg overflow-hidden bg-background border border-border/50 flex items-center justify-center shrink-0 logo-hover">
-            <Image
-              src="/brand/mc-logo-128.png"
-              alt="Vertex Control Center logo"
+          <div className="w-9 h-9 rounded-xl overflow-hidden flex items-center justify-center shrink-0 logo-hover">
+            <img
+              src="/brand/aura-icon.svg"
+              alt="AURA logo"
               width={36}
               height={36}
               className="w-full h-full object-cover"
@@ -242,7 +242,7 @@ export function NavRail() {
           </div>
           {sidebarExpanded && (
             <div className="flex items-baseline gap-2 truncate flex-1 min-w-0">
-              <span className="text-sm font-semibold text-foreground truncate">Vertex Control</span>
+              <span className="text-sm font-bold tracking-wide text-foreground truncate">AURA</span>
               <span className="text-2xs text-muted-foreground font-mono-tight shrink-0">v{APP_VERSION}</span>
             </div>
           )}

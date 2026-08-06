@@ -15,7 +15,7 @@ const INSECURE_PASSWORDS = new Set([
 ])
 
 export async function GET() {
-  return NextResponse.json({ needsSetup: needsFirstTimeSetup() })
+  return NextResponse.json({ needsSetup: await needsFirstTimeSetup() })
 }
 
 export async function POST(request: Request) {
@@ -24,7 +24,7 @@ export async function POST(request: Request) {
 
   try {
     // Only allow setup when no users exist
-    if (!needsFirstTimeSetup()) {
+    if (!await needsFirstTimeSetup()) {
       return NextResponse.json(
         { error: 'Setup has already been completed' },
         { status: 403 }
@@ -65,7 +65,7 @@ export async function POST(request: Request) {
     }
 
     // Double-check no users exist (race safety — createUser will also fail on duplicate username)
-    if (!needsFirstTimeSetup()) {
+    if (!await needsFirstTimeSetup()) {
       return NextResponse.json(
         { error: 'Another admin was created while you were setting up' },
         { status: 409 }

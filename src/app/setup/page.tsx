@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useState, type FormEvent } from 'react'
-import Image from 'next/image'
 import { useTranslations } from 'next-intl'
 import { Button } from '@/components/ui/button'
 import { LanguageSwitcherSelect } from '@/components/ui/language-switcher'
@@ -214,14 +213,13 @@ export default function SetupPage() {
       </div>
       <div className="w-full max-w-sm">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 rounded-lg overflow-hidden bg-background border border-border/50 flex items-center justify-center mb-3">
-            <Image
-              src="/brand/mc-logo-128.png"
-              alt="Vertex Control Center logo"
-              width={48}
-              height={48}
+          <div className="w-14 h-14 rounded-2xl overflow-hidden flex items-center justify-center mb-4">
+            <img
+              src="/brand/aura-icon.svg"
+              alt="AURA logo"
+              width={56}
+              height={56}
               className="h-full w-full object-cover"
-              priority
             />
           </div>
           <h1 className="text-xl font-semibold text-foreground">
