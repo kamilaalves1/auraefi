@@ -100,7 +100,7 @@ export default async function RootLayout({
           nonce={nonce}
           suppressHydrationWarning
           dangerouslySetInnerHTML={{
-            __html: `(function(){try{var M='mc-light-default-v1';if(!localStorage.getItem(M)){var c=localStorage.getItem('theme');if(c==='void'||c===null||c===''){localStorage.setItem('theme','light')}localStorage.setItem(M,'1')}var t=localStorage.getItem('theme')||'light';var light=['light','paper'];if(light.indexOf(t)===-1){document.documentElement.classList.add('dark')}else{document.documentElement.classList.remove('dark')}}catch(e){}})()`,
+            __html: `(function(){try{var M='mc-dark-default-v2';if(!localStorage.getItem(M)){var c=localStorage.getItem('theme');if(c==='void'||c===null||c===''||c==='light'){localStorage.setItem('theme','dark')}localStorage.setItem(M,'1')}var t=localStorage.getItem('theme')||'dark';var light=['light','paper'];if(light.indexOf(t)===-1){document.documentElement.classList.add('dark')}else{document.documentElement.classList.remove('dark')}}catch(e){}})()`,
           }}
         />
       </head>
@@ -108,7 +108,7 @@ export default async function RootLayout({
         <NextIntlClientProvider messages={messages}>
           <ThemeProvider
             attribute="class"
-            defaultTheme="light"
+            defaultTheme="dark"
             themes={THEME_IDS}
             enableSystem={false}
             disableTransitionOnChange
