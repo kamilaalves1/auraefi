@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { createHash } from 'node:crypto'
 import { access, mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { requireRole } from '@/lib/auth'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { resolveWithin } from '@/lib/paths'
 import { checkSkillSecurity } from '@/lib/skill-registry'
 
@@ -132,30 +133,26 @@ async function upsertSkill(root: SkillRoot, name: string, content: string) {
 
   // Update DB hash so next sync cycle detects our write
   try {
-    const { getDatabase } = await import('@/lib/db')
-    const db = getDatabase()
     const hash = createHash('sha256').update(content, 'utf8').digest('hex')
     const now = new Date().toISOString()
     const descLines = content.split('\n').map(l => l.trim()).filter(Boolean)
     const desc = descLines.find(l => !l.startsWith('#'))
-    db.prepare(`
+    await dbRun(`
       INSERT INTO skills (name, source, path, description, content_hash, installed_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(source, name) DO UPDATE SET
-        path = excluded.path,
-        description = excluded.description,
-        content_hash = excluded.content_hash,
-        updated_at = excluded.updated_at
-    `).run(
-      name,
+      ON DUPLICATE KEY UPDATE
+        path = VALUES(path),
+        description = VALUES(description),
+        content_hash = VALUES(content_hash),
+        updated_at = VALUES(updated_at)
+    `, [name,
       root.source,
       skillPath,
       desc ? (desc.length > 220 ? `${desc.slice(0, 217)}...` : desc) : null,
       hash,
       now,
-      now
-    )
-  } catch { /* DB not ready yet — sync will catch it */ }
+      now])
+  } catch { /* DB not ready yet â€” sync will catch it */ }
 
   return { skillPath, skillDocPath }
 }
@@ -166,9 +163,7 @@ async function deleteSkill(root: SkillRoot, name: string) {
 
   // Remove from DB
   try {
-    const { getDatabase } = await import('@/lib/db')
-    const db = getDatabase()
-    db.prepare('DELETE FROM skills WHERE source = ? AND name = ?').run(root.source, name)
+    await dbRun('DELETE FROM skills WHERE source = ? AND name = ?', [root.source, name])
   } catch { /* best-effort */ }
 
   return { skillPath }
@@ -178,14 +173,12 @@ async function deleteSkill(root: SkillRoot, name: string) {
  * Try to serve skill list from DB (fast path).
  * Falls back to filesystem scan if DB has no data yet.
  */
-function getSkillsFromDB(): SkillSummary[] | null {
+async function getSkillsFromDB(): Promise<SkillSummary[] | null> {
   try {
-    const { getDatabase } = require('@/lib/db')
-    const db = getDatabase()
-    const rows = db.prepare('SELECT name, source, path, description, registry_slug, security_status FROM skills ORDER BY name').all() as Array<{
+    const rows = await dbGetAll('SELECT name, source, path, description, registry_slug, security_status FROM skills ORDER BY name', []) as Array<{
       name: string; source: string; path: string; description: string | null; registry_slug: string | null; security_status: string | null
     }>
-    if (rows.length === 0) return null // DB empty — fall back to fs scan
+    if (rows.length === 0) return null // DB empty â€” fall back to fs scan
     return rows.map(r => ({
       id: `${r.source}:${r.name}`,
       name: r.name,
@@ -201,7 +194,7 @@ function getSkillsFromDB(): SkillSummary[] | null {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const roots = getSkillRoots()
@@ -255,17 +248,14 @@ export async function GET(request: NextRequest) {
 
     // Update DB with security status
     try {
-      const { getDatabase } = await import('@/lib/db')
-      const db = getDatabase()
-      db.prepare('UPDATE skills SET security_status = ?, updated_at = ? WHERE source = ? AND name = ?')
-        .run(security.status, new Date().toISOString(), source, name)
+      await dbRun('UPDATE skills SET security_status = ?, updated_at = ? WHERE source = ? AND name = ?', [security.status, new Date().toISOString(), source, name])
     } catch { /* best-effort */ }
 
     return NextResponse.json({ source, name, security })
   }
 
   // Try DB-backed fast path first
-  const dbSkills = getSkillsFromDB()
+  const dbSkills = await getSkillsFromDB()
   if (dbSkills) {
     // Group by source for the groups response
     const groupMap = new Map<string, { source: string; path: string; skills: SkillSummary[] }>()
@@ -316,7 +306,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const roots = getSkillRoots()
@@ -336,7 +326,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const roots = getSkillRoots()
@@ -355,7 +345,7 @@ export async function PUT(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { searchParams } = new URL(request.url)

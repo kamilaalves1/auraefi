@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { readFileSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { requireRole } from '@/lib/auth'
@@ -16,7 +16,7 @@ interface DiscoveredGateway {
  * Does not require filesystem access to other users' configs.
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const discovered: DiscoveredGateway[] = []
@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
         const config = JSON.parse(raw)
         if (typeof config?.gateway?.port === 'number') port = config.gateway.port
       } catch {
-        // Can't read config — try to detect from ss output
+        // Can't read config â€” try to detect from ss output
       }
 
       // If we couldn't read config, try finding port via ss for the service PID
@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
       })
     }
   } catch {
-    // systemctl not available or failed — fall back silently
+    // systemctl not available or failed â€” fall back silently
   }
 
   return NextResponse.json({ gateways: discovered })

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { runSecurityScan, FIX_SAFETY, type CheckSeverity, type FixSafety, type Check } from '@/lib/security-scan'
@@ -23,7 +23,7 @@ function isFixableInScope(checkId: string, scope: FixScope, force: boolean): boo
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   let body: AgentScanFixRequest
@@ -41,7 +41,7 @@ export async function POST(request: NextRequest) {
 
   try {
     // Always scan first
-    const scanResult = runSecurityScan()
+    const scanResult = await runSecurityScan()
     const allChecks = Object.values(scanResult.categories).flatMap(c => c.checks)
     const failingChecks = allChecks.filter(c => c.status !== 'pass')
 
@@ -151,7 +151,7 @@ export async function POST(request: NextRequest) {
     logger.info({ action, fixScope, force, dryRun, applied: applied.length, skipped: skipped.length }, 'Agent security scan+fix')
 
     // Re-scan after fixes to get updated score
-    const postFixScan = fixIds.length > 0 ? runSecurityScan() : scanResult
+    const postFixScan = fixIds.length > 0 ? await runSecurityScan() : scanResult
 
     return NextResponse.json({
       scan: {

@@ -1,8 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { readdir, readFile, stat, writeFile, mkdir, unlink } from 'fs/promises'
 import { existsSync, mkdirSync } from 'fs'
 import { join, dirname } from 'path'
-import { db_helpers, getDatabase } from '@/lib/db'
+import { db_helpers } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -83,7 +83,7 @@ async function buildFileTree(
 }
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = readLimiter(request)
@@ -193,7 +193,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -227,7 +227,7 @@ export async function POST(request: NextRequest) {
 
       await writeFile(fullPath, content, 'utf-8')
       // Incrementally update FTS index
-      try { indexFile(getDatabase(), MEMORY_PATH, path) } catch { /* best-effort */ }
+      try { indexFile(null, MEMORY_PATH, path) } catch { /* best-effort */ }
       try {
         db_helpers.logActivity('memory_file_saved', 'memory', 0, auth.user.username || 'unknown', `Updated ${path}`, { path, size: content.length })
       } catch { /* best-effort */ }
@@ -258,7 +258,7 @@ export async function POST(request: NextRequest) {
       }
 
       await writeFile(fullPath, content || '', 'utf-8')
-      try { indexFile(getDatabase(), MEMORY_PATH, path) } catch { /* best-effort */ }
+      try { indexFile(null, MEMORY_PATH, path) } catch { /* best-effort */ }
       try {
         db_helpers.logActivity('memory_file_created', 'memory', 0, auth.user.username || 'unknown', `Created ${path}`, { path })
       } catch { /* best-effort */ }
@@ -273,7 +273,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -304,7 +304,7 @@ export async function DELETE(request: NextRequest) {
       }
 
       await unlink(fullPath)
-      try { removeFromIndex(getDatabase(), path) } catch { /* best-effort */ }
+      try { removeFromIndex(null, path) } catch { /* best-effort */ }
       try {
         db_helpers.logActivity('memory_file_deleted', 'memory', 0, auth.user.username || 'unknown', `Deleted ${path}`, { path })
       } catch { /* best-effort */ }

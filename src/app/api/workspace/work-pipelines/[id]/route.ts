@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -29,14 +29,14 @@ function rowToPipeline(row: any) {
 type Params = { params: Promise<{ id: string }> }
 
 export async function GET(request: NextRequest, { params }: Params) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
     const { id } = await params
-    const db = getDatabase()
+
     const workspaceId = auth.user.workspace_id ?? 1
-    const row = db.prepare('SELECT * FROM work_pipelines WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId)
+    const row = await dbGet('SELECT * FROM work_pipelines WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId])
     if (!row) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
     return NextResponse.json({ pipeline: rowToPipeline(row as any) })
   } catch (err) {
@@ -46,7 +46,7 @@ export async function GET(request: NextRequest, { params }: Params) {
 }
 
 export async function PUT(request: NextRequest, { params }: Params) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -54,11 +54,11 @@ export async function PUT(request: NextRequest, { params }: Params) {
 
   try {
     const { id } = await params
-    const db = getDatabase()
+
     const workspaceId = auth.user.workspace_id ?? 1
     const body = await request.json().catch(() => ({}))
 
-    const existing = db.prepare('SELECT * FROM work_pipelines WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId) as any
+    const existing = await dbGet('SELECT * FROM work_pipelines WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId]) as any
     if (!existing) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
 
     const name = typeof body.name === 'string' && body.name.trim() ? body.name.trim().slice(0, 120) : existing.name
@@ -85,12 +85,10 @@ export async function PUT(request: NextRequest, { params }: Params) {
       secretBlob = encryptWorkPipelineBlob(JSON.stringify(merged))
     }
 
-    db.prepare(
-      `UPDATE work_pipelines SET name=?, provider=?, enabled=?, client_id=?, config_json=?, secret_blob=?, updated_at=unixepoch()
-       WHERE id=? AND workspace_id=?`
-    ).run(name, provider, enabled, clientId, JSON.stringify(config), secretBlob, Number(id), workspaceId)
+    await dbRun(`UPDATE work_pipelines SET name=?, provider=?, enabled=?, client_id=?, config_json=?, secret_blob=?, updated_at=UNIX_TIMESTAMP()
+       WHERE id=? AND workspace_id=?`, [name, provider, enabled, clientId, JSON.stringify(config), secretBlob, Number(id), workspaceId])
 
-    const updated = db.prepare('SELECT * FROM work_pipelines WHERE id = ?').get(Number(id))
+    const updated = await dbGet('SELECT * FROM work_pipelines WHERE id = ?', [Number(id)])
     return NextResponse.json({ pipeline: rowToPipeline(updated as any) })
   } catch (err) {
     logger.error({ err }, 'PUT /api/workspace/work-pipelines/[id] error')
@@ -99,7 +97,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
 }
 
 export async function DELETE(request: NextRequest, { params }: Params) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -107,12 +105,12 @@ export async function DELETE(request: NextRequest, { params }: Params) {
 
   try {
     const { id } = await params
-    const db = getDatabase()
+
     const workspaceId = auth.user.workspace_id ?? 1
 
-    db.prepare('DELETE FROM pipeline_columns WHERE pipeline_id = ? AND workspace_id = ?').run(Number(id), workspaceId)
-    const result = db.prepare('DELETE FROM work_pipelines WHERE id = ? AND workspace_id = ?').run(Number(id), workspaceId)
-    if (result.changes === 0) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
+    await dbRun('DELETE FROM pipeline_columns WHERE pipeline_id = ? AND workspace_id = ?', [Number(id), workspaceId])
+    const result = await dbRun('DELETE FROM work_pipelines WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId])
+    if (result.affectedRows === 0) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
     return NextResponse.json({ ok: true })
   } catch (err) {
     logger.error({ err }, 'DELETE /api/workspace/work-pipelines/[id] error')

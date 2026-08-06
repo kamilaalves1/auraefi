@@ -908,6 +908,7 @@ function AgentDetailModalPhase3({
   const tabs = [
     { id: 'overview', label: 'Overview', icon: 'O' },
     { id: 'instructions', label: 'Instruções', icon: 'I' },
+    { id: 'persona', label: 'Persona', icon: 'P' },
     { id: 'activity', label: 'Atividade', icon: 'A' },
   ]
 
@@ -1068,6 +1069,10 @@ function AgentDetailModalPhase3({
 
           {activeTab === 'instructions' && (
             <InstructionsTab agent={agentState} onSaved={(patch) => setAgentState(prev => ({ ...prev, ...patch }))} />
+          )}
+
+          {activeTab === 'persona' && (
+            <PersonaTab agent={agentState} onSaved={(patch) => setAgentState(prev => ({ ...prev, ...patch }))} />
           )}
 
           {activeTab === 'activity' && (
@@ -1305,6 +1310,232 @@ function InstructionsTab({
       <Button onClick={handleSave} disabled={saving} size="sm">
         {saving ? 'Salvando...' : 'Salvar'}
       </Button>
+    </div>
+  )
+}
+
+// ─── Specialty options ────────────────────────────────────────────────────────
+
+const SPECIALTY_OPTIONS = [
+  { value: '', label: 'Sem especialidade' },
+  { value: 'orchestrator', label: 'Orquestrador' },
+  { value: 'backend', label: 'Backend' },
+  { value: 'frontend', label: 'Frontend' },
+  { value: 'fullstack', label: 'Fullstack' },
+  { value: 'devops', label: 'DevOps / Infra' },
+  { value: 'qa', label: 'QA / Testes' },
+  { value: 'data', label: 'Dados / Analytics' },
+  { value: 'security', label: 'Segurança' },
+  { value: 'product', label: 'Produto' },
+  { value: 'design', label: 'Design / UX' },
+  { value: 'mobile', label: 'Mobile' },
+  { value: 'ai', label: 'IA / ML' },
+]
+
+function deriveSpecialty(role: string): string {
+  const r = role.toLowerCase()
+  if (r.includes('orchestrat') || r.includes('orquestra') || r.includes('coordinator') || r.includes('coordena')) return 'orchestrator'
+  if (r.includes('frontend') || r.includes('front-end') || r.includes('react') || r.includes('vue') || r.includes('angular') || r.includes('ui ')) return 'frontend'
+  if (r.includes('backend') || r.includes('back-end') || r.includes('api') || r.includes('server')) return 'backend'
+  if (r.includes('fullstack') || r.includes('full-stack') || r.includes('full stack')) return 'fullstack'
+  if (r.includes('devops') || r.includes('infra') || r.includes('docker') || r.includes('kubernetes') || r.includes('k8s') || r.includes('cloud') || r.includes('deploy')) return 'devops'
+  if (r.includes('qa') || r.includes('test') || r.includes('qualidade') || r.includes('quality')) return 'qa'
+  if (r.includes('data') || r.includes('analytic') || r.includes('analítica') || r.includes('bi ') || r.includes('business intel')) return 'data'
+  if (r.includes('security') || r.includes('segurança') || r.includes('sec ') || r.includes('pentest')) return 'security'
+  if (r.includes('product') || r.includes('produto') || r.includes('pm ') || r.includes('owner')) return 'product'
+  if (r.includes('design') || r.includes('ux') || r.includes('ui/ux')) return 'design'
+  if (r.includes('mobile') || r.includes('ios') || r.includes('android') || r.includes('react native') || r.includes('flutter')) return 'mobile'
+  if (r.includes('ai') || r.includes('ml') || r.includes('machine learn') || r.includes('llm') || r.includes('ia ')) return 'ai'
+  return ''
+}
+
+// ─── Tag input helper ─────────────────────────────────────────────────────────
+
+function TagInput({ tags, onChange, placeholder }: { tags: string[]; onChange: (t: string[]) => void; placeholder: string }) {
+  const [input, setInput] = useState('')
+  const add = () => {
+    const v = input.trim()
+    if (v && !tags.includes(v)) onChange([...tags, v])
+    setInput('')
+  }
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-1.5 min-h-[28px]">
+        {tags.map((t) => (
+          <span key={t} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-xs text-primary">
+            {t}
+            <button
+              type="button"
+              onClick={() => onChange(tags.filter(x => x !== t))}
+              className="text-primary/60 hover:text-primary leading-none"
+            >×</button>
+          </span>
+        ))}
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); add() } }}
+          placeholder={placeholder}
+          className="flex-1 px-3 py-1.5 bg-surface-1 border border-border rounded text-sm text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50 focus:outline-none"
+        />
+        <button
+          type="button"
+          onClick={add}
+          className="px-3 py-1.5 rounded border border-border text-muted-foreground hover:text-foreground hover:border-primary/50 text-sm transition-colors"
+        >+</button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Persona Tab ──────────────────────────────────────────────────────────────
+
+function PersonaTab({
+  agent,
+  onSaved,
+}: {
+  agent: Agent & { model?: string; instructions?: string; config?: any }
+  onSaved: (patch: Partial<Agent>) => void
+}) {
+  const existingPersona = (() => {
+    try {
+      const cfg = typeof agent.config === 'string' ? JSON.parse(agent.config) : agent.config
+      return cfg?.persona ?? {}
+    } catch { return {} }
+  })()
+
+  const specialty = existingPersona.specialty ?? deriveSpecialty(agent.role ?? '')
+  const [capabilities, setCapabilities] = useState<string[]>(existingPersona.capabilities ?? [])
+  const [authorityLevel, setAuthorityLevel] = useState<string>(existingPersona.authority_level ?? '')
+  const [restrictions, setRestrictions] = useState<string[]>(existingPersona.restrictions ?? [])
+  const [collaborators, setCollaborators] = useState<string[]>(existingPersona.collaborators ?? [])
+  const [saving, setSaving] = useState(false)
+  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const handleSave = async () => {
+    setSaving(true)
+    try {
+      const persona = {
+        specialty,
+        capabilities,
+        authority_level: authorityLevel,
+        restrictions,
+        collaborators,
+      }
+      const res = await fetch(`/api/agents/${agent.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gateway_config: { persona }, write_to_gateway: false }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Erro ao salvar')
+      const existingCfg = (() => {
+        try { return typeof agent.config === 'string' ? JSON.parse(agent.config) : (agent.config ?? {}) } catch { return {} }
+      })()
+      onSaved({ config: JSON.stringify({ ...existingCfg, persona }) } as any)
+      setFeedback({ ok: true, text: 'Persona salva com sucesso' })
+    } catch (err: any) {
+      setFeedback({ ok: false, text: err.message || 'Erro ao salvar' })
+    } finally {
+      setSaving(false)
+      setTimeout(() => setFeedback(null), 3000)
+    }
+  }
+
+  const specialtyLabel = SPECIALTY_OPTIONS.find(o => o.value === specialty)?.label ?? specialty ?? 'Sem especialidade'
+
+  return (
+    <div className="p-6 space-y-6">
+
+      {/* Especialidade — pré-preenchida e desabilitada */}
+      <div className="space-y-1.5">
+        <label className="block text-sm font-medium text-foreground">Especialidade</label>
+        <p className="text-xs text-muted-foreground">Papel técnico deste agente no squad.</p>
+        <div className="relative">
+          <select
+            value={specialty}
+            disabled
+            className="w-full px-3 py-2 bg-surface-1 border border-border rounded text-foreground text-sm appearance-none opacity-70 cursor-not-allowed"
+          >
+            {SPECIALTY_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+          <div className="pointer-events-none absolute inset-y-0 right-2 flex items-center">
+            <svg className="w-4 h-4 text-muted-foreground/50" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <path d="M4 6l4 4 4-4" />
+            </svg>
+          </div>
+        </div>
+        <p className="text-[11px] text-muted-foreground/60">Derivada do role do agente. Altere o role na aba Overview para mudar.</p>
+      </div>
+
+      {/* Capacidades */}
+      <div className="space-y-1.5">
+        <label className="block text-sm font-medium text-foreground">Capacidades</label>
+        <p className="text-xs text-muted-foreground">O que este agente sabe fazer. Adicione uma por vez e pressione Enter.</p>
+        <TagInput
+          tags={capabilities}
+          onChange={setCapabilities}
+          placeholder="ex.: Implementar APIs REST"
+        />
+      </div>
+
+      {/* Nível de autoridade */}
+      <div className="space-y-1.5">
+        <label className="block text-sm font-medium text-foreground">Nível de autoridade</label>
+        <p className="text-xs text-muted-foreground">O que este agente pode decidir de forma autônoma, sem aprovação humana.</p>
+        <textarea
+          value={authorityLevel}
+          onChange={(e) => setAuthorityLevel(e.target.value)}
+          rows={3}
+          placeholder="ex.: Pode criar branches, escrever testes e abrir PRs. Não pode aprovar merges em main nem fazer deploy."
+          className="w-full px-3 py-2 bg-surface-1 border border-border rounded text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50 focus:outline-none text-sm resize-y"
+        />
+      </div>
+
+      {/* Restrições */}
+      <div className="space-y-1.5">
+        <label className="block text-sm font-medium text-foreground">Restrições</label>
+        <p className="text-xs text-muted-foreground">O que este agente NÃO deve fazer. Adicione uma por vez e pressione Enter.</p>
+        <TagInput
+          tags={restrictions}
+          onChange={setRestrictions}
+          placeholder="ex.: Não modificar arquivos de configuração de produção"
+        />
+      </div>
+
+      {/* Agentes colaboradores */}
+      <div className="space-y-1.5">
+        <label className="block text-sm font-medium text-foreground">Agentes colaboradores</label>
+        <p className="text-xs text-muted-foreground">Nomes de outros agentes com os quais este colabora diretamente.</p>
+        <TagInput
+          tags={collaborators}
+          onChange={setCollaborators}
+          placeholder="ex.: dev-agent"
+        />
+      </div>
+
+      <div className="flex items-center gap-3 pt-1">
+        <Button onClick={handleSave} disabled={saving} size="sm">
+          {saving ? 'Salvando...' : 'Salvar persona'}
+        </Button>
+        {feedback && (
+          <span className={`text-xs font-medium ${feedback.ok ? 'text-green-400' : 'text-red-400'}`}>
+            {feedback.text}
+          </span>
+        )}
+      </div>
+
+      <div className="rounded-md border border-border/50 bg-surface-1/50 px-4 py-3 text-xs text-muted-foreground space-y-1">
+        <p className="font-medium text-foreground/70">Como a persona é aplicada no fluxo:</p>
+        <ol className="list-decimal list-inside space-y-0.5 ml-1">
+          <li>Instrução da coluna (pipeline) — prioridade absoluta no prompt do usuário</li>
+          <li>System prompt do agente (Instruções / soul)</li>
+          <li>Persona: nome, autoridade, restrições e capacidades — enriquece o system prompt</li>
+        </ol>
+      </div>
     </div>
   )
 }

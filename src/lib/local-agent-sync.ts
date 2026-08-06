@@ -14,7 +14,8 @@ import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync, statSync, existsSync, writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { getDatabase, logAuditEvent } from './db'
+import { logAuditEvent } from './db'
+import { dbGet, dbGetAll, dbRun } from './db-pool'
 import { logger } from './logger'
 
 // ---------------------------------------------------------------------------
@@ -221,7 +222,6 @@ function scanLocalAgents(): DiskAgent[] {
 
 export async function syncLocalAgents(): Promise<{ ok: boolean; message: string }> {
   try {
-    const db = getDatabase()
     const diskAgents = scanLocalAgents()
     const now = Math.floor(Date.now() / 1000)
 
@@ -231,9 +231,7 @@ export async function syncLocalAgents(): Promise<{ ok: boolean; message: string 
     }
 
     // Fetch DB agents with source='local'
-    const dbRows = db.prepare(
-      `SELECT id, name, role, soul_content, status, source, content_hash, workspace_path, config FROM agents WHERE source = 'local'`
-    ).all() as AgentRow[]
+    const dbRows = await dbGetAll(`SELECT id, name, role, soul_content, status, source, content_hash, workspace_path, config FROM agents WHERE source = 'local'`, []) as AgentRow[]
 
     const dbMap = new Map<string, AgentRow>()
     for (const r of dbRows) {
@@ -244,41 +242,33 @@ export async function syncLocalAgents(): Promise<{ ok: boolean; message: string 
     let updated = 0
     let removed = 0
 
-    const insertStmt = db.prepare(`
-      INSERT INTO agents (name, role, soul_content, status, source, content_hash, workspace_path, config, created_at, updated_at)
-      VALUES (?, ?, ?, 'offline', 'local', ?, ?, ?, ?, ?)
-    `)
-    const updateStmt = db.prepare(`
-      UPDATE agents SET role = ?, soul_content = ?, content_hash = ?, workspace_path = ?, config = ?, updated_at = ?
-      WHERE id = ?
-    `)
-    const markRemovedStmt = db.prepare(`
-      UPDATE agents SET status = 'offline', updated_at = ? WHERE id = ?
-    `)
+    // Disk → DB: additions and changes
+    for (const [name, disk] of diskMap) {
+      const existing = dbMap.get(name)
+      const configJson = disk.configContent ? disk.configContent : null
 
-    db.transaction(() => {
-      // Disk → DB: additions and changes
-      for (const [name, disk] of diskMap) {
-        const existing = dbMap.get(name)
-        const configJson = disk.configContent ? disk.configContent : null
-
-        if (!existing) {
-          insertStmt.run(name, disk.role, disk.soulContent, disk.contentHash, disk.dir, configJson, now, now)
-          created++
-        } else if (existing.content_hash !== disk.contentHash) {
-          updateStmt.run(disk.role, disk.soulContent, disk.contentHash, disk.dir, configJson, now, existing.id)
-          updated++
-        }
+      if (!existing) {
+        await dbRun(`
+          INSERT INTO agents (name, role, soul_content, status, source, content_hash, workspace_path, config, created_at, updated_at)
+          VALUES (?, ?, ?, 'offline', 'local', ?, ?, ?, ?, ?)
+        `, [name, disk.role, disk.soulContent, disk.contentHash, disk.dir, configJson, now, now])
+        created++
+      } else if (existing.content_hash !== disk.contentHash) {
+        await dbRun(`
+          UPDATE agents SET role = ?, soul_content = ?, content_hash = ?, workspace_path = ?, config = ?, updated_at = ?
+          WHERE id = ?
+        `, [disk.role, disk.soulContent, disk.contentHash, disk.dir, configJson, now, existing.id])
+        updated++
       }
+    }
 
-      // Agents that vanished from disk — mark offline but don't delete
-      for (const [name, row] of dbMap) {
-        if (!diskMap.has(name) && row.status !== 'offline') {
-          markRemovedStmt.run(now, row.id)
-          removed++
-        }
+    // Agents that vanished from disk — mark offline but don't delete
+    for (const [name, row] of dbMap) {
+      if (!diskMap.has(name) && row.status !== 'offline') {
+        await dbRun(`UPDATE agents SET status = 'offline', updated_at = ? WHERE id = ?`, [now, row.id])
+        removed++
       }
-    })()
+    }
 
     const msg = `Local agent sync: ${created} added, ${updated} updated, ${removed} marked offline (${diskAgents.length} on disk)`
     if (created > 0 || updated > 0 || removed > 0) {
@@ -300,7 +290,7 @@ export async function syncLocalAgents(): Promise<{ ok: boolean; message: string 
  * Write agent soul content back to disk (UI → Disk direction).
  * Called when a user edits a local agent's soul in the MC UI.
  */
-export function writeLocalAgentSoul(agentDir: string, soulContent: string): void {
+export async function writeLocalAgentSoul(agentDir: string, soulContent: string): Promise<void> {
   // Prefer soul.md, fall back to AGENT.md
   const soulPath = join(agentDir, 'soul.md')
   const agentMdPath = join(agentDir, 'AGENT.md')
@@ -311,9 +301,7 @@ export function writeLocalAgentSoul(agentDir: string, soulContent: string): void
 
   // Update the DB hash so the next sync doesn't re-overwrite
   try {
-    const db = getDatabase()
     const hash = sha256(soulContent)
-    db.prepare(`UPDATE agents SET content_hash = ?, updated_at = ? WHERE workspace_path = ? AND source = 'local'`)
-      .run(hash, Math.floor(Date.now() / 1000), agentDir)
+    await dbRun(`UPDATE agents SET content_hash = ?, updated_at = ? WHERE workspace_path = ? AND source = 'local'`, [hash, Math.floor(Date.now() / 1000), agentDir])
   } catch { /* best-effort */ }
 }

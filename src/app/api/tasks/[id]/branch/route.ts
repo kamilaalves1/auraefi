@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, db_helpers } from '@/lib/db'
+import { db_helpers } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { eventBus } from '@/lib/event-bus'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
@@ -22,11 +23,11 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
+
     const resolvedParams = await params
     const taskId = parseInt(resolvedParams.id)
     const workspaceId = auth.user.workspace_id ?? 1
@@ -35,12 +36,12 @@ export async function GET(
       return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 })
     }
 
-    const task = db.prepare(`
+    const task = await dbGet(`
       SELECT t.*, p.github_repo, p.github_default_branch, p.ticket_prefix
       FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id AND p.workspace_id = t.workspace_id
       WHERE t.id = ? AND t.workspace_id = ?
-    `).get(taskId, workspaceId) as any
+    `, [taskId, workspaceId]) as any
 
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
@@ -58,13 +59,13 @@ export async function GET(
       const repo = task.github_repo as string
       const branch = task.github_branch as string
       fetchPullRequests(repo, { head: branch, state: 'all' })
-        .then((prs) => {
+        .then(async (prs) => {
           if (prs.length > 0) {
             const pr = prs[0]
-            db.prepare(`
+            await dbRun(`
               UPDATE tasks SET github_pr_number = ?, github_pr_state = ?, updated_at = ?
               WHERE id = ? AND workspace_id = ?
-            `).run(pr.number, pr.state, Math.floor(Date.now() / 1000), taskId, workspaceId)
+            `, [pr.number, pr.state, Math.floor(Date.now() / 1000), taskId, workspaceId])
           }
         })
         .catch((err) => {
@@ -89,14 +90,14 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
   if (rateCheck) return rateCheck
 
   try {
-    const db = getDatabase()
+
     const resolvedParams = await params
     const taskId = parseInt(resolvedParams.id)
     const workspaceId = auth.user.workspace_id ?? 1
@@ -105,12 +106,12 @@ export async function POST(
       return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 })
     }
 
-    const task = db.prepare(`
+    const task = await dbGet(`
       SELECT t.*, p.github_repo, p.github_default_branch, p.ticket_prefix
       FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id AND p.workspace_id = t.workspace_id
       WHERE t.id = ? AND t.workspace_id = ?
-    `).get(taskId, workspaceId) as any
+    `, [taskId, workspaceId]) as any
 
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
@@ -154,10 +155,10 @@ export async function POST(
       })
 
       const now = Math.floor(Date.now() / 1000)
-      db.prepare(`
+      await dbRun(`
         UPDATE tasks SET github_pr_number = ?, github_pr_state = 'open', updated_at = ?
         WHERE id = ? AND workspace_id = ?
-      `).run(pr.number, now, taskId, workspaceId)
+      `, [pr.number, now, taskId, workspaceId])
 
       db_helpers.logActivity(
         'task_updated',
@@ -209,10 +210,10 @@ export async function POST(
     await createRef(repo, `refs/heads/${branchName}`, sha)
 
     const now = Math.floor(Date.now() / 1000)
-    db.prepare(`
+    await dbRun(`
       UPDATE tasks SET github_branch = ?, updated_at = ?
       WHERE id = ? AND workspace_id = ?
-    `).run(branchName, now, taskId, workspaceId)
+    `, [branchName, now, taskId, workspaceId])
 
     db_helpers.logActivity(
       'task_updated',

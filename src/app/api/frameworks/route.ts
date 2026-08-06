@@ -1,22 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { listAdapters } from '@/lib/adapters'
-import {
-  listFrameworks,
-  getFrameworkInfo,
-  getTemplatesForFramework,
-  UNIVERSAL_TEMPLATES,
-} from '@/lib/framework-templates'
+import { listFrameworks, getFrameworkInfo, getTemplatesForFramework, UNIVERSAL_TEMPLATES } from '@/lib/framework-templates'
 
 /**
- * GET /api/frameworks — List all supported frameworks with connection info and templates.
+ * GET /api/frameworks â€” List all supported frameworks with connection info and templates.
  *
  * Query params:
- *   ?framework=langgraph  — Get details for a specific framework
- *   ?templates=true       — Include available templates in response
+ *   ?framework=langgraph  â€” Get details for a specific framework
+ *   ?templates=true       â€” Include available templates in response
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { searchParams: n } = new URL(request.url)

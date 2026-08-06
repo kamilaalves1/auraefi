@@ -1,4 +1,5 @@
-import { getDatabase, db_helpers } from './db'
+import { db_helpers } from './db'
+import { dbGet, dbGetAll, dbRun } from './db-pool'
 import { eventBus } from './event-bus'
 import { logger } from './logger'
 import { config } from './config'
@@ -157,12 +158,9 @@ interface PipelineConfig {
   [key: string]: string | undefined
 }
 
-function getPipelineConfig(workspaceId: number): PipelineConfig {
+async function getPipelineConfig(workspaceId: number): Promise<PipelineConfig> {
   try {
-    const db = getDatabase()
-    const row = db.prepare(
-      'SELECT config FROM work_pipelines WHERE workspace_id = ? ORDER BY id ASC LIMIT 1'
-    ).get(workspaceId) as { config: string | null } | undefined
+    const row = await dbGet('SELECT config FROM work_pipelines WHERE workspace_id = ? ORDER BY id ASC LIMIT 1', [workspaceId]) as { config: string | null } | undefined
     if (!row?.config) return {}
     const parsed = JSON.parse(row.config)
     return typeof parsed === 'object' && parsed !== null ? parsed : {}
@@ -344,25 +342,23 @@ async function dispatchToGemini(
   return { text, sessionId: null, model, provider }
 }
 
-function recordTokenUsage(
+async function recordTokenUsage(
   model: string,
   taskId: number,
   workspaceId: number,
   usage?: { input_tokens?: number; output_tokens?: number },
-) {
+): Promise<void> {
   if (!usage) return
   try {
-    const db = getDatabase()
     const now = Math.floor(Date.now() / 1000)
-    db.prepare(`
+    await dbRun(`
       INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, total_tokens, cost, created_at, workspace_id)
       VALUES (?, ?, ?, ?, ?, 0, ?, ?)
-    `).run(
-      model, `task-${taskId}`,
+    `, [model, `task-${taskId}`,
       usage.input_tokens || 0, usage.output_tokens || 0,
       (usage.input_tokens || 0) + (usage.output_tokens || 0),
       now, workspaceId,
-    )
+    ])
   } catch { /* non-fatal */ }
 }
 
@@ -375,10 +371,10 @@ async function callWithFallback(
   prompt: string,
   primaryModel: string,
 ): Promise<AgentResponseParsed> {
-  const cfg = getPipelineConfig(task.workspace_id)
+  const cfg = await getPipelineConfig(task.workspace_id)
   const mode = cfg.llm_fallback_mode ?? 'none'
   const maxAttempts = Math.max(1, parseInt(cfg.llm_fallback_max_attempts ?? '2', 10))
-  const soul = getAgentSoulContent(task)
+  const soul = await getAgentSoulContent(task)
 
   // Build ordered list of models to try
   const candidates: string[] = [primaryModel]
@@ -432,17 +428,16 @@ function getAnthropicApiKey(): string | null {
   return (process.env.ANTHROPIC_API_KEY || '').trim() || null
 }
 
-function isGatewayAvailable(): boolean {
+async function isGatewayAvailable(): Promise<boolean> {
   try {
-    const db = getDatabase()
-    const row = db.prepare('SELECT COUNT(*) as c FROM gateways').get() as { c: number } | undefined
+    const row = await dbGet('SELECT COUNT(*) as c FROM gateways', []) as { c: number } | undefined
     return (row?.c ?? 0) > 0
   } catch {
     return false
   }
 }
 
-function classifyDirectModel(task: DispatchableTask, pipelineCfg?: PipelineConfig): string {
+async function classifyDirectModel(task: DispatchableTask, pipelineCfg?: PipelineConfig): Promise<string> {
   // 1. Per-agent config override
   if (task.agent_config) {
     try {
@@ -476,7 +471,7 @@ function classifyDirectModel(task: DispatchableTask, pipelineCfg?: PipelineConfi
   }
 
   // 3. Pipeline config takes priority over hardcoded models
-  const cfg = pipelineCfg ?? getPipelineConfig(task.workspace_id)
+  const cfg = pipelineCfg ?? await getPipelineConfig(task.workspace_id)
   const cfgModel = tier === 'complex' ? cfg.llm_complex : tier === 'simple' ? cfg.llm_simple : cfg.llm_medium
   if (cfgModel) return cfgModel
 
@@ -486,12 +481,9 @@ function classifyDirectModel(task: DispatchableTask, pipelineCfg?: PipelineConfi
   return 'claude-sonnet-4-6'
 }
 
-function getAgentSoulContent(task: DispatchableTask): string | null {
+async function getAgentSoulContent(task: DispatchableTask): Promise<string | null> {
   try {
-    const db = getDatabase()
-    const row = db.prepare(
-      'SELECT soul_content FROM agents WHERE id = ? AND workspace_id = ?'
-    ).get(task.agent_id, task.workspace_id) as { soul_content: string | null } | undefined
+    const row = await dbGet('SELECT soul_content FROM agents WHERE id = ? AND workspace_id = ?', [task.agent_id, task.workspace_id]) as { soul_content: string | null } | undefined
     return row?.soul_content || null
   } catch {
     return null
@@ -503,8 +495,8 @@ async function callClaudeDirectly(
   prompt: string,
 ): Promise<AgentResponseParsed> {
   if (!getAnthropicApiKey()) throw new Error('ANTHROPIC_API_KEY not set — cannot dispatch without gateway')
-  const pipelineCfg = getPipelineConfig(task.workspace_id)
-  const model = classifyDirectModel(task, pipelineCfg)
+  const pipelineCfg = await getPipelineConfig(task.workspace_id)
+  const model = await classifyDirectModel(task, pipelineCfg)
   return callWithFallback(task, prompt, model)
 }
 
@@ -581,9 +573,7 @@ function parseReviewVerdict(text: string): { status: 'approved' | 'rejected'; no
  * Uses an agent to evaluate the task resolution, then approves or rejects.
  */
 export async function runAegisReviews(): Promise<{ ok: boolean; message: string }> {
-  const db = getDatabase()
-
-  const tasks = db.prepare(`
+  const tasks = await dbGetAll(`
     SELECT t.id, t.title, t.description, t.resolution, t.assigned_to, t.workspace_id,
            p.ticket_prefix, t.project_ticket_no, a.config as agent_config
     FROM tasks t
@@ -592,7 +582,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
     WHERE t.status = 'review'
     ORDER BY t.updated_at ASC
     LIMIT 3
-  `).all() as ReviewableTask[]
+  `, []) as ReviewableTask[]
 
   if (tasks.length === 0) {
     return { ok: true, message: 'No tasks awaiting review' }
@@ -602,8 +592,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
 
   for (const task of tasks) {
     // Move to quality_review to prevent re-processing
-    db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?')
-      .run('quality_review', Math.floor(Date.now() / 1000), task.id)
+    await dbRun('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?', ['quality_review', Math.floor(Date.now() / 1000), task.id])
 
     eventBus.broadcast('task.status_changed', {
       id: task.id,
@@ -636,14 +625,13 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
       const verdict = parseReviewVerdict(agentResponse.text)
 
       // Insert quality review record
-      db.prepare(`
+      await dbRun(`
         INSERT INTO quality_reviews (task_id, reviewer, status, notes, workspace_id)
         VALUES (?, 'aegis', ?, ?, ?)
-      `).run(task.id, verdict.status, verdict.notes, task.workspace_id)
+      `, [task.id, verdict.status, verdict.notes, task.workspace_id])
 
       if (verdict.status === 'approved') {
-        db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?')
-          .run('done', Math.floor(Date.now() / 1000), task.id)
+        await dbRun('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?', ['done', Math.floor(Date.now() / 1000), task.id])
 
         eventBus.broadcast('task.status_changed', {
           id: task.id,
@@ -653,14 +641,13 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
       } else {
         // Rejected: check dispatch_attempts to decide next status
         const now = Math.floor(Date.now() / 1000)
-        const currentAttempts = (db.prepare('SELECT dispatch_attempts FROM tasks WHERE id = ?').get(task.id) as { dispatch_attempts: number } | undefined)?.dispatch_attempts ?? 0
+        const currentAttempts = (await dbGet('SELECT dispatch_attempts FROM tasks WHERE id = ?', [task.id]) as { dispatch_attempts: number } | undefined)?.dispatch_attempts ?? 0
         const newAttempts = currentAttempts + 1
         const maxAegisRetries = 3
 
         if (newAttempts >= maxAegisRetries) {
           // Too many rejections — move to failed
-          db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
-            .run('failed', `Aegis rejected ${newAttempts} times. Last: ${verdict.notes}`, newAttempts, now, task.id)
+          await dbRun('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?', ['failed', `Aegis rejected ${newAttempts} times. Last: ${verdict.notes}`, newAttempts, now, task.id])
 
           eventBus.broadcast('task.status_changed', {
             id: task.id,
@@ -671,8 +658,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
           })
         } else {
           // Requeue to assigned for re-dispatch with feedback
-          db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
-            .run('assigned', `Aegis rejected: ${verdict.notes}`, newAttempts, now, task.id)
+          await dbRun('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?', ['assigned', `Aegis rejected: ${verdict.notes}`, newAttempts, now, task.id])
 
           eventBus.broadcast('task.status_changed', {
             id: task.id,
@@ -684,10 +670,10 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
         }
 
         // Add rejection as a comment so the agent sees it on next dispatch
-        db.prepare(`
+        await dbRun(`
           INSERT INTO comments (task_id, author, content, created_at, workspace_id)
           VALUES (?, 'aegis', ?, ?, ?)
-        `).run(task.id, `Quality Review Rejected (attempt ${newAttempts}/${maxAegisRetries}):\n${verdict.notes}`, now, task.workspace_id)
+        `, [task.id, `Quality Review Rejected (attempt ${newAttempts}/${maxAegisRetries}):\n${verdict.notes}`, now, task.workspace_id])
       }
 
       db_helpers.logActivity(
@@ -707,8 +693,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
       logger.error({ taskId: task.id, err }, 'Aegis review failed')
 
       // Revert to review so it can be retried
-      db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?')
-        .run('review', Math.floor(Date.now() / 1000), task.id)
+      await dbRun('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?', ['review', Math.floor(Date.now() / 1000), task.id])
 
       eventBus.broadcast('task.status_changed', {
         id: task.id,
@@ -735,19 +720,18 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
  * Prevents tasks from being permanently stuck when agents crash or disconnect.
  */
 export async function requeueStaleTasks(): Promise<{ ok: boolean; message: string }> {
-  const db = getDatabase()
   const now = Math.floor(Date.now() / 1000)
   const staleThreshold = now - 10 * 60 // 10 minutes
   const maxDispatchRetries = 5
 
-  const staleTasks = db.prepare(`
+  const staleTasks = await dbGetAll(`
     SELECT t.id, t.title, t.assigned_to, t.dispatch_attempts, t.workspace_id,
            a.status as agent_status, a.last_seen as agent_last_seen
     FROM tasks t
     LEFT JOIN agents a ON a.name = t.assigned_to AND a.workspace_id = t.workspace_id
     WHERE t.status = 'in_progress'
       AND t.updated_at < ?
-  `).all(staleThreshold) as Array<{
+  `, [staleThreshold]) as Array<{
     id: number; title: string; assigned_to: string | null; dispatch_attempts: number
     workspace_id: number; agent_status: string | null; agent_last_seen: number | null
   }>
@@ -767,8 +751,7 @@ export async function requeueStaleTasks(): Promise<{ ok: boolean; message: strin
     const newAttempts = (task.dispatch_attempts ?? 0) + 1
 
     if (newAttempts >= maxDispatchRetries) {
-      db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
-        .run('failed', `Task stuck in_progress ${newAttempts} times — agent "${task.assigned_to}" offline. Moved to failed.`, newAttempts, now, task.id)
+      await dbRun('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?', ['failed', `Task stuck in_progress ${newAttempts} times — agent "${task.assigned_to}" offline. Moved to failed.`, newAttempts, now, task.id])
 
       eventBus.broadcast('task.status_changed', {
         id: task.id,
@@ -780,14 +763,13 @@ export async function requeueStaleTasks(): Promise<{ ok: boolean; message: strin
 
       failed++
     } else {
-      db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
-        .run('assigned', `Requeued: agent "${task.assigned_to}" went offline while task was in_progress`, newAttempts, now, task.id)
+      await dbRun('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?', ['assigned', `Requeued: agent "${task.assigned_to}" went offline while task was in_progress`, newAttempts, now, task.id])
 
       // Add a comment explaining the requeue
-      db.prepare(`
+      await dbRun(`
         INSERT INTO comments (task_id, author, content, created_at, workspace_id)
         VALUES (?, 'scheduler', ?, ?, ?)
-      `).run(task.id, `Task requeued (attempt ${newAttempts}/${maxDispatchRetries}): agent "${task.assigned_to}" went offline while task was in_progress.`, now, task.workspace_id)
+      `, [task.id, `Task requeued (attempt ${newAttempts}/${maxDispatchRetries}): agent "${task.assigned_to}" went offline while task was in_progress.`, now, task.workspace_id])
 
       eventBus.broadcast('task.status_changed', {
         id: task.id,
@@ -811,9 +793,7 @@ export async function requeueStaleTasks(): Promise<{ ok: boolean; message: strin
 }
 
 export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: string }> {
-  const db = getDatabase()
-
-  const tasks = db.prepare(`
+  const tasks = await dbGetAll(`
     SELECT t.*, a.name as agent_name, a.id as agent_id, a.config as agent_config,
            p.ticket_prefix, t.project_ticket_no
     FROM tasks t
@@ -825,7 +805,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
       CASE t.priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END ASC,
       t.created_at ASC
     LIMIT 3
-  `).all() as (DispatchableTask & { tags?: string })[]
+  `, []) as (DispatchableTask & { tags?: string })[]
 
   if (tasks.length === 0) {
     return { ok: true, message: 'No assigned tasks to dispatch' }
@@ -843,8 +823,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
 
   for (const task of tasks) {
     // Mark as in_progress immediately to prevent re-dispatch
-    db.prepare('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?')
-      .run('in_progress', now, task.id)
+    await dbRun('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?', ['in_progress', now, task.id])
 
     eventBus.broadcast('task.status_changed', {
       id: task.id,
@@ -864,19 +843,19 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
 
     try {
       // Check for previous Aegis rejection feedback
-      const rejectionRow = db.prepare(`
+      const rejectionRow = await dbGet(`
         SELECT content FROM comments
         WHERE task_id = ? AND author = 'aegis' AND content LIKE 'Quality Review Rejected:%'
         ORDER BY created_at DESC LIMIT 1
-      `).get(task.id) as { content: string } | undefined
+      `, [task.id]) as { content: string } | undefined
       const rejectionFeedback = rejectionRow?.content?.replace(/^Quality Review Rejected:\n?/, '') || null
 
       const prompt = buildTaskPrompt(task, rejectionFeedback)
 
       // Check if task has a target session specified in metadata
-      const taskMeta = (() => {
+      const taskMeta = await (async () => {
         try {
-          const row = db.prepare('SELECT metadata FROM tasks WHERE id = ?').get(task.id) as { metadata: string } | undefined
+          const row = await dbGet('SELECT metadata FROM tasks WHERE id = ?', [task.id]) as { metadata: string } | undefined
           return row?.metadata ? JSON.parse(row.metadata) : {}
         } catch { return {} }
       })()
@@ -910,9 +889,9 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
         : agentResponse.text
 
       // Merge dispatch_session_id into existing metadata
-      const existingMeta = (() => {
+      const existingMeta = await (async () => {
         try {
-          const row = db.prepare('SELECT metadata FROM tasks WHERE id = ?').get(task.id) as { metadata: string } | undefined
+          const row = await dbGet('SELECT metadata FROM tasks WHERE id = ?', [task.id]) as { metadata: string } | undefined
           return row?.metadata ? JSON.parse(row.metadata) : {}
         } catch { return {} }
       })()
@@ -921,21 +900,20 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
       }
 
       // Update task: status → review, set outcome
-      db.prepare(`
+      await dbRun(`
         UPDATE tasks SET status = ?, outcome = ?, resolution = ?, metadata = ?, updated_at = ? WHERE id = ?
-      `).run('review', 'success', truncated, JSON.stringify(existingMeta), Math.floor(Date.now() / 1000), task.id)
+      `, ['review', 'success', truncated, JSON.stringify(existingMeta), Math.floor(Date.now() / 1000), task.id])
 
       // Add a comment from the agent with the full response
-      db.prepare(`
+      await dbRun(`
         INSERT INTO comments (task_id, author, content, created_at, workspace_id)
         VALUES (?, ?, ?, ?, ?)
-      `).run(
-        task.id,
+      `, [task.id,
         task.agent_name,
         truncated,
-        Math.floor(Date.now() / 1000),
+        Math.floor(Date.now()) / 1000,
         task.workspace_id
-      )
+      ])
 
       eventBus.broadcast('task.status_changed', {
         id: task.id,
@@ -968,14 +946,13 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
       logger.error({ taskId: task.id, agent: task.agent_name, err }, 'Task dispatch failed')
 
       // Increment dispatch_attempts and decide next status
-      const currentAttempts = (db.prepare('SELECT dispatch_attempts FROM tasks WHERE id = ?').get(task.id) as { dispatch_attempts: number } | undefined)?.dispatch_attempts ?? 0
+      const currentAttempts = (await dbGet('SELECT dispatch_attempts FROM tasks WHERE id = ?', [task.id]) as { dispatch_attempts: number } | undefined)?.dispatch_attempts ?? 0
       const newAttempts = currentAttempts + 1
       const maxDispatchRetries = 5
 
       if (newAttempts >= maxDispatchRetries) {
         // Too many failures — move to failed
-        db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
-          .run('failed', `Dispatch failed ${newAttempts} times. Last: ${errorMsg.substring(0, 5000)}`, newAttempts, Math.floor(Date.now() / 1000), task.id)
+        await dbRun('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?', ['failed', `Dispatch failed ${newAttempts} times. Last: ${errorMsg.substring(0, 5000)}`, newAttempts, Math.floor(Date.now() / 1000), task.id])
 
         eventBus.broadcast('task.status_changed', {
           id: task.id,
@@ -986,8 +963,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
         })
       } else {
         // Revert to assigned so it can be retried on the next tick
-        db.prepare('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?')
-          .run('assigned', errorMsg.substring(0, 5000), newAttempts, Math.floor(Date.now() / 1000), task.id)
+        await dbRun('UPDATE tasks SET status = ?, error_message = ?, dispatch_attempts = ?, updated_at = ? WHERE id = ?', ['assigned', errorMsg.substring(0, 5000), newAttempts, Math.floor(Date.now() / 1000), task.id])
 
         eventBus.broadcast('task.status_changed', {
           id: task.id,
@@ -1078,9 +1054,7 @@ function scoreAgentForTask(
  * Runs before dispatch — moves tasks from inbox → assigned.
  */
 export async function autoRouteInboxTasks(): Promise<{ ok: boolean; message: string }> {
-  const db = getDatabase()
-
-  const inboxTasks = db.prepare(`
+  const inboxTasks = await dbGetAll(`
     SELECT id, title, description, priority, tags, workspace_id
     FROM tasks
     WHERE status = 'inbox' AND assigned_to IS NULL
@@ -1088,19 +1062,19 @@ export async function autoRouteInboxTasks(): Promise<{ ok: boolean; message: str
       CASE priority WHEN 'critical' THEN 0 WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END ASC,
       created_at ASC
     LIMIT 5
-  `).all() as Array<{ id: number; title: string; description: string | null; priority: string; tags: string | null; workspace_id: number }>
+  `, []) as Array<{ id: number; title: string; description: string | null; priority: string; tags: string | null; workspace_id: number }>
 
   if (inboxTasks.length === 0) {
     return { ok: true, message: 'No inbox tasks to route' }
   }
 
   // Get all non-hidden, non-offline agents
-  const agents = db.prepare(`
+  const agents = await dbGetAll(`
     SELECT id, name, role, status, config
     FROM agents
     WHERE hidden = 0 AND status NOT IN ('offline', 'error')
     LIMIT 50
-  `).all() as Array<{ id: number; name: string; role: string; status: string; config: string | null }>
+  `, []) as Array<{ id: number; name: string; role: string; status: string; config: string | null }>
 
   if (agents.length === 0) {
     return { ok: true, message: `${inboxTasks.length} inbox task(s) but no available agents` }
@@ -1128,21 +1102,17 @@ export async function autoRouteInboxTasks(): Promise<{ ok: boolean; message: str
     const best = scored[0].agent
 
     // Check capacity — skip agents with 3+ in-progress tasks
-    const inProgressCount = (db.prepare(
-      'SELECT COUNT(*) as c FROM tasks WHERE assigned_to = ? AND status = \'in_progress\' AND workspace_id = ?'
-    ).get(best.name, task.workspace_id) as { c: number }).c
+    const inProgressCount = (await dbGet('SELECT COUNT(*) as c FROM tasks WHERE assigned_to = ? AND status = \'in_progress\' AND workspace_id = ?', [best.name, task.workspace_id]) as { c: number }).c
 
     if (inProgressCount >= 3) {
       // Try next best agent
-      const alt = scored.find(s => {
-        const c = (db.prepare(
-          'SELECT COUNT(*) as c FROM tasks WHERE assigned_to = ? AND status = \'in_progress\' AND workspace_id = ?'
-        ).get(s.agent.name, task.workspace_id) as { c: number }).c
-        return c < 3
-      })
+      let alt: typeof scored[0] | undefined
+      for (const s of scored) {
+        const altRow = await dbGet('SELECT COUNT(*) as c FROM tasks WHERE assigned_to = ? AND status = \'in_progress\' AND workspace_id = ?', [s.agent.name, task.workspace_id]) as { c: number } | undefined
+        if ((altRow?.c ?? 0) < 3) { alt = s; break }
+      }
       if (!alt) continue // all agents at capacity
-      db.prepare('UPDATE tasks SET status = ?, assigned_to = ?, updated_at = ? WHERE id = ?')
-        .run('assigned', alt.agent.name, now, task.id)
+      await dbRun('UPDATE tasks SET status = ?, assigned_to = ?, updated_at = ? WHERE id = ?', ['assigned', alt.agent.name, now, task.id])
 
       db_helpers.logActivity('task_auto_routed', 'task', task.id, 'scheduler',
         `Auto-assigned "${task.title}" to ${alt.agent.name} (${alt.agent.role}, score: ${alt.score})`,
@@ -1154,8 +1124,7 @@ export async function autoRouteInboxTasks(): Promise<{ ok: boolean; message: str
       continue
     }
 
-    db.prepare('UPDATE tasks SET status = ?, assigned_to = ?, updated_at = ? WHERE id = ?')
-      .run('assigned', best.name, now, task.id)
+    await dbRun('UPDATE tasks SET status = ?, assigned_to = ?, updated_at = ? WHERE id = ?', ['assigned', best.name, now, task.id])
 
     db_helpers.logActivity('task_auto_routed', 'task', task.id, 'scheduler',
       `Auto-assigned "${task.title}" to ${best.name} (${best.role}, score: ${scored[0].score})`,

@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { MEMORY_PATH, MEMORY_ALLOWED_PREFIXES } from '@/lib/memory-path'
 import { searchMemory, rebuildIndex } from '@/lib/memory-search'
-import { getDatabase } from '@/lib/db'
+
 
 /**
  * GET /api/memory/search?q=query&limit=20
@@ -14,7 +14,7 @@ import { getDatabase } from '@/lib/db'
  * Supports FTS5 query syntax: AND, OR, NOT, NEAR, "exact phrase", prefix*
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const limited = readLimiter(request)
@@ -48,7 +48,7 @@ export async function GET(request: NextRequest) {
  * Rebuild the FTS5 index from all memory files.
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)

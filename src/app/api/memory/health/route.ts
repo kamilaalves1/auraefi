@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { config } from '@/lib/config'
@@ -39,7 +39,7 @@ function mergeReports(reports: Awaited<ReturnType<typeof runHealthDiagnostics>>[
 }
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const limited = readLimiter(request)

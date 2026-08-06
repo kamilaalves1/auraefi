@@ -1,14 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { getLeaderboard } from '@/lib/runs'
 import { logger } from '@/lib/logger'
 
 /**
- * GET /api/v1/evals/leaderboard — Get eval leaderboard.
+ * GET /api/v1/evals/leaderboard â€” Get eval leaderboard.
  * Query params: benchmark_id, limit
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {

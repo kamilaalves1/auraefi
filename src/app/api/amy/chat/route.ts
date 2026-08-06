@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { logger } from '@/lib/logger'
 
 /**
- * POST /api/amy/chat — Direct chat with Amy via Ollama
+ * POST /api/amy/chat â€” Direct chat with Amy via Ollama
  * 
  * Body: { message: string, conversation_id?: string, model?: string }
  * Returns: { reply: string, model: string, conversation_id: string }
@@ -34,7 +34,7 @@ function getHistory(conversationId: string): Array<{ role: string; content: stri
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }
@@ -107,26 +107,25 @@ export async function POST(request: NextRequest) {
 
     // Also save the exchange to the database
     try {
-      const db = getDatabase()
       const workspaceId = auth.user.workspace_id ?? 1
 
       // Ensure conversation exists
-      db.prepare(`
-        INSERT OR IGNORE INTO conversations (id, title, workspace_id, created_at) 
+      await dbRun(`
+        INSERT IGNORE INTO conversations (id, title, workspace_id, created_at) 
         VALUES (?, ?, ?, ?)
-      `).run(convId, `Amy Chat`, workspaceId, Math.floor(Date.now() / 1000))
+      `, [convId, `Amy Chat`, workspaceId, Math.floor(Date.now() / 1000)])
 
       // Save user message
-      db.prepare(`
+      await dbRun(`
         INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, workspace_id, created_at)
         VALUES (?, 'human', 'amy', ?, 'text', ?, ?)
-      `).run(convId, message, workspaceId, Math.floor(Date.now() / 1000))
+      `, [convId, message, workspaceId, Math.floor(Date.now() / 1000)])
 
       // Save assistant reply
-      db.prepare(`
+      await dbRun(`
         INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, workspace_id, created_at)
         VALUES (?, 'amy', 'human', ?, 'text', ?, ?)
-      `).run(convId, reply, workspaceId, Math.floor(Date.now() / 1000))
+      `, [convId, reply, workspaceId, Math.floor(Date.now() / 1000)])
     } catch (dbErr) {
       logger.warn({ err: dbErr }, 'Could not persist Amy chat to database')
     }
@@ -144,10 +143,10 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * GET /api/amy/chat — Get Amy's status and available models
+ * GET /api/amy/chat â€” Get Amy's status and available models
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) {
     return NextResponse.json({ error: auth.error }, { status: auth.status })
   }

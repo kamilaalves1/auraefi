@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 
@@ -10,24 +10,24 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
+
     const { id } = await params
     const workspaceId = auth.user.workspace_id ?? 1
 
     const idNum = Number(id)
     const agent = isNaN(idNum)
-      ? db.prepare('SELECT id, name FROM agents WHERE name = ? AND workspace_id = ?').get(id, workspaceId) as any
-      : db.prepare('SELECT id, name FROM agents WHERE id = ? AND workspace_id = ?').get(idNum, workspaceId) as any
+      ? await dbGet('SELECT id, name FROM agents WHERE name = ? AND workspace_id = ?', [id, workspaceId]) as any
+      : await dbGet('SELECT id, name FROM agents WHERE id = ? AND workspace_id = ?', [idNum, workspaceId]) as any
 
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
     }
 
-    db.prepare('UPDATE agents SET hidden = 1, updated_at = unixepoch() WHERE id = ?').run(agent.id)
+    await dbRun('UPDATE agents SET hidden = 1, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [agent.id])
 
     return NextResponse.json({ success: true, agent_id: agent.id, hidden: true })
   } catch (error) {
@@ -43,24 +43,24 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
+
     const { id } = await params
     const workspaceId = auth.user.workspace_id ?? 1
 
     const idNum = Number(id)
     const agent = isNaN(idNum)
-      ? db.prepare('SELECT id, name FROM agents WHERE name = ? AND workspace_id = ?').get(id, workspaceId) as any
-      : db.prepare('SELECT id, name FROM agents WHERE id = ? AND workspace_id = ?').get(idNum, workspaceId) as any
+      ? await dbGet('SELECT id, name FROM agents WHERE name = ? AND workspace_id = ?', [id, workspaceId]) as any
+      : await dbGet('SELECT id, name FROM agents WHERE id = ? AND workspace_id = ?', [idNum, workspaceId]) as any
 
     if (!agent) {
       return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
     }
 
-    db.prepare('UPDATE agents SET hidden = 0, updated_at = unixepoch() WHERE id = ?').run(agent.id)
+    await dbRun('UPDATE agents SET hidden = 0, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [agent.id])
 
     return NextResponse.json({ success: true, agent_id: agent.id, hidden: false })
   } catch (error) {

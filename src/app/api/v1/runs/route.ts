@@ -1,21 +1,21 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { createRun, listRuns } from '@/lib/runs'
 import { logger } from '@/lib/logger'
 
 /**
- * GET /api/v1/runs — List agent runs with filtering.
+ * GET /api/v1/runs â€” List agent runs with filtering.
  * Query params: agent_id, status, since, task_id, limit, offset
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
     const { searchParams } = new URL(request.url)
     const workspaceId = auth.user.workspace_id ?? 1
 
-    const result = listRuns({
+    const result = await listRuns({
       workspaceId,
       agentId: searchParams.get('agent_id') ?? undefined,
       status: searchParams.get('status') ?? undefined,
@@ -35,11 +35,11 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/v1/runs — Report a new agent run.
+ * POST /api/v1/runs â€” Report a new agent run.
  * Body: AgentRun object per the agent-run spec.
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
@@ -57,7 +57,7 @@ export async function POST(request: NextRequest) {
     if (!body.provenance) body.provenance = {}
     if (!body.steps) body.steps = []
 
-    const run = createRun(body, workspaceId)
+    const run = await createRun(body, workspaceId)
 
     return NextResponse.json(
       { id: run.id, run_hash: run.provenance.run_hash },

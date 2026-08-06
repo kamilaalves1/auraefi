@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { calculateTokenCost } from '@/lib/token-pricing'
 import { getProviderSubscriptionFlags } from '@/lib/provider-subscriptions'
 import { logger } from '@/lib/logger'
@@ -41,15 +41,13 @@ interface AgentBreakdown {
  *   days=N  - Time window in days (default 30)
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
     const { searchParams } = new URL(request.url)
     const days = Math.max(1, Math.min(365, Number(searchParams.get('days') || 30)))
     const workspaceId = auth.user.workspace_id ?? 1
-
-    const db = getDatabase()
     const cutoff = Math.floor(Date.now() / 1000) - days * 86400
     const providerSubscriptions = getProviderSubscriptionFlags()
 
@@ -62,7 +60,7 @@ export async function GET(request: NextRequest) {
         )`
 
     // Query per-agent totals — prefer stored cost_usd; fall back to recalculating
-    const rows = db.prepare(`
+    const rows = await dbGetAll(`
       SELECT
         ${agentExpr} AS agent_name,
         SUM(input_tokens)              AS total_input_tokens,
@@ -75,12 +73,12 @@ export async function GET(request: NextRequest) {
       FROM token_usage
       WHERE workspace_id = ?
         AND created_at >= ?
-      GROUP BY agent_name
+      GROUP BY ${agentExpr}
       ORDER BY SUM(COALESCE(cost_usd, 0)) DESC, (SUM(input_tokens) + SUM(output_tokens)) DESC
-    `).all(workspaceId, cutoff) as (AgentBreakdownRow & { total_cost_stored: number })[]
+    `, [workspaceId, cutoff]) as (AgentBreakdownRow & { total_cost_stored: number })[]
 
     // Per-model breakdown with stored cost
-    const modelRows = db.prepare(`
+    const modelRows = await dbGetAll(`
       SELECT
         ${agentExpr} AS agent_name,
         model,
@@ -91,9 +89,9 @@ export async function GET(request: NextRequest) {
       FROM token_usage
       WHERE workspace_id = ?
         AND created_at >= ?
-      GROUP BY agent_name, model
-      ORDER BY agent_name, SUM(COALESCE(cost_usd, 0)) DESC
-    `).all(workspaceId, cutoff) as Array<{
+      GROUP BY ${agentExpr}, model
+      ORDER BY ${agentExpr}, SUM(COALESCE(cost_usd, 0)) DESC
+    `, [workspaceId, cutoff]) as Array<{
       agent_name: string
       model: string
       input_tokens: number

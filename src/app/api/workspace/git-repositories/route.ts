@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+﻿import { NextRequest, NextResponse } from 'next/server'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -59,17 +59,14 @@ function rowToRepoForRole(row: any, role: string): GitRepository {
   return { ...rowToRepo(row), access_token: isOperator ? (row.access_token ?? null) : null }
 }
 
-/** GET /api/workspace/git-repositories — list all repos for workspace */
+/** GET /api/workspace/git-repositories â€” list all repos for workspace */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
-    const rows = db.prepare(
-      'SELECT * FROM git_repositories WHERE workspace_id = ? ORDER BY created_at ASC'
-    ).all(workspaceId)
+    const rows = await dbGetAll('SELECT * FROM git_repositories WHERE workspace_id = ? ORDER BY created_at ASC', [workspaceId])
     return NextResponse.json({ repositories: (rows as any[]).map(row => rowToRepoForRole(row, auth.user.role)) })
   } catch (err) {
     logger.error({ err }, 'GET /api/workspace/git-repositories error')
@@ -77,9 +74,9 @@ export async function GET(request: NextRequest) {
   }
 }
 
-/** POST /api/workspace/git-repositories — create a new repo */
+/** POST /api/workspace/git-repositories â€” create a new repo */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -88,11 +85,9 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json().catch(() => ({}))
     const workspaceId = auth.user.workspace_id ?? 1
-    const db = getDatabase()
-
     const name = typeof body.name === 'string' && body.name.trim()
       ? body.name.trim().slice(0, 120)
-      : 'Novo repositório'
+      : 'Novo repositÃ³rio'
     const provider: GitProvider = VALID_PROVIDERS.includes(body.provider) ? body.provider : 'github'
     const repo_url = typeof body.repo_url === 'string' ? body.repo_url.trim().slice(0, 500) : ''
     const branch = typeof body.branch === 'string' && body.branch.trim()
@@ -112,12 +107,10 @@ export async function POST(request: NextRequest) {
     }
 
     const now = Math.floor(Date.now() / 1000)
-    const result = db.prepare(
-      `INSERT INTO git_repositories (workspace_id, name, provider, repo_url, branch, access_token, base_url, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(workspaceId, name, provider, repo_url, branch, access_token, base_url, now, now)
+    const result = await dbRun(`INSERT INTO git_repositories (workspace_id, name, provider, repo_url, branch, access_token, base_url, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [workspaceId, name, provider, repo_url, branch, access_token, base_url, now, now])
 
-    const row = db.prepare('SELECT * FROM git_repositories WHERE id = ?').get(result.lastInsertRowid)
+    const row = await dbGet('SELECT * FROM git_repositories WHERE id = ?', [result.insertId])
     return NextResponse.json({ repository: rowToRepo(row as any) }, { status: 201 })
   } catch (err) {
     logger.error({ err }, 'POST /api/workspace/git-repositories error')

@@ -1,4 +1,4 @@
-import type { Database } from 'better-sqlite3'
+import { dbGetAll } from '@/lib/db-pool'
 
 export interface MentionTarget {
   handle: string
@@ -40,16 +40,16 @@ export function parseMentions(text: string): string[] {
   return found
 }
 
-export function getMentionTargets(db: Database, workspaceId: number): MentionTarget[] {
+export async function getMentionTargets(workspaceId: number): Promise<MentionTarget[]> {
   const targets: MentionTarget[] = []
   const seenHandles = new Set<string>()
 
-  const users = db.prepare(`
+  const users = await dbGetAll<{ username: string; display_name?: string | null }>(`
     SELECT username, display_name
     FROM users
     WHERE workspace_id = ?
     ORDER BY username ASC
-  `).all(workspaceId) as Array<{ username: string; display_name?: string | null }>
+  `, [workspaceId])
 
   for (const user of users) {
     const username = String(user.username || '').trim()
@@ -65,12 +65,12 @@ export function getMentionTargets(db: Database, workspaceId: number): MentionTar
     })
   }
 
-  const agents = db.prepare(`
+  const agents = await dbGetAll<{ name: string; role?: string | null; config?: string | null }>(`
     SELECT name, role, config
     FROM agents
     WHERE workspace_id = ?
     ORDER BY name ASC
-  `).all(workspaceId) as Array<{ name: string; role?: string | null; config?: string | null }>
+  `, [workspaceId])
 
   for (const agent of agents) {
     const recipient = String(agent.name || '').trim()
@@ -106,13 +106,13 @@ export function getMentionTargets(db: Database, workspaceId: number): MentionTar
   return targets
 }
 
-export function resolveMentionRecipients(text: string, db: Database, workspaceId: number): MentionResolution {
+export async function resolveMentionRecipients(text: string, workspaceId: number): Promise<MentionResolution> {
   const tokens = parseMentions(text)
   if (tokens.length === 0) {
     return { tokens: [], unresolved: [], recipients: [], resolved: [] }
   }
 
-  const targets = getMentionTargets(db, workspaceId)
+  const targets = await getMentionTargets(workspaceId)
   const byHandle = new Map<string, MentionTarget>()
   for (const target of targets) {
     byHandle.set(target.handle.toLowerCase(), target)

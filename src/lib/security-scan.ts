@@ -3,7 +3,7 @@ import { execSync } from 'node:child_process'
 import path from 'node:path'
 import os from 'node:os'
 import { config } from '@/lib/config'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,11 +75,11 @@ const INSECURE_PASSWORDS = new Set([
   'admin', 'password', 'change-me-on-first-login', 'changeme', 'testpass123',
 ])
 
-export function runSecurityScan(): ScanResult {
+export async function runSecurityScan(): Promise<ScanResult> {
   const credentials = scanCredentials()
   const network = scanNetwork()
   const gateway = scanGateway()
-  const runtime = scanRuntime()
+  const runtime = await scanRuntime()
   const osLevel = scanOS()
 
   const categories = { credentials, network, gateway, runtime, os: osLevel }
@@ -479,7 +479,7 @@ function scanGateway(): Category {
 // Category: Runtime
 // ---------------------------------------------------------------------------
 
-function scanRuntime(): Category {
+async function scanRuntime(): Promise<Category> {
   const checks: Check[] = []
 
   try {
@@ -557,18 +557,17 @@ function scanRuntime(): Category {
   }
 
   try {
-    const db = getDatabase()
-    const result = db.prepare('PRAGMA integrity_check').get() as { integrity_check: string } | undefined
+    await dbGet('SELECT 1', [])
     checks.push({
       id: 'db_integrity',
-      name: 'Database integrity',
-      status: result?.integrity_check === 'ok' ? 'pass' : 'fail',
-      detail: result?.integrity_check === 'ok' ? 'Integrity check passed' : `Integrity: ${result?.integrity_check || 'unknown'}`,
-      fix: result?.integrity_check !== 'ok' ? 'Database may be corrupted — restore from backup' : '',
+      name: 'Database connectivity',
+      status: 'pass',
+      detail: 'Database connection healthy',
+      fix: '',
       severity: 'critical',
     })
   } catch {
-    checks.push({ id: 'db_integrity', name: 'Database integrity', status: 'warn', detail: 'Could not run integrity check', fix: '', severity: 'critical' })
+    checks.push({ id: 'db_integrity', name: 'Database connectivity', status: 'fail', detail: 'Could not connect to database', fix: 'Check MySQL connection settings', severity: 'critical' })
   }
 
   return scoreCategory(checks)

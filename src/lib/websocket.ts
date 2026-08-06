@@ -4,21 +4,10 @@ import { useCallback, useEffect } from 'react'
 import { useMissionControl } from '@/store'
 import { normalizeModel } from '@/lib/utils'
 import { buildGatewayPathFallbackUrls, buildGatewayWebSocketUrl } from '@/lib/gateway-url'
-import {
-  getOrCreateDeviceIdentity,
-  signPayload,
-  getCachedDeviceToken,
-  cacheDeviceToken,
-  clearDeviceIdentity,
-} from '@/lib/device-identity'
+import { getOrCreateDeviceIdentity, signPayload, getCachedDeviceToken, cacheDeviceToken, clearDeviceIdentity } from '@/lib/device-identity'
 import { APP_VERSION } from '@/lib/version'
 import { createClientLogger } from '@/lib/client-logger'
-import {
-  ConnectErrorDetailCodes,
-  readErrorDetailCode,
-  NON_RETRYABLE_ERROR_CODES,
-  shouldRetryWithoutDeviceIdentity,
-} from '@/lib/websocket-utils'
+import { ConnectErrorDetailCodes, readErrorDetailCode, NON_RETRYABLE_ERROR_CODES, shouldRetryWithoutDeviceIdentity } from '@/lib/websocket-utils'
 
 const log = createClientLogger('WebSocket')
 

@@ -892,7 +892,7 @@ export const useMissionControl = create<MissionControlStore>()(
     },
 
     // Interface Mode
-    interfaceMode: 'essential' as const,
+    interfaceMode: 'full' as const,
     setInterfaceMode: (mode) => set({ interfaceMode: mode }),
 
     // UI State — sidebar & layout persistence

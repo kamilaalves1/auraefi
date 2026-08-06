@@ -1,18 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+﻿import { NextRequest, NextResponse } from 'next/server'
+
 import { requireRole } from '@/lib/auth'
+import { dbGet, dbGetAll } from '@/lib/db-pool'
 import { logger } from '@/lib/logger'
 
 /**
  * GET /api/webhooks/deliveries - Get delivery history for a webhook
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  try {
-    const db = getDatabase()
-    const workspaceId = auth.user.workspace_id ?? 1
+  try {    const workspaceId = auth.user.workspace_id ?? 1
     const { searchParams } = new URL(request.url)
     const webhookId = searchParams.get('webhook_id')
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 200)
@@ -34,7 +33,7 @@ export async function GET(request: NextRequest) {
     query += ' ORDER BY wd.created_at DESC LIMIT ? OFFSET ?'
     params.push(limit, offset)
 
-    const deliveries = db.prepare(query).all(...params)
+    const deliveries = await dbGetAll(query, params)
 
     // Get total count
     let countQuery = 'SELECT COUNT(*) as count FROM webhook_deliveries WHERE workspace_id = ?'
@@ -43,7 +42,7 @@ export async function GET(request: NextRequest) {
       countQuery += ' AND webhook_id = ?'
       countParams.push(webhookId)
     }
-    const { count: total } = db.prepare(countQuery).get(...countParams) as { count: number }
+    const { count: total } = await dbGet(countQuery, countParams) as { count: number }
 
     return NextResponse.json({ deliveries, total })
   } catch (error) {

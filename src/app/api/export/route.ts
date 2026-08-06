@@ -1,6 +1,7 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase, logAuditEvent } from '@/lib/db'
+import { logAuditEvent } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { heavyLimiter, extractClientIp } from '@/lib/rate-limit'
 
 /**
@@ -8,7 +9,7 @@ import { heavyLimiter, extractClientIp } from '@/lib/rate-limit'
  * Admin-only data export endpoint.
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = heavyLimiter(request)
@@ -26,8 +27,6 @@ export async function GET(request: NextRequest) {
       { status: 400 }
     )
   }
-
-  const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
   const conditions: string[] = []
   const params: any[] = []
@@ -60,7 +59,7 @@ export async function GET(request: NextRequest) {
       auditConditions.unshift('(actor_id IS NULL OR actor_id IN (SELECT id FROM users WHERE workspace_id = ?))')
       auditParams.unshift(workspaceId)
       const auditWhere = `WHERE ${auditConditions.join(' AND ')}`
-      rows = db.prepare(`SELECT * FROM audit_log ${auditWhere} ORDER BY created_at DESC LIMIT ?`).all(...auditParams, limit)
+      rows = await dbGetAll(`SELECT * FROM audit_log ${auditWhere} ORDER BY created_at DESC LIMIT ?`, [...auditParams, limit])
       headers = ['id', 'action', 'actor', 'actor_id', 'target_type', 'target_id', 'detail', 'ip_address', 'user_agent', 'created_at']
       filename = 'audit-log'
       break
@@ -69,7 +68,7 @@ export async function GET(request: NextRequest) {
       conditions.unshift('workspace_id = ?')
       params.unshift(workspaceId)
       const scopedWhere = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
-      rows = db.prepare(`SELECT * FROM tasks ${scopedWhere} ORDER BY created_at DESC LIMIT ?`).all(...params, limit)
+      rows = await dbGetAll(`SELECT * FROM tasks ${scopedWhere} ORDER BY created_at DESC LIMIT ?`, [...params, limit])
       headers = ['id', 'title', 'description', 'status', 'priority', 'assigned_to', 'created_by', 'created_at', 'updated_at', 'due_date', 'estimated_hours', 'actual_hours', 'tags']
       filename = 'tasks'
       break
@@ -78,7 +77,7 @@ export async function GET(request: NextRequest) {
       conditions.unshift('workspace_id = ?')
       params.unshift(workspaceId)
       const scopedWhere = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : ''
-      rows = db.prepare(`SELECT * FROM activities ${scopedWhere} ORDER BY created_at DESC LIMIT ?`).all(...params, limit)
+      rows = await dbGetAll(`SELECT * FROM activities ${scopedWhere} ORDER BY created_at DESC LIMIT ?`, [...params, limit])
       headers = ['id', 'type', 'entity_type', 'entity_id', 'actor', 'description', 'data', 'created_at']
       filename = 'activities'
       break
@@ -87,14 +86,14 @@ export async function GET(request: NextRequest) {
       conditions.unshift('pr.workspace_id = ?')
       params.unshift(workspaceId)
       const scopedWhere = conditions.length > 0 ? `WHERE ${conditions.map(c => c.replace(/^created_at/, 'pr.created_at')).join(' AND ')}` : ''
-      rows = db.prepare(`SELECT pr.*, wp.name as pipeline_name FROM pipeline_runs pr LEFT JOIN workflow_pipelines wp ON pr.pipeline_id = wp.id ${scopedWhere} ORDER BY pr.created_at DESC LIMIT ?`).all(...params, limit)
+      rows = await dbGetAll(`SELECT pr.*, wp.name as pipeline_name FROM pipeline_runs pr LEFT JOIN workflow_pipelines wp ON pr.pipeline_id = wp.id ${scopedWhere} ORDER BY pr.created_at DESC LIMIT ?`, [...params, limit])
       headers = ['id', 'pipeline_id', 'pipeline_name', 'status', 'current_step', 'steps_snapshot', 'started_at', 'completed_at', 'triggered_by', 'created_at']
       filename = 'pipeline-runs'
       break
     }
   }
 
-  // Log the export — use the validated IP extractor to prevent header forgery in audit logs
+  // Log the export â€” use the validated IP extractor to prevent header forgery in audit logs
   const ipAddress = extractClientIp(request)
   logAuditEvent({
     action: 'data_export',

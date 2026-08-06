@@ -7,7 +7,7 @@ import { heavyLimiter, extractClientIp } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { validateBody, spawnAgentSchema } from '@/lib/validation'
 import { scanForInjection } from '@/lib/injection-guard'
-import { logAuditEvent, getDatabase } from '@/lib/db'
+import { logAuditEvent } from '@/lib/db'
 import { applyParameterSubstitution, mergeParameterLayers } from '@/lib/parameter-substitution'
 import { loadParameterResolutionBase } from '@/lib/workspace-parameter-resolution'
 
@@ -16,7 +16,7 @@ function getPreferredToolsProfile(): string {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = heavyLimiter(request)
@@ -27,9 +27,7 @@ export async function POST(request: NextRequest) {
     if ('error' in result) return result.error
     const { task, model, label, timeoutSeconds, parameters: spawnOverrides } = result.data
 
-    const workspaceId = auth.user.workspace_id ?? 1
-    const db = getDatabase()
-    const { defDefaults, workspaceValues } = loadParameterResolutionBase(db, workspaceId)
+    const workspaceId = auth.user.workspace_id ?? 1    const { defDefaults, workspaceValues } = await loadParameterResolutionBase(workspaceId)
     const merged = mergeParameterLayers(defDefaults, workspaceValues, {}, spawnOverrides ?? {})
     const resolvedTask = applyParameterSubstitution(task, merged)
     const resolvedLabel = applyParameterSubstitution(label, merged)
@@ -159,7 +157,7 @@ export async function POST(request: NextRequest) {
 
 // Get spawn history
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = heavyLimiter(request)

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { existsSync } from 'fs'
 import { join } from 'path'
 import { requireRole } from '@/lib/auth'
@@ -29,11 +29,11 @@ function mergeContextPayloads(payloads: ContextPayload[]): ContextPayload {
 }
 
 /**
- * Context injection endpoint — generates a payload for agent session start.
+ * Context injection endpoint â€” generates a payload for agent session start.
  * Returns workspace tree, recent files, health summary, and maintenance signals.
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const limited = readLimiter(request)

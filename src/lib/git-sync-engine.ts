@@ -6,21 +6,12 @@
  * The legacy GitHub project sync in github-sync-engine.ts is kept for backward compat.
  */
 
-import { getDatabase, db_helpers } from '@/lib/db'
+import { db_helpers } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { logger } from '@/lib/logger'
 import { getGitProviderClient, type GitIssue } from '@/lib/git-provider'
 import type { GitProvider } from '@/lib/delivery-flow-types'
-import {
-  ALL_MC_LABELS,
-  ALL_STATUS_LABEL_NAMES,
-  ALL_PRIORITY_LABEL_NAMES,
-  statusToLabel,
-  labelToStatus,
-  priorityToLabel,
-  labelToPriority,
-  type TaskStatus,
-  type TaskPriority,
-} from '@/lib/github-label-map'
+import { ALL_MC_LABELS, ALL_STATUS_LABEL_NAMES, ALL_PRIORITY_LABEL_NAMES, statusToLabel, labelToStatus, priorityToLabel, labelToPriority, type TaskStatus, type TaskPriority } from '@/lib/github-label-map'
 
 // ── Types ───────────────────────────────────────────────────────────────────
 
@@ -69,7 +60,6 @@ export async function pushTaskToGit(
 
   const provider = task.git_provider || flow.provider
   const client = getGitProviderClient(provider)
-  const db = getDatabase()
   const now = Math.floor(Date.now() / 1000)
 
   // Only push labels for GitHub — label-based status is a GitHub convention
@@ -94,7 +84,7 @@ export async function pushTaskToGit(
 
     await client.updateIssue(repo, task.git_issue_number, updates)
 
-    db.prepare('UPDATE tasks SET git_synced_at = ? WHERE id = ?').run(now, task.id)
+    await dbRun('UPDATE tasks SET git_synced_at = ? WHERE id = ?', [now, task.id])
     logger.info({ repo, provider, issue: task.git_issue_number }, 'Pushed task update to git provider')
   } else {
     // Create new issue
@@ -108,11 +98,11 @@ export async function pushTaskToGit(
       labels,
     })
 
-    db.prepare(`
+    await dbRun(`
       UPDATE tasks
       SET git_issue_number = ?, git_repo = ?, git_provider = ?, git_synced_at = ?
       WHERE id = ?
-    `).run(created.number, repo, provider, now, task.id)
+    `, [created.number, repo, provider, now, task.id])
 
     logger.info({ repo, provider, issue: created.number, taskId: task.id }, 'Created issue on git provider')
   }
@@ -125,16 +115,15 @@ export async function pullFromGitProvider(
 ): Promise<SyncResult> {
   const { flowId, workspaceId, provider, repo } = flow
   const client = getGitProviderClient(provider)
-  const db = getDatabase()
   const now = Math.floor(Date.now() / 1000)
   let pulled = 0, pushed = 0, errors = 0
 
   // Find last sync time for this flow
-  const lastSync = db.prepare(`
+  const lastSync = await dbGet(`
     SELECT last_synced_at FROM git_syncs
     WHERE flow_id = ? AND workspace_id = ?
     ORDER BY created_at DESC LIMIT 1
-  `).get(flowId, workspaceId) as { last_synced_at: number } | undefined
+  `, [flowId, workspaceId]) as { last_synced_at: number } | undefined
 
   const since = lastSync
     ? new Date(lastSync.last_synced_at * 1000).toISOString()
@@ -151,10 +140,10 @@ export async function pullFromGitProvider(
 
   for (const issue of issues) {
     try {
-      const existing = db.prepare(`
+      const existing = await dbGet(`
         SELECT * FROM tasks
         WHERE git_repo = ? AND git_issue_number = ? AND git_provider = ? AND workspace_id = ?
-      `).get(repo, issue.number, provider, workspaceId) as any | undefined
+      `, [repo, issue.number, provider, workspaceId]) as any | undefined
 
       const issueUpdatedAt = Math.floor(new Date(issue.updated_at).getTime() / 1000)
       const state: 'open' | 'closed' = issue.state
@@ -171,19 +160,18 @@ export async function pullFromGitProvider(
           ? issue.labels.filter(l => !ALL_STATUS_LABEL_NAMES.includes(l) && !ALL_PRIORITY_LABEL_NAMES.includes(l))
           : issue.labels
 
-        db.prepare(`
+        await dbRun(`
           INSERT INTO tasks (
             title, description, status, priority, created_by,
             created_at, updated_at, tags, metadata,
             git_issue_number, git_repo, git_provider, git_synced_at,
             workspace_id
           ) VALUES (?, ?, ?, ?, 'git-sync', ?, ?, ?, '{}', ?, ?, ?, ?, ?)
-        `).run(
-          issue.title, issue.body || '', status, priority,
+        `, [issue.title, issue.body || '', status, priority,
           now, now, JSON.stringify(tags),
           issue.number, repo, provider, now,
           workspaceId
-        )
+        ])
 
         pulled++
         db_helpers.logActivity(
@@ -204,12 +192,12 @@ export async function pullFromGitProvider(
         )
         const priority = provider === 'github' ? labelToPriority(issue.labels) : existing.priority
 
-        db.prepare(`
+        await dbRun(`
           UPDATE tasks
           SET title = ?, description = ?, status = ?, priority = ?,
               git_synced_at = ?, updated_at = ?
           WHERE id = ? AND workspace_id = ?
-        `).run(issue.title, issue.body || '', status, priority, now, now, existing.id, workspaceId)
+        `, [issue.title, issue.body || '', status, priority, now, now, existing.id, workspaceId])
 
         pulled++
         db_helpers.logActivity(
@@ -233,20 +221,17 @@ export async function pullFromGitProvider(
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
-function _recordSync(opts: {
+async function _recordSync(opts: {
   flowId: number; workspaceId: number; provider: string; repo: string; now: number
   pulled: number; pushed: number; status: string; error?: string
-}) {
+}): Promise<void> {
   try {
-    const db = getDatabase()
-    db.prepare(`
+    await dbRun(`
       INSERT INTO git_syncs
         (flow_id, workspace_id, provider, repo, last_synced_at, changes_pulled, changes_pushed, status, error, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      opts.flowId, opts.workspaceId, opts.provider, opts.repo, opts.now,
-      opts.pulled, opts.pushed, opts.status, opts.error ?? null, opts.now
-    )
+    `, [opts.flowId, opts.workspaceId, opts.provider, opts.repo, opts.now,
+      opts.pulled, opts.pushed, opts.status, opts.error ?? null, opts.now])
   } catch (err) {
     logger.warn({ err }, 'Failed to record git sync')
   }

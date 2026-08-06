@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { config } from '@/lib/config'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
@@ -8,7 +8,7 @@ import { logger } from '@/lib/logger'
 const MEMORY_PATH = config.memoryDir
 
 /**
- * Processing pipeline endpoint — runs knowledge maintenance operations.
+ * Processing pipeline endpoint â€” runs knowledge maintenance operations.
  * Actions: reflect, reweave, generate-moc
  *
  * These mirror Ars Contexta's 6 Rs processing pipeline, adapted for MC:
@@ -17,7 +17,7 @@ const MEMORY_PATH = config.memoryDir
  * - generate-moc: Auto-generate Maps of Content from file clusters
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)

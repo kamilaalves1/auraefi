@@ -1,13 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { listProvisionJobs } from '@/lib/super-admin'
 
 /**
  * GET /api/super/provision-jobs - List provisioning jobs
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { searchParams } = new URL(request.url)
@@ -28,11 +28,10 @@ export async function GET(request: NextRequest) {
  * POST /api/super/provision-jobs - Queue an additional bootstrap/update job for an existing tenant
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const body = await request.json()
     const tenantId = Number(body.tenant_id)
     const dryRun = body.dry_run !== false
@@ -46,27 +45,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid job_type' }, { status: 400 })
     }
 
-    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId) as any
+    const tenant = await dbGet('SELECT * FROM tenants WHERE id = ?', [tenantId]) as any
     if (!tenant) {
       return NextResponse.json({ error: 'Tenant not found' }, { status: 404 })
     }
 
     const plan = body.plan_json && Array.isArray(body.plan_json) ? body.plan_json : []
-    const result = db.prepare(`
+    const result = await dbRun(`
       INSERT INTO provision_jobs (tenant_id, job_type, status, dry_run, requested_by, request_json, plan_json, updated_at)
-      VALUES (?, ?, 'queued', ?, ?, ?, ?, (unixepoch()))
-    `).run(
-      tenantId,
+      VALUES (?, ?, 'queued', ?, ?, ?, ?, (UNIX_TIMESTAMP()))
+    `, [tenantId,
       jobType,
       dryRun ? 1 : 0,
       auth.user.username,
       JSON.stringify(body.request_json || {}),
-      JSON.stringify(plan),
-    )
+      JSON.stringify(plan),])
 
-    const id = Number(result.lastInsertRowid)
+    const id = Number(result.insertId)
     return NextResponse.json({
-      job: db.prepare('SELECT * FROM provision_jobs WHERE id = ?').get(id),
+      job: await dbGet('SELECT * FROM provision_jobs WHERE id = ?', [id]),
     }, { status: 201 })
   } catch (error: any) {
     return NextResponse.json({ error: error?.message || 'Failed to queue job' }, { status: 500 })

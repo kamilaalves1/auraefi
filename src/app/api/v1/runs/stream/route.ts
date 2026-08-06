@@ -1,14 +1,14 @@
-import { NextRequest } from 'next/server'
+﻿import { NextRequest } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { eventBus, type ServerEvent } from '@/lib/event-bus'
 import { logger } from '@/lib/logger'
 
 /**
- * GET /api/v1/runs/stream — SSE stream of run events.
+ * GET /api/v1/runs/stream â€” SSE stream of run events.
  * Emits: run.created, run.updated, run.completed, run.eval_attached
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) {
     return new Response(JSON.stringify({ error: auth.error }), {
       status: auth.status,

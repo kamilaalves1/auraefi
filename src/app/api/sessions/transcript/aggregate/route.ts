@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { config } from '@/lib/config'
 import { getAllGatewaySessions } from '@/lib/sessions'
@@ -22,7 +22,7 @@ export interface AggregateEvent {
  * a single chronological event stream for the agent-feed panel.
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { searchParams } = new URL(request.url)

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase, Task, db_helpers } from '@/lib/db';
+import { Task, db_helpers } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool';
 import { eventBus } from '@/lib/event-bus';
 import { requireRole } from '@/lib/auth';
 import { mutationLimiter } from '@/lib/rate-limit';
@@ -25,17 +26,16 @@ function mapTaskRow(task: any): Task & { tags: string[]; metadata: Record<string
   }
 }
 
-function hasAegisApproval(
-  db: ReturnType<typeof getDatabase>,
+async function hasAegisApproval(
   taskId: number,
   workspaceId: number
-): boolean {
-  const review = db.prepare(`
+): Promise<boolean> {
+  const review = await dbGet<{ status?: string }>(`
     SELECT status FROM quality_reviews
     WHERE task_id = ? AND reviewer = 'aegis' AND workspace_id = ?
     ORDER BY created_at DESC
     LIMIT 1
-  `).get(taskId, workspaceId) as { status?: string } | undefined
+  `, [taskId, workspaceId])
   return review?.status === 'approved'
 }
 
@@ -46,11 +46,11 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireRole(request, 'viewer');
+  const auth = await requireRole(request, 'viewer');
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   try {
-    const db = getDatabase();
+
     const resolvedParams = await params;
     const taskId = parseInt(resolvedParams.id);
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -58,14 +58,12 @@ export async function GET(
     if (isNaN(taskId)) {
       return NextResponse.json({ error: 'Invalid task ID' }, { status: 400 });
     }
-    
-    const stmt = db.prepare(`
+    const task = await dbGet<Task>(`
       SELECT t.*, p.name as project_name, p.ticket_prefix as project_prefix
       FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id AND p.workspace_id = t.workspace_id
       WHERE t.id = ? AND t.workspace_id = ?
-    `);
-    const task = stmt.get(taskId, workspaceId) as Task;
+    `, [taskId, workspaceId]);
     
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
@@ -88,14 +86,14 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireRole(request, 'operator');
+  const auth = await requireRole(request, 'operator');
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const rateCheck = mutationLimiter(request);
   if (rateCheck) return rateCheck;
 
   try {
-    const db = getDatabase();
+
     const resolvedParams = await params;
     const taskId = parseInt(resolvedParams.id);
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -108,9 +106,7 @@ export async function PUT(
     }
     
     // Get current task for comparison
-    const currentTask = db
-      .prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?')
-      .get(taskId, workspaceId) as Task;
+    const currentTask = await dbGet<Task>('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?', [taskId, workspaceId]);
     
     if (!currentTask) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
@@ -145,7 +141,7 @@ export async function PUT(
     
     const now = Math.floor(Date.now() / 1000);
     const descriptionMentionResolution = description !== undefined
-      ? resolveMentionRecipients(description || '', db, workspaceId)
+      ? await resolveMentionRecipients(description || '', workspaceId)
       : null;
     if (descriptionMentionResolution && descriptionMentionResolution.unresolved.length > 0) {
       return NextResponse.json({
@@ -154,7 +150,8 @@ export async function PUT(
       }, { status: 400 });
     }
 
-    const previousDescriptionMentionRecipients = resolveMentionRecipients(currentTask.description || '', db, workspaceId).recipients;
+    const previousDescriptionMentionResolution = await resolveMentionRecipients(currentTask.description || '', workspaceId);
+    const previousDescriptionMentionRecipients = previousDescriptionMentionResolution.recipients;
     
     // Build dynamic update query
     const fieldsToUpdate = [];
@@ -170,7 +167,7 @@ export async function PUT(
       updateParams.push(description);
     }
     if (normalizedStatus !== undefined) {
-      if (normalizedStatus === 'done' && !hasAegisApproval(db, taskId, workspaceId)) {
+      if (normalizedStatus === 'done' && !await hasAegisApproval(taskId, workspaceId)) {
         return NextResponse.json(
           { error: 'Aegis approval is required to move task to done.' },
           { status: 403 }
@@ -184,23 +181,23 @@ export async function PUT(
       updateParams.push(priority);
     }
     if (project_id !== undefined) {
-      const project = db.prepare(`
+      const project = await dbGet(`
         SELECT id FROM projects
         WHERE id = ? AND workspace_id = ? AND status = 'active'
-      `).get(project_id, workspaceId) as { id: number } | undefined
+      `, [project_id, workspaceId]) as { id: number } | undefined
       if (!project) {
         return NextResponse.json({ error: 'Project not found or archived' }, { status: 400 })
       }
       if (project_id !== currentTask.project_id) {
-        db.prepare(`
+        await dbRun(`
           UPDATE projects
-          SET ticket_counter = ticket_counter + 1, updated_at = unixepoch()
+          SET ticket_counter = ticket_counter + 1, updated_at = UNIX_TIMESTAMP()
           WHERE id = ? AND workspace_id = ?
-        `).run(project_id, workspaceId)
-        const row = db.prepare(`
+        `, [project_id, workspaceId])
+        const row = await dbGet(`
           SELECT ticket_counter FROM projects
           WHERE id = ? AND workspace_id = ?
-        `).get(project_id, workspaceId) as { ticket_counter: number } | undefined
+        `, [project_id, workspaceId]) as { ticket_counter: number } | undefined
         if (!row || !row.ticket_counter) {
           return NextResponse.json({ error: 'Failed to allocate project ticket number' }, { status: 500 })
         }
@@ -276,14 +273,11 @@ export async function PUT(
     if (fieldsToUpdate.length === 1) { // Only updated_at
       return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
     }
-    
-    const stmt = db.prepare(`
-      UPDATE tasks 
+    await dbRun(`
+      UPDATE tasks
       SET ${fieldsToUpdate.join(', ')}
       WHERE id = ? AND workspace_id = ?
-    `);
-    
-    stmt.run(...updateParams);
+    `, updateParams);
     
     // Track changes and log activities
     const changes: string[] = [];
@@ -293,7 +287,7 @@ export async function PUT(
       
       // Create notification for status change if assigned
       if (currentTask.assigned_to) {
-        db_helpers.createNotification(
+        await db_helpers.createNotification(
           currentTask.assigned_to,
           'status_change',
           'Task Status Updated',
@@ -310,8 +304,8 @@ export async function PUT(
       
       // Create notification for new assignee
       if (assigned_to) {
-        db_helpers.ensureTaskSubscription(taskId, assigned_to, workspaceId);
-        db_helpers.createNotification(
+        await db_helpers.ensureTaskSubscription(taskId, assigned_to, workspaceId);
+        await db_helpers.createNotification(
           assigned_to,
           'assignment',
           'Task Assigned',
@@ -343,9 +337,9 @@ export async function PUT(
       const previousRecipients = new Set(previousDescriptionMentionRecipients);
       for (const recipient of newMentionRecipients) {
         if (previousRecipients.has(recipient)) continue;
-        db_helpers.ensureTaskSubscription(taskId, recipient, workspaceId);
+        await db_helpers.ensureTaskSubscription(taskId, recipient, workspaceId);
         if (recipient === auth.user.username) continue;
-        db_helpers.createNotification(
+        await db_helpers.createNotification(
           recipient,
           'mention',
           'You were mentioned in a task description',
@@ -359,7 +353,7 @@ export async function PUT(
     
     // Log activity if there were meaningful changes
     if (changes.length > 0) {
-      db_helpers.logActivity(
+      await db_helpers.logActivity(
         'task_updated',
         'task',
         taskId,
@@ -380,12 +374,12 @@ export async function PUT(
     }
     
     // Fetch updated task
-    const updatedTask = db.prepare(`
+    const updatedTask = await dbGet(`
       SELECT t.*, p.name as project_name, p.ticket_prefix as project_prefix
       FROM tasks t
       LEFT JOIN projects p ON p.id = t.project_id AND p.workspace_id = t.workspace_id
       WHERE t.id = ? AND t.workspace_id = ?
-    `).get(taskId, workspaceId) as Task;
+    `, [taskId, workspaceId]) as Task;
     const parsedTask = mapTaskRow(updatedTask);
 
     // Fire-and-forget outbound GitHub sync for relevant changes
@@ -393,10 +387,10 @@ export async function PUT(
       c.startsWith('status:') || c.startsWith('priority:') || c.includes('title') || c.includes('assigned')
     )
     if (syncRelevantChanges && (updatedTask as any).github_repo) {
-      const project = db.prepare(`
+      const project = await dbGet(`
         SELECT id, github_repo, github_sync_enabled FROM projects
         WHERE id = ? AND workspace_id = ?
-      `).get((updatedTask as any).project_id, workspaceId) as any
+      `, [(updatedTask as any).project_id, workspaceId]) as any
       if (project?.github_sync_enabled) {
         pushTaskToGitHub(updatedTask as any, project).catch(err =>
           logger.error({ err, taskId }, 'Outbound GitHub sync failed')
@@ -427,14 +421,14 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireRole(request, 'operator');
+  const auth = await requireRole(request, 'operator');
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const rateCheck = mutationLimiter(request);
   if (rateCheck) return rateCheck;
 
   try {
-    const db = getDatabase();
+
     const resolvedParams = await params;
     const taskId = parseInt(resolvedParams.id);
     const workspaceId = auth.user.workspace_id ?? 1;
@@ -444,20 +438,18 @@ export async function DELETE(
     }
     
     // Get task before deletion for logging
-    const task = db
-      .prepare('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?')
-      .get(taskId, workspaceId) as Task;
+    const task = await dbGet<Task>('SELECT * FROM tasks WHERE id = ? AND workspace_id = ?', [taskId, workspaceId]);
     
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 });
     }
     
     // Delete task (cascades will handle comments)
-    const stmt = db.prepare('DELETE FROM tasks WHERE id = ? AND workspace_id = ?');
-    stmt.run(taskId, workspaceId);
+    
+    await dbRun('DELETE FROM tasks WHERE id = ? AND workspace_id = ?', [taskId, workspaceId]);
     
     // Log deletion
-    db_helpers.logActivity(
+    await db_helpers.logActivity(
       'task_deleted',
       'task',
       taskId,

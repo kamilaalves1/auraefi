@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { logger } from '@/lib/logger'
 
 type Outcome = 'success' | 'failed' | 'partial' | 'abandoned'
@@ -31,7 +31,7 @@ function outcomeBuckets() {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
@@ -39,9 +39,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const timeframe = (searchParams.get('timeframe') || 'all').trim().toLowerCase()
     const since = resolveSince(timeframe)
-
-    const db = getDatabase()
-    const rows = db.prepare(`
+    const rows = await dbGetAll(`
       SELECT
         id,
         assigned_to,
@@ -55,7 +53,7 @@ export async function GET(request: NextRequest) {
       WHERE workspace_id = ?
         AND status = 'done'
         AND (? = 0 OR COALESCE(completed_at, updated_at) >= ?)
-    `).all(workspaceId, since, since) as Array<{
+    `, [workspaceId, since, since]) as Array<{
       id: number
       assigned_to?: string | null
       priority?: string | null

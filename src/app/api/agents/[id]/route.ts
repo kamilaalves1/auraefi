@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, db_helpers, logAuditEvent } from '@/lib/db'
+import { db_helpers, logAuditEvent } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { writeAgentToConfig, enrichAgentConfigFromWorkspace, removeAgentFromConfig } from '@/lib/agent-sync'
 import { eventBus } from '@/lib/event-bus'
@@ -13,19 +14,19 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
+
     const { id } = await params
     const workspaceId = auth.user.workspace_id ?? 1;
 
     let agent
     if (isNaN(Number(id))) {
-      agent = db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(id, workspaceId)
+      agent = await dbGet('SELECT * FROM agents WHERE name = ? AND workspace_id = ?', [id, workspaceId])
     } else {
-      agent = db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId)
+      agent = await dbGet('SELECT * FROM agents WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId])
     }
 
     if (!agent) {
@@ -57,11 +58,11 @@ export async function PUT(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
+
     const { id } = await params
     const workspaceId = auth.user.workspace_id ?? 1;
     const body = await request.json()
@@ -69,9 +70,9 @@ export async function PUT(
 
     let agent
     if (isNaN(Number(id))) {
-      agent = db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(id, workspaceId) as any
+      agent = await dbGet('SELECT * FROM agents WHERE name = ? AND workspace_id = ?', [id, workspaceId]) as any
     } else {
-      agent = db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId) as any
+      agent = await dbGet('SELECT * FROM agents WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId]) as any
     }
 
     if (!agent) {
@@ -130,7 +131,7 @@ export async function PUT(
       }
 
       values.push(agent.id, workspaceId)
-      db.prepare(`UPDATE agents SET ${fields.join(', ')} WHERE id = ? AND workspace_id = ?`).run(...values)
+      await dbRun(`UPDATE agents SET ${fields.join(', ')} WHERE id = ? AND workspace_id = ?`, values)
     } catch (err: any) {
       return NextResponse.json({ error: `Save failed: ${err.message}` }, { status: 500 })
     }
@@ -148,7 +149,7 @@ export async function PUT(
           revertFields.push('config = ?')
           revertValues.push(agent.config || '{}')
           revertValues.push(agent.id, workspaceId)
-          db.prepare(`UPDATE agents SET ${revertFields.join(', ')} WHERE id = ? AND workspace_id = ?`).run(...revertValues)
+          await dbRun(`UPDATE agents SET ${revertFields.join(', ')} WHERE id = ? AND workspace_id = ?`, revertValues)
         } catch (revertErr: any) {
           logger.error({ err: revertErr, agent: agent.name }, 'Failed to revert DB after gateway write failure')
         }
@@ -211,11 +212,11 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
+
     const { id } = await params
     const workspaceId = auth.user.workspace_id ?? 1;
     let removeWorkspace = false
@@ -228,9 +229,9 @@ export async function DELETE(
 
     let agent
     if (isNaN(Number(id))) {
-      agent = db.prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?').get(id, workspaceId) as any
+      agent = await dbGet('SELECT * FROM agents WHERE name = ? AND workspace_id = ?', [id, workspaceId]) as any
     } else {
-      agent = db.prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId) as any
+      agent = await dbGet('SELECT * FROM agents WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId]) as any
     }
 
     if (!agent) {
@@ -256,7 +257,7 @@ export async function DELETE(
       logger.warn({ err, agent: agent.name }, 'Failed to remove agent from gateway config')
     }
 
-    db.prepare('DELETE FROM agents WHERE id = ? AND workspace_id = ?').run(agent.id, workspaceId)
+    await dbRun('DELETE FROM agents WHERE id = ? AND workspace_id = ?', [agent.id, workspaceId])
 
     db_helpers.logActivity(
       'agent_deleted',

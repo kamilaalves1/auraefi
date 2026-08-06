@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+﻿import { NextRequest, NextResponse } from 'next/server'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { agentTaskLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -43,14 +43,13 @@ function priorityRankSql() {
  * - max_capacity: optional integer 1..20 (default 1)
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateLimited = agentTaskLimiter(request)
   if (rateLimited) return rateLimited
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id
     const { searchParams } = new URL(request.url)
 
@@ -73,13 +72,13 @@ export async function GET(request: NextRequest) {
 
     const now = Math.floor(Date.now() / 1000)
 
-    const currentTask = db.prepare(`
+    const currentTask = await dbGet(`
       SELECT *
       FROM tasks
       WHERE workspace_id = ? AND assigned_to = ? AND status = 'in_progress'
       ORDER BY updated_at DESC
       LIMIT 1
-    `).get(workspaceId, agent) as any | undefined
+    `, [workspaceId, agent]) as any | undefined
 
     if (currentTask) {
       return NextResponse.json({
@@ -90,11 +89,11 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    const inProgressCount = (db.prepare(`
+    const inProgressCount = (await dbGet(`
       SELECT COUNT(*) as c
       FROM tasks
       WHERE workspace_id = ? AND assigned_to = ? AND status = 'in_progress'
-    `).get(workspaceId, agent) as { c: number }).c
+    `, [workspaceId, agent]) as { c: number }).c
 
     if (inProgressCount >= maxCapacity) {
       return NextResponse.json({
@@ -106,7 +105,7 @@ export async function GET(request: NextRequest) {
     }
 
     // Atomic claim: single UPDATE with subquery to eliminate SELECT-UPDATE race condition.
-    const claimed = db.prepare(`
+    const claimed = await dbGet(`
       UPDATE tasks
       SET status = 'in_progress', assigned_to = ?, updated_at = ?
       WHERE id = (
@@ -118,7 +117,7 @@ export async function GET(request: NextRequest) {
         LIMIT 1
       )
       RETURNING *
-    `).get(agent, now, workspaceId, agent) as any | undefined
+    `, [agent, now, workspaceId, agent]) as any | undefined
 
     if (claimed) {
       return NextResponse.json({

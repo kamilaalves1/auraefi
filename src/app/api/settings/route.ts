@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase, logAuditEvent } from '@/lib/db'
+import { logAuditEvent } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { config } from '@/lib/config'
 import { mutationLimiter, extractClientIp } from '@/lib/rate-limit'
 import { validateBody, updateSettingsSchema } from '@/lib/validation'
@@ -59,11 +60,9 @@ const settingDefinitions: Record<string, { category: string; description: string
  * GET /api/settings - List all settings (grouped by category)
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const db = getDatabase()
-  const rows = db.prepare('SELECT * FROM settings ORDER BY category, key').all() as SettingRow[]
+  const rows = await dbGetAll('SELECT * FROM settings ORDER BY category, `key`', []) as SettingRow[]
   const stored = new Map(rows.map(r => [r.key, r]))
 
   // Merge defaults with stored values
@@ -120,7 +119,7 @@ export async function GET(request: NextRequest) {
  * Body: { settings: { key: value, ... } }
  */
 export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -129,37 +128,28 @@ export async function PUT(request: NextRequest) {
   const result = await validateBody(request, updateSettingsSchema)
   if ('error' in result) return result.error
   const body = result.data
-
-  const db = getDatabase()
-  const upsert = db.prepare(`
-    INSERT INTO settings (key, value, description, category, updated_by, updated_at)
-    VALUES (?, ?, ?, ?, ?, unixepoch())
-    ON CONFLICT(key) DO UPDATE SET
-      value = excluded.value,
-      updated_by = excluded.updated_by,
-      updated_at = unixepoch()
-  `)
-
   const updated: string[] = []
   const changes: Record<string, { old: string | null; new: string }> = {}
 
-  const txn = db.transaction(() => {
-    for (const [key, value] of Object.entries(body.settings)) {
-      const strValue = String(value)
-      const def = settingDefinitions[key]
-      const category = def?.category ?? 'custom'
-      const description = def?.description ?? null
+  for (const [key, value] of Object.entries(body.settings)) {
+    const strValue = String(value)
+    const def = settingDefinitions[key]
+    const category = def?.category ?? 'custom'
+    const description = def?.description ?? null
 
-      // Get old value for audit
-      const existing = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined
-      changes[key] = { old: existing?.value ?? null, new: strValue }
+    const existing = await dbGet<{ value: string }>('SELECT value FROM settings WHERE `key` = ?', [key])
+    changes[key] = { old: existing?.value ?? null, new: strValue }
 
-      upsert.run(key, strValue, description, category, auth.user.username)
-      updated.push(key)
-    }
-  })
-
-  txn()
+    await dbRun(`
+      INSERT INTO settings (\`key\`, value, description, category, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, UNIX_TIMESTAMP())
+      ON DUPLICATE KEY UPDATE
+        value = VALUES(value),
+        updated_by = VALUES(updated_by),
+        updated_at = UNIX_TIMESTAMP()
+    `, [key, strValue, description, category, auth.user.username])
+    updated.push(key)
+  }
 
   // Audit log
   const ipAddress = extractClientIp(request)
@@ -178,7 +168,7 @@ export async function PUT(request: NextRequest) {
  * DELETE /api/settings?key=... - Reset a setting to default
  */
 export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -191,15 +181,13 @@ export async function DELETE(request: NextRequest) {
   if (!key) {
     return NextResponse.json({ error: 'key parameter required' }, { status: 400 })
   }
-
-  const db = getDatabase()
-  const existing = db.prepare('SELECT value FROM settings WHERE key = ?').get(key) as { value: string } | undefined
+  const existing = await dbGet('SELECT value FROM settings WHERE `key` = ?', [key]) as { value: string } | undefined
 
   if (!existing) {
     return NextResponse.json({ error: 'Setting not found or already at default' }, { status: 404 })
   }
 
-  db.prepare('DELETE FROM settings WHERE key = ?').run(key)
+  await dbRun('DELETE FROM settings WHERE `key` = ?', [key])
 
   const ipAddress = extractClientIp(request)
   logAuditEvent({

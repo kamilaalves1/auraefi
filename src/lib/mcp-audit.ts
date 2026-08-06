@@ -5,7 +5,7 @@
  * Provides aggregated stats for efficiency dashboards.
  */
 
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 
 export interface McpCallInput {
   agentName?: string
@@ -33,32 +33,28 @@ export interface McpCallStats {
   }>
 }
 
-export function logMcpCall(input: McpCallInput): number {
-  const db = getDatabase()
-  const result = db.prepare(`
+export async function logMcpCall(input: McpCallInput): Promise<number> {
+  const result = await dbRun(`
     INSERT INTO mcp_call_log (agent_name, mcp_server, tool_name, success, duration_ms, error, workspace_id)
     VALUES (?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    input.agentName ?? null,
+  `, [input.agentName ?? null,
     input.mcpServer ?? null,
     input.toolName ?? null,
     input.success !== false ? 1 : 0,
     input.durationMs ?? null,
     input.error ?? null,
-    input.workspaceId ?? 1,
-  )
-  return result.lastInsertRowid as number
+    input.workspaceId ?? 1,])
+  return result.insertId as number
 }
 
-export function getMcpCallStats(
+export async function getMcpCallStats(
   agentName: string,
   hours: number = 24,
   workspaceId: number = 1,
-): McpCallStats {
-  const db = getDatabase()
+): Promise<McpCallStats> {
   const since = Math.floor(Date.now() / 1000) - hours * 3600
 
-  const totals = db.prepare(`
+  const totals = await dbGet(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successes,
@@ -66,9 +62,9 @@ export function getMcpCallStats(
       AVG(duration_ms) as avg_duration
     FROM mcp_call_log
     WHERE agent_name = ? AND workspace_id = ? AND created_at > ?
-  `).get(agentName, workspaceId, since) as any
+  `, [agentName, workspaceId, since]) as any
 
-  const breakdown = db.prepare(`
+  const breakdown = await dbGetAll(`
     SELECT
       tool_name,
       mcp_server,
@@ -80,7 +76,7 @@ export function getMcpCallStats(
     WHERE agent_name = ? AND workspace_id = ? AND created_at > ?
     GROUP BY tool_name, mcp_server
     ORDER BY calls DESC
-  `).all(agentName, workspaceId, since) as any[]
+  `, [agentName, workspaceId, since]) as any[]
 
   const total = totals?.total ?? 0
   const successCount = totals?.successes ?? 0

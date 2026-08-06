@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase, Agent, db_helpers } from '@/lib/db';
+﻿import { NextRequest, NextResponse } from 'next/server';
+import { Agent, db_helpers } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool';
 import { eventBus } from '@/lib/event-bus';
 import { enrichAgentConfigFromWorkspace } from '@/lib/agent-sync';
 import { requireRole } from '@/lib/auth';
@@ -13,11 +14,10 @@ import { createMcAgent } from '@/lib/create-mc-agent';
  * Query params: status, role, limit, offset
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase();
     const { searchParams } = new URL(request.url);
     const workspaceId = auth.user.workspace_id ?? 1;
     
@@ -49,8 +49,8 @@ export async function GET(request: NextRequest) {
     query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
     params.push(limit, offset);
     
-    const stmt = db.prepare(query);
-    const agents = stmt.all(...params) as Agent[];
+    
+    const agents = await dbGetAll(query, params) as Agent[];
     
     // Parse JSON config field
     const agentsWithParsedData = agents.map(agent => ({
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
 
     if (agentNames.length > 0) {
       const placeholders = agentNames.map(() => '?').join(', ')
-      const groupedTaskStats = db.prepare(`
+      const groupedTaskStats = await dbGetAll(`
         SELECT
           assigned_to,
           COUNT(*) as total,
@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
         FROM tasks
         WHERE workspace_id = ? AND assigned_to IN (${placeholders})
         GROUP BY assigned_to
-      `).all(workspaceId, ...agentNames) as Array<{
+      `, [workspaceId, ...agentNames]) as Array<{
         assigned_to: string
         total: number | null
         assigned: number | null
@@ -127,7 +127,7 @@ export async function GET(request: NextRequest) {
       countQuery += ' AND role = ?';
       countParams.push(role);
     }
-    const countRow = db.prepare(countQuery).get(...countParams) as { total: number };
+    const countRow = await dbGet(countQuery, countParams) as { total: number };
 
     return NextResponse.json({
       agents: agentsWithStats,
@@ -145,21 +145,20 @@ export async function GET(request: NextRequest) {
  * POST /api/agents - Create a new agent
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator');
+  const auth = await requireRole(request, 'operator');
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const rateCheck = mutationLimiter(request);
   if (rateCheck) return rateCheck;
 
   try {
-    const db = getDatabase();
     const workspaceId = auth.user.workspace_id ?? 1;
     const validated = await validateBody(request, createAgentSchema);
     if ('error' in validated) return validated.error;
     const body = validated.data;
 
     const ipAddress = request.headers.get('x-forwarded-for') || 'unknown';
-    const result = await createMcAgent(db, {
+    const result = await await createMcAgent({
       workspaceId,
       actorUsername: auth.user.username,
       actorUserId: auth.user.id,
@@ -185,14 +184,13 @@ export async function POST(request: NextRequest) {
  * PUT /api/agents - Update agent status (bulk operation for status updates)
  */
 export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator');
+  const auth = await requireRole(request, 'operator');
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const rateCheck = mutationLimiter(request);
   if (rateCheck) return rateCheck;
 
   try {
-    const db = getDatabase();
     const workspaceId = auth.user.workspace_id ?? 1;
     const body = await request.json();
 
@@ -201,9 +199,7 @@ export async function PUT(request: NextRequest) {
       // Single agent update
       const { name, status, last_activity, config, session_key, soul_content, role } = body;
       
-      const agent = db
-        .prepare('SELECT * FROM agents WHERE name = ? AND workspace_id = ?')
-        .get(name, workspaceId) as Agent;
+      const agent = await dbGet<Agent>('SELECT * FROM agents WHERE name = ? AND workspace_id = ?', [name, workspaceId]);
       if (!agent) {
         return NextResponse.json({ error: 'Agent not found' }, { status: 404 });
       }
@@ -255,17 +251,15 @@ export async function PUT(request: NextRequest) {
         return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
       }
       
-      const stmt = db.prepare(`
+      await dbRun(`
         UPDATE agents 
         SET ${fieldsToUpdate.join(', ')}
         WHERE name = ? AND workspace_id = ?
-      `);
-      
-      stmt.run(...params);
+      `, params);
       
       // Log status change if status was updated
       if (status !== undefined && status !== agent.status) {
-        db_helpers.logActivity(
+        await db_helpers.logActivity(
           'agent_status_change',
           'agent',
           agent.id,

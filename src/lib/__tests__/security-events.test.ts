@@ -1,19 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const mockRun = vi.fn((): any => ({ lastInsertRowid: 1, changes: 1 }))
-const mockGet = vi.fn((): any => ({
-  auth_failures: 1,
-  injection_attempts: 0,
-  rate_limit_hits: 0,
-  secret_exposures: 0,
-  successful_tasks: 5,
-  failed_tasks: 0,
-  trust_score: 0.95,
-}))
-const mockPrepare = vi.fn(() => ({ run: mockRun, get: mockGet, all: vi.fn(() => []) }))
+const mockDbRun = vi.fn().mockResolvedValue({ insertId: 42, affectedRows: 1 })
+const mockDbGet = vi.fn()
+const mockDbGetAll = vi.fn().mockResolvedValue([])
 
-vi.mock('@/lib/db', () => ({
-  getDatabase: () => ({ prepare: mockPrepare }),
+vi.mock('@/lib/db-pool', () => ({
+  dbGet: mockDbGet,
+  dbGetAll: mockDbGetAll,
+  dbRun: mockDbRun,
 }))
 
 vi.mock('@/lib/event-bus', () => ({
@@ -21,7 +15,7 @@ vi.mock('@/lib/event-bus', () => ({
 }))
 
 vi.mock('@/lib/logger', () => ({
-  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+  logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() },
 }))
 
 import { logSecurityEvent, updateAgentTrustScore, getSecurityPosture } from '@/lib/security-events'
@@ -29,28 +23,28 @@ import { logSecurityEvent, updateAgentTrustScore, getSecurityPosture } from '@/l
 describe('logSecurityEvent', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockRun.mockReturnValue({ lastInsertRowid: 42, changes: 1 })
+    mockDbRun.mockResolvedValue({ insertId: 42, affectedRows: 1 })
   })
 
-  it('inserts an event into the database', () => {
-    const id = logSecurityEvent({
+  it('calls dbRun with the event data', () => {
+    logSecurityEvent({
       event_type: 'auth_failure',
       severity: 'warning',
       source: 'auth',
       detail: 'test detail',
     })
 
-    expect(mockPrepare).toHaveBeenCalled()
-    expect(mockRun).toHaveBeenCalledWith(
-      'auth_failure', 'warning', 'auth', null, 'test detail', null, 1, 1
+    expect(mockDbRun).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO security_events'),
+      ['auth_failure', 'warning', 'auth', null, 'test detail', null, 1, 1]
     )
-    expect(id).toBe(42)
   })
 
   it('defaults severity to info when not provided', () => {
     logSecurityEvent({ event_type: 'test_event' })
-    expect(mockRun).toHaveBeenCalledWith(
-      'test_event', 'info', null, null, null, null, 1, 1
+    expect(mockDbRun).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO security_events'),
+      ['test_event', 'info', null, null, null, null, 1, 1]
     )
   })
 
@@ -61,14 +55,17 @@ describe('logSecurityEvent', () => {
       workspace_id: 5,
       tenant_id: 3,
     })
-    expect(mockRun).toHaveBeenCalledWith(
-      'test_event', 'critical', null, null, null, null, 5, 3
+    expect(mockDbRun).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO security_events'),
+      ['test_event', 'critical', null, null, null, null, 5, 3]
     )
   })
 
-  it('broadcasts via event bus', async () => {
+  it('broadcasts via event bus after insert', async () => {
     const { eventBus } = await import('@/lib/event-bus')
     logSecurityEvent({ event_type: 'injection_attempt', severity: 'critical' })
+    // Allow the promise chain to settle
+    await new Promise(resolve => setTimeout(resolve, 0))
     expect(eventBus.broadcast).toHaveBeenCalledWith(
       'security.event',
       expect.objectContaining({ event_type: 'injection_attempt', severity: 'critical' })
@@ -79,7 +76,7 @@ describe('logSecurityEvent', () => {
 describe('updateAgentTrustScore', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockGet.mockReturnValue({
+    mockDbGet.mockResolvedValue({
       auth_failures: 1,
       injection_attempts: 0,
       rate_limit_hits: 0,
@@ -88,17 +85,16 @@ describe('updateAgentTrustScore', () => {
       failed_tasks: 0,
       trust_score: 0.95,
     })
+    mockDbRun.mockResolvedValue({ insertId: 0, affectedRows: 1 })
   })
 
-  it('creates a row if one does not exist (INSERT OR IGNORE)', () => {
-    updateAgentTrustScore('test-agent', 'auth.failure', 1)
-    // First call: INSERT OR IGNORE, second: UPDATE counter, third: SELECT, fourth: UPDATE score
-    expect(mockPrepare).toHaveBeenCalled()
-    expect(mockRun).toHaveBeenCalled()
+  it('calls dbRun to insert/update agent trust score', async () => {
+    await updateAgentTrustScore('test-agent', 'auth.failure', 1)
+    expect(mockDbRun).toHaveBeenCalled()
   })
 
-  it('recalculates trust score clamped between 0 and 1', () => {
-    mockGet.mockReturnValue({
+  it('recalculates trust score clamped between 0 and 1', async () => {
+    mockDbGet.mockResolvedValue({
       auth_failures: 20,
       injection_attempts: 10,
       rate_limit_hits: 5,
@@ -108,13 +104,15 @@ describe('updateAgentTrustScore', () => {
       trust_score: 0,
     })
 
-    updateAgentTrustScore('bad-agent', 'injection.attempt', 1)
-    // Score would go negative, should be clamped to 0
-    const calls = mockRun.mock.calls as any[][]
+    await updateAgentTrustScore('bad-agent', 'injection.attempt', 1)
+    expect(mockDbRun).toHaveBeenCalled()
+    // The final score update call should have a value between 0 and 1
+    const calls = mockDbRun.mock.calls as any[][]
     const lastCall = calls[calls.length - 1]
-    if (typeof lastCall[0] === 'number') {
-      expect(lastCall[0]).toBeGreaterThanOrEqual(0)
-      expect(lastCall[0]).toBeLessThanOrEqual(1)
+    const scoreArg = lastCall[1]?.[0]
+    if (typeof scoreArg === 'number') {
+      expect(scoreArg).toBeGreaterThanOrEqual(0)
+      expect(scoreArg).toBeLessThanOrEqual(1)
     }
   })
 })
@@ -124,13 +122,13 @@ describe('getSecurityPosture', () => {
     vi.clearAllMocks()
   })
 
-  it('returns expected posture shape', () => {
-    mockGet
-      .mockReturnValueOnce({ total: 10, critical: 2, warning: 5 })
-      .mockReturnValueOnce({ count: 3 })
-      .mockReturnValueOnce({ avg_trust: 0.85 })
+  it('returns expected posture shape', async () => {
+    mockDbGet
+      .mockResolvedValueOnce({ total: 10, critical: 2, warning: 5 })
+      .mockResolvedValueOnce({ count: 3 })
+      .mockResolvedValueOnce({ avg_trust: 0.85 })
 
-    const posture = getSecurityPosture(1)
+    const posture = await getSecurityPosture(1)
     expect(posture).toHaveProperty('score')
     expect(posture).toHaveProperty('totalEvents')
     expect(posture).toHaveProperty('criticalEvents')
@@ -142,23 +140,23 @@ describe('getSecurityPosture', () => {
     expect(posture.score).toBeLessThanOrEqual(100)
   })
 
-  it('deducts points for critical and warning events', () => {
-    mockGet
-      .mockReturnValueOnce({ total: 5, critical: 5, warning: 0 })
-      .mockReturnValueOnce({ count: 5 })
-      .mockReturnValueOnce({ avg_trust: 1.0 })
+  it('deducts points for critical and warning events', async () => {
+    mockDbGet
+      .mockResolvedValueOnce({ total: 5, critical: 5, warning: 0 })
+      .mockResolvedValueOnce({ count: 5 })
+      .mockResolvedValueOnce({ avg_trust: 1.0 })
 
-    const posture = getSecurityPosture(1)
+    const posture = await getSecurityPosture(1)
     expect(posture.score).toBeLessThan(100)
   })
 
-  it('returns score of 100 with no events', () => {
-    mockGet
-      .mockReturnValueOnce({ total: 0, critical: 0, warning: 0 })
-      .mockReturnValueOnce({ count: 0 })
-      .mockReturnValueOnce({ avg_trust: 1.0 })
+  it('returns score of 100 with no events', async () => {
+    mockDbGet
+      .mockResolvedValueOnce({ total: 0, critical: 0, warning: 0 })
+      .mockResolvedValueOnce({ count: 0 })
+      .mockResolvedValueOnce({ avg_trust: 1.0 })
 
-    const posture = getSecurityPosture(1)
+    const posture = await getSecurityPosture(1)
     expect(posture.score).toBe(100)
   })
 })
@@ -203,7 +201,6 @@ describe('injection guard new rules', () => {
 
   it('does not false-positive on normal SQL mentions', () => {
     const report = scanForInjection('SELECT name FROM products WHERE id = 5', { context: 'shell' })
-    // This should not trigger because it lacks injection markers
     expect(report.matches.filter(m => m.rule === 'cmd-sql-injection')).toHaveLength(0)
   })
 })

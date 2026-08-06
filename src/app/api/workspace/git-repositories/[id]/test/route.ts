@@ -4,7 +4,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { getEffectiveEnvValue } from '@/lib/runtime-env'
@@ -23,17 +23,15 @@ function normaliseRepoUrl(raw: string): string {
 type Params = { params: Promise<{ id: string }> }
 
 export async function POST(request: NextRequest, { params }: Params) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
     const { id } = await params
-    const db = getDatabase()
+
     const workspaceId = auth.user.workspace_id ?? 1
 
-    const row = db.prepare(
-      'SELECT * FROM git_repositories WHERE id = ? AND workspace_id = ?'
-    ).get(Number(id), workspaceId) as any | undefined
+    const row = await dbGet('SELECT * FROM git_repositories WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId]) as any | undefined
 
     if (!row) return NextResponse.json({ error: 'Repository not found' }, { status: 404 })
 

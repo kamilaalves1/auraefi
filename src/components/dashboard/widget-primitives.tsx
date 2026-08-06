@@ -54,7 +54,9 @@ export interface DashboardData {
   errorCount: number
   onlineAgents: number
   claudeActive: number
+  externalActive?: number
   claudeLocalSessions: any[]
+  externalLocalSessions?: any[]
   runningTasks: number
   inboxCount: number
   assignedCount: number
@@ -66,6 +68,7 @@ export interface DashboardData {
   // Health statuses
   localOsStatus: { value: string; status: 'good' | 'warn' | 'bad' }
   claudeHealth: { value: string; status: 'good' | 'warn' | 'bad' }
+  externalHealth?: { value: string; status: 'good' | 'warn' | 'bad' }
   mcHealth: { value: string; status: 'good' | 'warn' | 'bad' }
   gatewayHealthStatus: 'good' | 'bad'
   // Loading states

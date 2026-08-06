@@ -11,6 +11,7 @@ import { join } from 'node:path'
 import { homedir } from 'node:os'
 import { resolveWithin } from './paths'
 import { logger } from './logger'
+import { dbRun } from './db-pool'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -476,26 +477,23 @@ export async function installFromRegistry(req: InstallRequest): Promise<InstallR
 
   // Upsert into DB
   try {
-    const { getDatabase } = await import('./db')
-    const db = getDatabase()
     const hash = createHash('sha256').update(content, 'utf8').digest('hex')
     const now = new Date().toISOString()
     const descLines = content.split('\n').map(l => l.trim()).filter(Boolean)
     const desc = descLines.find(l => !l.startsWith('#'))
 
-    db.prepare(`
+    await dbRun(`
       INSERT INTO skills (name, source, path, description, content_hash, registry_slug, registry_version, security_status, installed_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(source, name) DO UPDATE SET
-        path = excluded.path,
-        description = excluded.description,
-        content_hash = excluded.content_hash,
-        registry_slug = excluded.registry_slug,
-        registry_version = excluded.registry_version,
-        security_status = excluded.security_status,
-        updated_at = excluded.updated_at
-    `).run(
-      name,
+      ON DUPLICATE KEY UPDATE
+        path = VALUES(path),
+        description = VALUES(description),
+        content_hash = VALUES(content_hash),
+        registry_slug = VALUES(registry_slug),
+        registry_version = VALUES(registry_version),
+        security_status = VALUES(security_status),
+        updated_at = VALUES(updated_at)
+    `, [name,
       req.targetRoot,
       skillDir,
       desc ? (desc.length > 220 ? `${desc.slice(0, 217)}...` : desc) : null,
@@ -505,7 +503,7 @@ export async function installFromRegistry(req: InstallRequest): Promise<InstallR
       securityReport.status,
       now,
       now
-    )
+    ])
   } catch (err: any) {
     logger.warn({ err }, 'Failed to upsert installed skill into DB')
   }

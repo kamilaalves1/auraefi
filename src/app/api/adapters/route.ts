@@ -1,33 +1,33 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { getAdapter, listAdapters } from '@/lib/adapters'
 import { agentHeartbeatLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
 /**
- * GET /api/adapters — List available framework adapters.
+ * GET /api/adapters â€” List available framework adapters.
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   return NextResponse.json({ adapters: listAdapters() })
 }
 
 /**
- * POST /api/adapters — Framework-agnostic agent action dispatcher.
+ * POST /api/adapters â€” Framework-agnostic agent action dispatcher.
  *
  * Body: { framework, action, payload }
  *
  * Actions:
- *   register   — Register an agent via its framework adapter
- *   heartbeat  — Send a heartbeat/status update
- *   report     — Report task progress
- *   assignments — Get pending task assignments
- *   disconnect — Disconnect an agent
+ *   register   â€” Register an agent via its framework adapter
+ *   heartbeat  â€” Send a heartbeat/status update
+ *   report     â€” Report task progress
+ *   assignments â€” Get pending task assignments
+ *   disconnect â€” Disconnect an agent
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateLimited = agentHeartbeatLimiter(request)

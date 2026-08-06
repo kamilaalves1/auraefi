@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import os from 'node:os'
 import { runCommand } from '@/lib/command'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
@@ -33,7 +33,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ── CPU ─────────────────────────────────────────────────────────────────────
+// â”€â”€ CPU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 /** Sample CPU ticks twice ~100ms apart to compute instantaneous usage % */
 async function getCpuSnapshot() {
@@ -64,7 +64,7 @@ function cpuTotals() {
   return { idle, total }
 }
 
-// ── Memory ──────────────────────────────────────────────────────────────────
+// â”€â”€ Memory â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function getMemorySnapshot() {
   const totalBytes = os.totalmem()
@@ -133,7 +133,7 @@ async function getMemorySnapshot() {
   return { totalBytes, usedBytes, availableBytes, usagePercent, swapTotalBytes, swapUsedBytes }
 }
 
-// ── Disk ────────────────────────────────────────────────────────────────────
+// â”€â”€ Disk â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function getDiskSnapshot() {
   const disks: Array<{
@@ -179,7 +179,7 @@ async function getDiskSnapshot() {
   return disks
 }
 
-// ── GPU ─────────────────────────────────────────────────────────────────────
+// â”€â”€ GPU â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 async function getGpuSnapshot(): Promise<Array<{
   name: string
@@ -243,9 +243,9 @@ async function getGpuSnapshot(): Promise<Array<{
   return null
 }
 
-// ── Network ──────────────────────────────────────────────────────────────────
+// â”€â”€ Network â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-/** Return cumulative rx/tx byte counters per interface (stateless — frontend computes rates) */
+/** Return cumulative rx/tx byte counters per interface (stateless â€” frontend computes rates) */
 async function getNetworkSnapshot(): Promise<Array<{
   interface: string
   rxBytes: number
@@ -319,7 +319,7 @@ async function getNetworkSnapshot(): Promise<Array<{
   return []
 }
 
-// ── Processes ────────────────────────────────────────────────────────────────
+// â”€â”€ Processes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 const MAX_PROCESSES = 8
 

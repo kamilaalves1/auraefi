@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { readLimiter } from '@/lib/rate-limit'
 import { buildLinkGraph, extractWikiLinks } from '@/lib/memory-utils'
@@ -7,7 +7,7 @@ import { logger } from '@/lib/logger'
 import { MEMORY_PATH, isPathAllowed, resolveSafeMemoryPath } from '@/lib/memory-path'
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const limited = readLimiter(request)

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { syncAgentsFromConfig, previewSyncDiff } from '@/lib/agent-sync'
 import { syncLocalAgents } from '@/lib/local-agent-sync'
@@ -10,7 +10,7 @@ import { logger } from '@/lib/logger'
  * Requires admin role.
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { searchParams } = new URL(request.url)
@@ -40,7 +40,7 @@ export async function POST(request: NextRequest) {
  * Shows what would change without writing.
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {

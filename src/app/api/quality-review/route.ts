@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, db_helpers } from '@/lib/db'
+﻿import { NextRequest, NextResponse } from 'next/server'
+import { db_helpers } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { validateBody, qualityReviewSchema } from '@/lib/validation'
 import { mutationLimiter } from '@/lib/rate-limit'
@@ -7,11 +8,10 @@ import { logger } from '@/lib/logger'
 import { eventBus } from '@/lib/event-bus'
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const { searchParams } = new URL(request.url)
     const workspaceId = auth.user.workspace_id ?? 1;
     const taskIdsParam = searchParams.get('taskIds')
@@ -28,11 +28,11 @@ export async function GET(request: NextRequest) {
       }
 
       const placeholders = ids.map(() => '?').join(',')
-      const rows = db.prepare(`
+      const rows = await dbGetAll(`
         SELECT * FROM quality_reviews
         WHERE task_id IN (${placeholders}) AND workspace_id = ?
         ORDER BY task_id ASC, created_at DESC
-      `).all(...ids, workspaceId) as Array<{ task_id: number; reviewer?: string; status?: string; created_at?: number }>
+      `, [...ids, workspaceId]) as Array<{ task_id: number; reviewer?: string; status?: string; created_at?: number }>
 
       const byTask: Record<number, { status?: string; reviewer?: string; created_at?: number } | null> = {}
       for (const id of ids) {
@@ -53,12 +53,12 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'taskId is required' }, { status: 400 })
     }
 
-    const reviews = db.prepare(`
+    const reviews = await dbGetAll(`
       SELECT * FROM quality_reviews
       WHERE task_id = ? AND workspace_id = ?
       ORDER BY created_at DESC
       LIMIT 10
-    `).all(taskId, workspaceId)
+    `, [taskId, workspaceId])
 
     return NextResponse.json({ reviews })
   } catch (error) {
@@ -68,7 +68,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -78,21 +78,17 @@ export async function POST(request: NextRequest) {
     const validated = await validateBody(request, qualityReviewSchema)
     if ('error' in validated) return validated.error
     const { taskId, reviewer, status, notes } = validated.data
-
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1;
 
-    const task = db
-      .prepare('SELECT id, title FROM tasks WHERE id = ? AND workspace_id = ?')
-      .get(taskId, workspaceId) as any
+    const task = await dbGet('SELECT id, title FROM tasks WHERE id = ? AND workspace_id = ?', [taskId, workspaceId]) as any
     if (!task) {
       return NextResponse.json({ error: 'Task not found' }, { status: 404 })
     }
 
-    const result = db.prepare(`
+    const result = await dbRun(`
       INSERT INTO quality_reviews (task_id, reviewer, status, notes, workspace_id)
       VALUES (?, ?, ?, ?, ?)
-    `).run(taskId, reviewer, status, notes, workspaceId)
+    `, [taskId, reviewer, status, notes, workspaceId])
 
     db_helpers.logActivity(
       'quality_review',
@@ -106,8 +102,7 @@ export async function POST(request: NextRequest) {
 
     // Auto-advance task based on review outcome
     if (status === 'approved') {
-      db.prepare('UPDATE tasks SET status = ?, updated_at = unixepoch() WHERE id = ? AND workspace_id = ?')
-        .run('done', taskId, workspaceId)
+      await dbRun('UPDATE tasks SET status = ?, updated_at = UNIX_TIMESTAMP() WHERE id = ? AND workspace_id = ?', ['done', taskId, workspaceId])
       eventBus.broadcast('task.status_changed', {
         id: taskId,
         status: 'done',
@@ -116,8 +111,7 @@ export async function POST(request: NextRequest) {
       })
     } else if (status === 'rejected') {
       // Rejected: push back to in_progress with the rejection notes as error_message
-      db.prepare('UPDATE tasks SET status = ?, error_message = ?, updated_at = unixepoch() WHERE id = ? AND workspace_id = ?')
-        .run('in_progress', `Quality review rejected by ${reviewer}: ${notes}`, taskId, workspaceId)
+      await dbRun('UPDATE tasks SET status = ?, error_message = ?, updated_at = UNIX_TIMESTAMP() WHERE id = ? AND workspace_id = ?', ['in_progress', `Quality review rejected by ${reviewer}: ${notes}`, taskId, workspaceId])
       eventBus.broadcast('task.status_changed', {
         id: taskId,
         status: 'in_progress',
@@ -126,7 +120,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    return NextResponse.json({ success: true, id: result.lastInsertRowid })
+    return NextResponse.json({ success: true, id: result.insertId })
   } catch (error) {
     logger.error({ err: error }, 'POST /api/quality-review error')
     return NextResponse.json({ error: 'Failed to create quality review' }, { status: 500 })

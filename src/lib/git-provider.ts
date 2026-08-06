@@ -5,32 +5,9 @@
  */
 
 import type { GitProvider } from '@/lib/delivery-flow-types'
-import {
-  fetchIssues as ghFetchIssues,
-  fetchIssue as ghFetchIssue,
-  createIssue as ghCreateIssue,
-  updateIssue as ghUpdateIssue,
-  createIssueComment as ghCreateComment,
-  getGitHubToken,
-} from '@/lib/github'
-import {
-  fetchGitLabIssues,
-  fetchGitLabIssue,
-  createGitLabIssue,
-  updateGitLabIssue,
-  createGitLabNote,
-  testGitLabConnection,
-  getGitLabToken,
-} from '@/lib/gitlab'
-import {
-  fetchBitbucketIssues,
-  fetchBitbucketIssue,
-  createBitbucketIssue,
-  updateBitbucketIssue,
-  createBitbucketComment,
-  testBitbucketConnection,
-  bitbucketIsOpen,
-} from '@/lib/bitbucket'
+import { fetchIssues as ghFetchIssues, fetchIssue as ghFetchIssue, createIssue as ghCreateIssue, updateIssue as ghUpdateIssue, createIssueComment as ghCreateComment, getGitHubToken } from '@/lib/github'
+import { fetchGitLabIssues, fetchGitLabIssue, createGitLabIssue, updateGitLabIssue, createGitLabNote, testGitLabConnection, getGitLabToken } from '@/lib/gitlab'
+import { fetchBitbucketIssues, fetchBitbucketIssue, createBitbucketIssue, updateBitbucketIssue, createBitbucketComment, testBitbucketConnection, bitbucketIsOpen } from '@/lib/bitbucket'
 
 // ── Unified types ───────────────────────────────────────────────────────────
 

@@ -7,7 +7,7 @@
  * Layer 4 (Drift): Rolling baseline comparison with threshold detection
  */
 
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 
 export type EvalLayer = 'output' | 'trace' | 'component' | 'drift'
 
@@ -31,22 +31,21 @@ export interface DriftResult {
 // Layer 1: Output Evals
 // ---------------------------------------------------------------------------
 
-export function evalTaskCompletion(
+export async function evalTaskCompletion(
   agentName: string,
   hours: number = 168,
   workspaceId: number = 1,
-): EvalResult {
-  const db = getDatabase()
+): Promise<EvalResult> {
   const since = Math.floor(Date.now() / 1000) - hours * 3600
 
-  const row = db.prepare(`
+  const row = await dbGet(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as completed,
       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) as successful
     FROM tasks
     WHERE assigned_to = ? AND workspace_id = ? AND created_at > ?
-  `).get(agentName, workspaceId, since) as any
+  `, [agentName, workspaceId, since]) as any
 
   const total = row?.total ?? 0
   const completed = row?.completed ?? 0
@@ -60,22 +59,21 @@ export function evalTaskCompletion(
   }
 }
 
-export function evalCorrectnessScore(
+export async function evalCorrectnessScore(
   agentName: string,
   hours: number = 168,
   workspaceId: number = 1,
-): EvalResult {
-  const db = getDatabase()
+): Promise<EvalResult> {
   const since = Math.floor(Date.now() / 1000) - hours * 3600
 
-  const row = db.prepare(`
+  const row = await dbGet(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN outcome = 'success' THEN 1 ELSE 0 END) as successful,
       AVG(CASE WHEN feedback_rating IS NOT NULL THEN feedback_rating ELSE NULL END) as avg_rating
     FROM tasks
     WHERE assigned_to = ? AND workspace_id = ? AND status = 'done' AND created_at > ?
-  `).get(agentName, workspaceId, since) as any
+  `, [agentName, workspaceId, since]) as any
 
   const total = row?.total ?? 0
   const successful = row?.successful ?? 0
@@ -94,15 +92,15 @@ export function evalCorrectnessScore(
   }
 }
 
-export function runOutputEvals(
+export async function runOutputEvals(
   agentName: string,
   hours: number = 168,
   workspaceId: number = 1,
-): EvalResult[] {
-  return [
+): Promise<EvalResult[]> {
+  return Promise.all([
     evalTaskCompletion(agentName, hours, workspaceId),
     evalCorrectnessScore(agentName, hours, workspaceId),
-  ]
+  ])
 }
 
 // ---------------------------------------------------------------------------
@@ -122,21 +120,20 @@ export function convergenceScore(
   }
 }
 
-export function evalReasoningCoherence(
+export async function evalReasoningCoherence(
   agentName: string,
   hours: number = 24,
   workspaceId: number = 1,
-): EvalResult {
-  const db = getDatabase()
+): Promise<EvalResult> {
   const since = Math.floor(Date.now() / 1000) - hours * 3600
 
-  const row = db.prepare(`
+  const row = await dbGet(`
     SELECT
       COUNT(*) as total_calls,
       COUNT(DISTINCT tool_name) as unique_tools
     FROM mcp_call_log
     WHERE agent_name = ? AND workspace_id = ? AND created_at > ?
-  `).get(agentName, workspaceId, since) as any
+  `, [agentName, workspaceId, since]) as any
 
   const total = row?.total_calls ?? 0
   const unique = row?.unique_tools ?? 0
@@ -154,21 +151,20 @@ export function evalReasoningCoherence(
 // Layer 3: Component Evals
 // ---------------------------------------------------------------------------
 
-export function evalToolReliability(
+export async function evalToolReliability(
   agentName: string,
   hours: number = 24,
   workspaceId: number = 1,
-): EvalResult {
-  const db = getDatabase()
+): Promise<EvalResult> {
   const since = Math.floor(Date.now() / 1000) - hours * 3600
 
-  const row = db.prepare(`
+  const row = await dbGet(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successes
     FROM mcp_call_log
     WHERE agent_name = ? AND workspace_id = ? AND created_at > ?
-  `).get(agentName, workspaceId, since) as any
+  `, [agentName, workspaceId, since]) as any
 
   const total = row?.total ?? 0
   const successes = row?.successes ?? 0
@@ -207,11 +203,10 @@ export function checkDrift(
   }
 }
 
-export function runDriftCheck(
+export async function runDriftCheck(
   agentName: string,
   workspaceId: number = 1,
-): DriftResult[] {
-  const db = getDatabase()
+): Promise<DriftResult[]> {
   const now = Math.floor(Date.now() / 1000)
   const oneWeek = 7 * 86400
   const fourWeeks = 4 * 7 * 86400
@@ -223,17 +218,17 @@ export function runDriftCheck(
   const baselineEnd = currentStart
 
   // Metric: avg tokens per session
-  const currentTokens = db.prepare(`
+  const currentTokens = await dbGet(`
     SELECT AVG(input_tokens + output_tokens) as avg_tokens
     FROM token_usage
     WHERE agent_name = ? AND created_at > ?
-  `).get(agentName, currentStart) as any
+  `, [agentName, currentStart]) as any
 
-  const baselineTokens = db.prepare(`
+  const baselineTokens = await dbGet(`
     SELECT AVG(input_tokens + output_tokens) as avg_tokens
     FROM token_usage
     WHERE agent_name = ? AND created_at > ? AND created_at <= ?
-  `).get(agentName, baselineStart, baselineEnd) as any
+  `, [agentName, baselineStart, baselineEnd]) as any
 
   const tokenDrift = checkDrift(
     currentTokens?.avg_tokens ?? 0,
@@ -242,21 +237,21 @@ export function runDriftCheck(
   tokenDrift.metric = 'avg_tokens_per_session'
 
   // Metric: tool success rate
-  const currentTools = db.prepare(`
+  const currentTools = await dbGet(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successes
     FROM mcp_call_log
     WHERE agent_name = ? AND workspace_id = ? AND created_at > ?
-  `).get(agentName, workspaceId, currentStart) as any
+  `, [agentName, workspaceId, currentStart]) as any
 
-  const baselineTools = db.prepare(`
+  const baselineTools = await dbGet(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successes
     FROM mcp_call_log
     WHERE agent_name = ? AND workspace_id = ? AND created_at > ? AND created_at <= ?
-  `).get(agentName, workspaceId, baselineStart, baselineEnd) as any
+  `, [agentName, workspaceId, baselineStart, baselineEnd]) as any
 
   const currentSuccessRate = (currentTools?.total ?? 0) > 0
     ? (currentTools.successes / currentTools.total)
@@ -269,21 +264,21 @@ export function runDriftCheck(
   toolDrift.metric = 'tool_success_rate'
 
   // Metric: task completion rate
-  const currentTasks = db.prepare(`
+  const currentTasks = await dbGet(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as completed
     FROM tasks
     WHERE assigned_to = ? AND workspace_id = ? AND created_at > ?
-  `).get(agentName, workspaceId, currentStart) as any
+  `, [agentName, workspaceId, currentStart]) as any
 
-  const baselineTasks = db.prepare(`
+  const baselineTasks = await dbGet(`
     SELECT
       COUNT(*) as total,
       SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as completed
     FROM tasks
     WHERE assigned_to = ? AND workspace_id = ? AND created_at > ? AND created_at <= ?
-  `).get(agentName, workspaceId, baselineStart, baselineEnd) as any
+  `, [agentName, workspaceId, baselineStart, baselineEnd]) as any
 
   const currentCompletionRate = (currentTasks?.total ?? 0) > 0
     ? (currentTasks.completed / currentTasks.total)
@@ -298,12 +293,11 @@ export function runDriftCheck(
   return [tokenDrift, toolDrift, taskDrift]
 }
 
-export function getDriftTimeline(
+export async function getDriftTimeline(
   agentName: string,
   weeks: number = 8,
   workspaceId: number = 1,
-): Array<{ weekStart: number; avgTokens: number; successRate: number; completionRate: number }> {
-  const db = getDatabase()
+): Promise<Array<{ weekStart: number; avgTokens: number; successRate: number; completionRate: number }>> {
   const now = Math.floor(Date.now() / 1000)
   const timeline: Array<{ weekStart: number; avgTokens: number; successRate: number; completionRate: number }> = []
 
@@ -311,27 +305,27 @@ export function getDriftTimeline(
     const weekStart = now - (i + 1) * 7 * 86400
     const weekEnd = now - i * 7 * 86400
 
-    const tokens = db.prepare(`
+    const tokens = await dbGet(`
       SELECT AVG(input_tokens + output_tokens) as avg_tokens
       FROM token_usage
       WHERE agent_name = ? AND created_at > ? AND created_at <= ?
-    `).get(agentName, weekStart, weekEnd) as any
+    `, [agentName, weekStart, weekEnd]) as any
 
-    const tools = db.prepare(`
+    const tools = await dbGet(`
       SELECT
         COUNT(*) as total,
         SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END) as successes
       FROM mcp_call_log
       WHERE agent_name = ? AND workspace_id = ? AND created_at > ? AND created_at <= ?
-    `).get(agentName, workspaceId, weekStart, weekEnd) as any
+    `, [agentName, workspaceId, weekStart, weekEnd]) as any
 
-    const tasks = db.prepare(`
+    const tasks = await dbGet(`
       SELECT
         COUNT(*) as total,
         SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as completed
       FROM tasks
       WHERE assigned_to = ? AND workspace_id = ? AND created_at > ? AND created_at <= ?
-    `).get(agentName, workspaceId, weekStart, weekEnd) as any
+    `, [agentName, workspaceId, weekStart, weekEnd]) as any
 
     timeline.push({
       weekStart,

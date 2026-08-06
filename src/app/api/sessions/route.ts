@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { syncClaudeSessions } from '@/lib/claude-sessions'
-import { getDatabase, db_helpers } from '@/lib/db'
+import { db_helpers } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -9,7 +10,7 @@ import { logger } from '@/lib/logger'
 const LOCAL_SESSION_ACTIVE_WINDOW_MS = 90 * 60 * 1000
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
@@ -18,7 +19,7 @@ export async function GET(request: NextRequest) {
 
     // Always include local sessions alongside gateway sessions
     await syncClaudeSessions()
-    const claudeSessions = getLocalClaudeSessions()
+    const claudeSessions = await getLocalClaudeSessions()
     const localMerged = mergeLocalSessions(claudeSessions)
 
     if (mappedGatewaySessions.length === 0 && localMerged.length === 0) {
@@ -39,7 +40,7 @@ const VALID_REASONING_LEVELS = ['off', 'on', 'stream'] as const
 const SESSION_KEY_RE = /^[a-zA-Z0-9:_.-]+$/
 
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -111,7 +112,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -142,7 +143,7 @@ export async function DELETE(request: NextRequest) {
 }
 
 function mapGatewaySessions(gatewaySessions: ReturnType<typeof getAllGatewaySessions>) {
-  // Deduplicate by sessionId — cron runs may share the same
+  // Deduplicate by sessionId â€” cron runs may share the same
   // session ID as the parent session, causing duplicate React keys (#80).
   // Keep the most recently updated entry when duplicates exist.
   const sessionMap = new Map<string, (typeof gatewaySessions)[0]>()
@@ -177,12 +178,9 @@ function mapGatewaySessions(gatewaySessions: ReturnType<typeof getAllGatewaySess
 }
 
 /** Read Claude Code sessions from the local SQLite database */
-function getLocalClaudeSessions() {
+async function getLocalClaudeSessions() {
   try {
-    const db = getDatabase()
-    const rows = db.prepare(
-      'SELECT * FROM claude_sessions ORDER BY last_message_at DESC LIMIT 50'
-    ).all() as Array<Record<string, any>>
+    const rows = await dbGetAll('SELECT * FROM claude_sessions ORDER BY last_message_at DESC LIMIT 50', []) as Array<Record<string, any>>
 
     return rows.map((s) => {
       const total = (s.input_tokens || 0) + (s.output_tokens || 0)

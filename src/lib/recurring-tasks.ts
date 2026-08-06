@@ -7,7 +7,8 @@
  * date-suffixed titles.
  */
 
-import { getDatabase, db_helpers } from './db'
+import { db_helpers } from './db'
+import { dbGet, dbGetAll, dbRun } from './db-pool'
 import { logger } from './logger'
 import { isCronDue } from './schedule-parser'
 
@@ -28,19 +29,18 @@ function formatDateSuffix(): string {
 
 export async function spawnRecurringTasks(): Promise<{ ok: boolean; message: string }> {
   try {
-    const db = getDatabase()
     const nowMs = Date.now()
     const nowSec = Math.floor(nowMs / 1000)
 
     // Find all template tasks with enabled recurrence
-    const templates = db.prepare(`
+    const templates = await dbGetAll(`
       SELECT id, title, description, priority, project_id, assigned_to, created_by,
              tags, metadata, workspace_id
       FROM tasks
       WHERE json_extract(metadata, '$.recurrence.enabled') = 1
         AND json_extract(metadata, '$.recurrence.cron_expr') IS NOT NULL
         AND json_extract(metadata, '$.recurrence.parent_task_id') IS NULL
-    `).all() as Array<{
+    `, []) as Array<{
       id: number
       title: string
       description: string | null
@@ -72,11 +72,11 @@ export async function spawnRecurringTasks(): Promise<{ ok: boolean; message: str
       const childTitle = `${template.title} - ${dateSuffix}`
 
       // Duplicate prevention: check if a child with this exact title already exists in the same project
-      const existing = db.prepare(`
+      const existing = await dbGet(`
         SELECT id FROM tasks
         WHERE title = ? AND workspace_id = ? AND project_id = ?
         LIMIT 1
-      `).get(childTitle, template.workspace_id, template.project_id)
+      `, [childTitle, template.workspace_id, template.project_id])
       if (existing) continue
 
       // Spawn child task
@@ -87,65 +87,62 @@ export async function spawnRecurringTasks(): Promise<{ ok: boolean; message: str
         },
       }
 
-      db.transaction(() => {
-        // Get project ticket number
-        if (template.project_id) {
-          db.prepare(`
-            UPDATE projects
-            SET ticket_counter = ticket_counter + 1, updated_at = unixepoch()
-            WHERE id = ? AND workspace_id = ?
-          `).run(template.project_id, template.workspace_id)
-        }
+      // Get project ticket number
+      if (template.project_id) {
+        await dbRun(`
+          UPDATE projects
+          SET ticket_counter = ticket_counter + 1, updated_at = UNIX_TIMESTAMP()
+          WHERE id = ? AND workspace_id = ?
+        `, [template.project_id, template.workspace_id])
+      }
 
-        const ticketRow = template.project_id
-          ? db.prepare(`SELECT ticket_counter FROM projects WHERE id = ? AND workspace_id = ?`).get(template.project_id, template.workspace_id) as { ticket_counter: number } | undefined
-          : undefined
+      const ticketRow = template.project_id
+        ? await dbGet(`SELECT ticket_counter FROM projects WHERE id = ? AND workspace_id = ?`, [template.project_id, template.workspace_id]) as { ticket_counter: number } | undefined
+        : undefined
 
-        const insertResult = db.prepare(`
-          INSERT INTO tasks (
-            title, description, status, priority, project_id, project_ticket_no,
-            assigned_to, created_by, created_at, updated_at,
-            tags, metadata, workspace_id
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          childTitle,
-          template.description,
-          template.assigned_to ? 'assigned' : 'inbox',
-          template.priority,
-          template.project_id,
-          ticketRow?.ticket_counter ?? null,
-          template.assigned_to,
-          'scheduler',
-          nowSec,
-          nowSec,
-          template.tags,
-          JSON.stringify(childMetadata),
-          template.workspace_id,
-        )
+      const insertResult = await dbRun(`
+        INSERT INTO tasks (
+          title, description, status, priority, project_id, project_ticket_no,
+          assigned_to, created_by, created_at, updated_at,
+          tags, metadata, workspace_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [childTitle,
+        template.description,
+        template.assigned_to ? 'assigned' : 'inbox',
+        template.priority,
+        template.project_id,
+        ticketRow?.ticket_counter ?? null,
+        template.assigned_to,
+        'scheduler',
+        nowSec,
+        nowSec,
+        template.tags,
+        JSON.stringify(childMetadata),
+        template.workspace_id,
+      ])
 
-        const childId = Number(insertResult.lastInsertRowid)
+      const childId = Number(insertResult.insertId)
 
-        // Update template: bump spawn count and last_spawned_at
-        const updatedRecurrence = {
-          ...recurrence,
-          last_spawned_at: nowSec,
-          spawn_count: (recurrence.spawn_count || 0) + 1,
-        }
-        const updatedMetadata = { ...metadata, recurrence: updatedRecurrence }
-        db.prepare(`
-          UPDATE tasks SET metadata = ?, updated_at = ? WHERE id = ?
-        `).run(JSON.stringify(updatedMetadata), nowSec, template.id)
+      // Update template: bump spawn count and last_spawned_at
+      const updatedRecurrence = {
+        ...recurrence,
+        last_spawned_at: nowSec,
+        spawn_count: (recurrence.spawn_count || 0) + 1,
+      }
+      const updatedMetadata = { ...metadata, recurrence: updatedRecurrence }
+      await dbRun(`
+        UPDATE tasks SET metadata = ?, updated_at = ? WHERE id = ?
+      `, [JSON.stringify(updatedMetadata), nowSec, template.id])
 
-        db_helpers.logActivity(
-          'task_created',
-          'task',
-          childId,
-          'scheduler',
-          `Recurring task spawned: ${childTitle}`,
-          { parent_task_id: template.id, cron_expr: recurrence.cron_expr },
-          template.workspace_id,
-        )
-      })()
+      db_helpers.logActivity(
+        'task_created',
+        'task',
+        childId,
+        'scheduler',
+        `Recurring task spawned: ${childTitle}`,
+        { parent_task_id: template.id, cron_expr: recurrence.cron_expr },
+        template.workspace_id,
+      )
 
       spawned++
     }

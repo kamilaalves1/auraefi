@@ -1,18 +1,14 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { config } from '@/lib/config'
 import { logger } from '@/lib/logger'
-import {
-  initGnapRepo,
-  syncGnap,
-  getGnapStatus,
-} from '@/lib/gnap-sync'
+import { initGnapRepo, syncGnap, getGnapStatus } from '@/lib/gnap-sync'
 
 /**
- * GET /api/gnap — GNAP sync status
+ * GET /api/gnap â€” GNAP sync status
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const gnapConfig = config.gnap
@@ -35,10 +31,10 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/gnap?action=init|sync — GNAP management
+ * POST /api/gnap?action=init|sync â€” GNAP management
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const gnapConfig = config.gnap

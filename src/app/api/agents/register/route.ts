@@ -1,5 +1,6 @@
 ﻿import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, db_helpers } from '@/lib/db'
+import { db_helpers } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { selfRegisterLimiter, extractClientIp } from '@/lib/rate-limit'
 import { logAuditEvent } from '@/lib/db'
@@ -21,7 +22,7 @@ const VALID_ROLES = ['coder', 'reviewer', 'tester', 'devops', 'researcher', 'ass
  * Rate-limited to 5 registrations/min per IP to prevent spam.
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const limited = selfRegisterLimiter(request)
@@ -52,19 +53,14 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const now = Math.floor(Date.now() / 1000)
 
     // Check if agent already exists — idempotent: update last_seen and status
-    const existing = db.prepare(
-      'SELECT * FROM agents WHERE name = ? AND workspace_id = ?'
-    ).get(name, workspaceId) as any | undefined
+    const existing = await dbGet('SELECT * FROM agents WHERE name = ? AND workspace_id = ?', [name, workspaceId]) as any | undefined
 
     if (existing) {
-      db.prepare(
-        'UPDATE agents SET status = ?, last_seen = ?, updated_at = ? WHERE id = ? AND workspace_id = ?'
-      ).run('idle', now, now, existing.id, workspaceId)
+      await dbRun('UPDATE agents SET status = ?, last_seen = ?, updated_at = ? WHERE id = ? AND workspace_id = ?', ['idle', now, now, existing.id, workspaceId])
 
       return NextResponse.json({
         agent: {
@@ -84,12 +80,12 @@ export async function POST(request: NextRequest) {
     if (capabilities.length > 0) config.capabilities = capabilities
     if (framework) config.framework = framework
 
-    const result = db.prepare(`
+    const result = await dbRun(`
       INSERT INTO agents (name, role, status, config, created_at, updated_at, last_seen, workspace_id)
       VALUES (?, ?, 'idle', ?, ?, ?, ?, ?)
-    `).run(name, role, JSON.stringify(config), now, now, now, workspaceId)
+    `, [name, role, JSON.stringify(config), now, now, now, workspaceId])
 
-    const agentId = Number(result.lastInsertRowid)
+    const agentId = Number(result.insertId)
 
     db_helpers.logActivity(
       'agent_created',

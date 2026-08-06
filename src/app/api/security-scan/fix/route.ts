@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { existsSync, readFileSync, writeFileSync, chmodSync, statSync } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import path from 'node:path'
 import crypto from 'node:crypto'
 import { requireRole } from '@/lib/auth'
 import { config } from '@/lib/config'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { logger } from '@/lib/logger'
 import { FIX_SAFETY, runSecurityScan, type FixSafety } from '@/lib/security-scan'
 
@@ -49,14 +49,14 @@ function getRequestHostCandidates(request: NextRequest): string[] {
   return [...new Set(rawCandidates.map(normalizeHostname).filter(Boolean))]
 }
 
-function getFailingChecks() {
-  return Object.values(runSecurityScan().categories)
+async function getFailingChecks() {
+  return Object.values((await runSecurityScan()).categories)
     .flatMap((category) => category.checks)
     .filter((check) => check.status !== 'pass')
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   // Optional: pass { ids: ["check_id"] } to fix only specific issues
@@ -200,7 +200,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 6. Fix gateway config (skipped — not integrated)
+  // 6. Fix gateway config (skipped â€” not integrated)
   const ocFixIds = ['config_permissions', 'gateway_auth', 'gateway_bind', 'elevated_disabled', 'dm_isolation', 'exec_restricted', 'control_ui_device_auth', 'control_ui_insecure_auth', 'fs_workspace_only', 'log_redaction']
   const configPath = ''
   if (ocFixIds.some(id => shouldFix(id)) && configPath && existsSync(configPath)) {
@@ -328,7 +328,7 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // 7. Fix world-writable files (uses execFileSync with find — no user input)
+  // 7. Fix world-writable files (uses execFileSync with find â€” no user input)
   if (shouldFix('world_writable')) try {
     const cwd = process.cwd()
     const wwOutput = execFileSync('find', [cwd, '-maxdepth', '2', '-perm', '-o+w', '-not', '-type', 'l'], {
@@ -348,15 +348,12 @@ export async function POST(request: NextRequest) {
 
   // Audit log
   try {
-    const db = getDatabase()
-    db.prepare(
-      'INSERT INTO audit_log (action, actor, detail) VALUES (?, ?, ?)'
-    ).run('security.auto_fix', auth.user.username, JSON.stringify({ fixes: results.filter(r => r.fixed).map(r => r.id) }))
+    await dbRun('INSERT INTO audit_log (action, actor, detail) VALUES (?, ?, ?)', ['security.auto_fix', auth.user.username, JSON.stringify({ fixes: results.filter(r => r.fixed).map(r => r.id) })])
   } catch { /* non-critical */ }
 
   const fixed = results.filter(r => r.fixed).length
   const failed = results.filter(r => !r.fixed).length
-  const remainingChecks = getFailingChecks()
+  const remainingChecks = await getFailingChecks()
   const remainingAutoFixable = remainingChecks.filter((check) => check.id in FIX_SAFETY).length
   const remainingManual = remainingChecks.length - remainingAutoFixable
 

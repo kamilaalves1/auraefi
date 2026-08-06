@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+﻿import { NextRequest, NextResponse } from 'next/server'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -31,18 +31,17 @@ function safeParseJson(raw: string | null): Record<string, unknown> {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const url = new URL(request.url)
     const clientId = url.searchParams.get('client_id')
 
     const rows = clientId
-      ? db.prepare('SELECT * FROM work_pipelines WHERE workspace_id = ? AND client_id = ? ORDER BY created_at ASC').all(workspaceId, Number(clientId))
-      : db.prepare('SELECT * FROM work_pipelines WHERE workspace_id = ? ORDER BY created_at ASC').all(workspaceId)
+      ? await dbGetAll('SELECT * FROM work_pipelines WHERE workspace_id = ? AND client_id = ? ORDER BY created_at ASC', [workspaceId, Number(clientId)])
+      : await dbGetAll('SELECT * FROM work_pipelines WHERE workspace_id = ? ORDER BY created_at ASC', [workspaceId])
 
     return NextResponse.json({ pipelines: (rows as any[]).map(rowToPipeline) })
   } catch (err) {
@@ -52,14 +51,13 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
   if (rateCheck) return rateCheck
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const body = await request.json().catch(() => ({}))
 
@@ -76,12 +74,10 @@ export async function POST(request: NextRequest) {
       secretBlob = encryptWorkPipelineBlob(JSON.stringify(body.credentials))
     }
 
-    const result = db.prepare(
-      `INSERT INTO work_pipelines (workspace_id, client_id, name, provider, enabled, config_json, secret_blob)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
-    ).run(workspaceId, clientId, name, provider, enabled ? 1 : 0, JSON.stringify(config), secretBlob)
+    const result = await dbRun(`INSERT INTO work_pipelines (workspace_id, client_id, name, provider, enabled, config_json, secret_blob)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`, [workspaceId, clientId, name, provider, enabled ? 1 : 0, JSON.stringify(config), secretBlob])
 
-    const row = db.prepare('SELECT * FROM work_pipelines WHERE id = ?').get(result.lastInsertRowid)
+    const row = await dbGet('SELECT * FROM work_pipelines WHERE id = ?', [result.insertId])
     return NextResponse.json({ pipeline: rowToPipeline(row as any) }, { status: 201 })
   } catch (err) {
     logger.error({ err }, 'POST /api/workspace/work-pipelines error')

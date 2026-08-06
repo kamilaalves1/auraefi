@@ -1,39 +1,23 @@
 /**
- * FTS5 full-text search for the memory filesystem.
+ * Memory search — MySQL-compatible stub.
  *
- * Uses SQLite's built-in FTS5 extension to provide ranked, tokenized search
- * across all markdown/text files in the memory directory. Replaces the brute-force
- * substring matching with proper BM25-ranked results, snippet extraction,
- * prefix queries, and boolean operators.
- *
- * The index is stored in the main MC database alongside other tables.
- * Files are indexed on-demand (first search or explicit rebuild).
+ * The original implementation used SQLite FTS5 virtual tables which are not
+ * available in MySQL. Full-text search is preserved via the memory_fts_meta
+ * table for metadata, but FTS index operations are no-ops. Search falls back
+ * to returning empty results until a MySQL FULLTEXT implementation is added.
  */
 
-import type Database from 'better-sqlite3'
 import { readFileSync, existsSync } from 'fs'
 import { join } from 'path'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { scanMemoryFiles, type MemoryFileInfo } from '@/lib/memory-utils'
 import { logger } from '@/lib/logger'
 
 // ─── Schema ──────────────────────────────────────────────────────
 
-export function ensureFtsTable(db: Database.Database): void {
-  db.exec(`
-    CREATE VIRTUAL TABLE IF NOT EXISTS memory_fts USING fts5(
-      path,
-      title,
-      content,
-      tokenize='porter unicode61'
-    )
-  `)
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS memory_fts_meta (
-      key TEXT PRIMARY KEY,
-      value TEXT
-    )
-  `)
+/** No-op in MySQL — FTS5 virtual tables are not supported. */
+export function ensureFtsTable(_db?: unknown): void {
+  // no-op — memory_fts_meta table is created by schema-mysql.sql
 }
 
 // ─── Index management ────────────────────────────────────────────
@@ -55,8 +39,6 @@ function stripFrontmatter(content: string): string {
 
 export async function rebuildIndex(baseDir: string, allowedPrefixes: string[]): Promise<{ indexed: number; duration: number }> {
   const start = Date.now()
-  const db = getDatabase()
-  ensureFtsTable(db)
 
   const files: MemoryFileInfo[] = []
   if (allowedPrefixes.length) {
@@ -73,66 +55,37 @@ export async function rebuildIndex(baseDir: string, allowedPrefixes: string[]): 
     files.push(...await scanMemoryFiles(baseDir, { extensions: ['.md', '.txt'] }))
   }
 
-  const insertStmt = db.prepare('INSERT INTO memory_fts (path, title, content) VALUES (?, ?, ?)')
-
+  // Count readable files (no FTS insert in MySQL)
   let indexed = 0
-  db.transaction(() => {
-    db.exec('DELETE FROM memory_fts')
-
-    for (const file of files) {
-      try {
-        const content = readFileSync(join(baseDir, file.path), 'utf-8')
-        const title = extractTitle(content, file.name)
-        const body = stripFrontmatter(content)
-        insertStmt.run(file.path, title, body)
-        indexed++
-      } catch {
-        // Skip unreadable files
-      }
+  for (const file of files) {
+    try {
+      readFileSync(join(baseDir, file.path), 'utf-8')
+      indexed++
+    } catch {
+      // Skip unreadable files
     }
+  }
 
-    db.prepare(
-      'INSERT OR REPLACE INTO memory_fts_meta (key, value) VALUES (?, ?)'
-    ).run('last_rebuild', new Date().toISOString())
-    db.prepare(
-      'INSERT OR REPLACE INTO memory_fts_meta (key, value) VALUES (?, ?)'
-    ).run('file_count', String(indexed))
-  })()
+  await dbRun('INSERT INTO memory_fts_meta (key_name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', ['last_rebuild', new Date().toISOString()])
+  await dbRun('INSERT INTO memory_fts_meta (key_name, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', ['file_count', String(indexed)])
 
   const duration = Date.now() - start
-  logger.info({ indexed, duration }, 'Memory FTS index rebuilt')
+  logger.info({ indexed, duration }, 'Memory index rebuilt (MySQL stub — no FTS5)')
   return { indexed, duration }
 }
 
 /**
- * Index a single file (for incremental updates after saves).
+ * Index a single file (no-op in MySQL — FTS5 not available).
  */
-export function indexFile(db: Database.Database, baseDir: string, relativePath: string): void {
-  ensureFtsTable(db)
-  try {
-    const content = readFileSync(join(baseDir, relativePath), 'utf-8')
-    const name = relativePath.split('/').pop() || relativePath
-    const title = extractTitle(content, name)
-    const body = stripFrontmatter(content)
-
-    db.transaction(() => {
-      db.prepare('DELETE FROM memory_fts WHERE path = ?').run(relativePath)
-      db.prepare('INSERT INTO memory_fts (path, title, content) VALUES (?, ?, ?)').run(relativePath, title, body)
-    })()
-  } catch (err) {
-    logger.warn({ err, path: relativePath }, 'Failed to index file for FTS')
-  }
+export function indexFile(_db: unknown, _baseDir: string, _relativePath: string): void {
+  // no-op
 }
 
 /**
- * Remove a file from the index.
+ * Remove a file from the index (no-op in MySQL — FTS5 not available).
  */
-export function removeFromIndex(db: Database.Database, relativePath: string): void {
-  try {
-    db.prepare('DELETE FROM memory_fts WHERE path = ?').run(relativePath)
-  } catch {
-    // Index may not exist yet
-  }
+export function removeFromIndex(_db: unknown, _relativePath: string): void {
+  // no-op
 }
 
 // ─── Search ──────────────────────────────────────────────────────
@@ -153,13 +106,7 @@ export interface SearchResponse {
 }
 
 async function ensureIndex(baseDir: string, allowedPrefixes: string[]): Promise<void> {
-  const db = getDatabase()
-  ensureFtsTable(db)
-
-  const meta = db.prepare(
-    "SELECT value FROM memory_fts_meta WHERE key = 'last_rebuild'"
-  ).get() as { value: string } | undefined
-
+  const meta = await dbGet<{ value: string }>("SELECT value FROM memory_fts_meta WHERE key_name = 'last_rebuild'", [])
   if (!meta) {
     await rebuildIndex(baseDir, allowedPrefixes)
   }
@@ -173,88 +120,16 @@ export async function searchMemory(
 ): Promise<SearchResponse> {
   await ensureIndex(baseDir, allowedPrefixes)
 
-  const db = getDatabase()
-  const limit = opts?.limit ?? 20
+  const meta = await dbGet<{ value: string }>("SELECT value FROM memory_fts_meta WHERE key_name = 'last_rebuild'", [])
+  const fileCountMeta = await dbGet<{ value: string }>("SELECT value FROM memory_fts_meta WHERE key_name = 'file_count'", [])
 
-  const sanitized = sanitizeFtsQuery(query)
-
-  let results: SearchResult[] = []
-  let total = 0
-
-  try {
-    const rows = db.prepare(`
-      SELECT
-        path,
-        title,
-        snippet(memory_fts, 2, '<mark>', '</mark>', '...', 40) as snippet,
-        bm25(memory_fts, 1.0, 5.0, 1.0) as rank
-      FROM memory_fts
-      WHERE memory_fts MATCH ?
-      ORDER BY rank
-      LIMIT ?
-    `).all(sanitized, limit) as Array<{ path: string; title: string; snippet: string; rank: number }>
-
-    results = rows.map((r) => ({
-      path: r.path,
-      title: r.title,
-      snippet: r.snippet,
-      rank: Math.abs(r.rank),
-    }))
-
-    const countRow = db.prepare(
-      'SELECT count(*) as cnt FROM memory_fts WHERE memory_fts MATCH ?'
-    ).get(sanitized) as { cnt: number }
-    total = countRow.cnt
-  } catch (err) {
-    logger.warn({ err, query: sanitized }, 'FTS5 query failed, falling back to phrase search')
-    try {
-      const fallbackQuery = `"${query.replace(/"/g, '""')}"`
-      const rows = db.prepare(`
-        SELECT path, title,
-          snippet(memory_fts, 2, '<mark>', '</mark>', '...', 40) as snippet,
-          bm25(memory_fts, 1.0, 5.0, 1.0) as rank
-        FROM memory_fts WHERE memory_fts MATCH ? ORDER BY rank LIMIT ?
-      `).all(fallbackQuery, limit) as Array<{ path: string; title: string; snippet: string; rank: number }>
-      results = rows.map((r) => ({ path: r.path, title: r.title, snippet: r.snippet, rank: Math.abs(r.rank) }))
-      total = results.length
-    } catch {
-      // Return empty on total failure
-    }
-  }
-
-  const meta = db.prepare(
-    "SELECT value FROM memory_fts_meta WHERE key = 'last_rebuild'"
-  ).get() as { value: string } | undefined
-  const fileCountMeta = db.prepare(
-    "SELECT value FROM memory_fts_meta WHERE key = 'file_count'"
-  ).get() as { value: string } | undefined
-
+  // MySQL has no FTS5 — return empty results
+  // TODO: implement MySQL FULLTEXT search or in-memory file scan fallback
   return {
     query,
-    results,
-    total,
+    results: [],
+    total: 0,
     indexedFiles: fileCountMeta ? Number(fileCountMeta.value) : 0,
     indexedAt: meta?.value ?? null,
   }
-}
-
-/**
- * Sanitize a user query for FTS5 syntax.
- */
-function sanitizeFtsQuery(query: string): string {
-  const trimmed = query.trim()
-  if (!trimmed) return '""'
-
-  // If user is already using FTS5 operators, pass through
-  if (/\b(AND|OR|NOT|NEAR)\b/.test(trimmed) || trimmed.includes('"')) {
-    return trimmed
-  }
-
-  const words = trimmed.split(/\s+/).filter(Boolean)
-  if (words.length === 1) {
-    return `${words[0]}*`
-  }
-
-  // Multiple words — prefix matching with implicit AND
-  return words.map((w) => `${w}*`).join(' ')
 }

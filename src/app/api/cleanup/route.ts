@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase, logAuditEvent } from '@/lib/db'
+import { logAuditEvent } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { config } from '@/lib/config'
 import { heavyLimiter, extractClientIp } from '@/lib/rate-limit'
 import { countStaleGatewaySessions, pruneGatewaySessionsOlderThan } from '@/lib/sessions'
@@ -16,10 +17,8 @@ interface CleanupResult {
  * GET /api/cleanup - Show retention policy and what would be cleaned
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
   const now = Math.floor(Date.now() / 1000)
   const ret = config.retention
@@ -35,7 +34,7 @@ export async function GET(request: NextRequest) {
     try {
       const wsClause = scoped ? ' AND workspace_id = ?' : ''
       const params: any[] = scoped ? [cutoff, workspaceId] : [cutoff]
-      const row = db.prepare(`SELECT COUNT(*) as c FROM ${table} WHERE ${column} < ?${wsClause}`).get(...params) as any
+      const row = await dbGet(`SELECT COUNT(*) as c FROM ${table} WHERE ${column} < ?${wsClause}`, params) as any
       preview.push({
         table: label,
         retention_days: days,
@@ -82,7 +81,7 @@ export async function GET(request: NextRequest) {
  * Body: { dry_run?: boolean }
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = heavyLimiter(request)
@@ -90,8 +89,6 @@ export async function POST(request: NextRequest) {
 
   const body = await request.json().catch(() => ({}))
   const dryRun = body.dry_run === true
-
-  const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
   const now = Math.floor(Date.now() / 1000)
   const results: CleanupResult[] = []
@@ -105,7 +102,7 @@ export async function POST(request: NextRequest) {
 
     try {
       if (dryRun) {
-        const row = db.prepare(`SELECT COUNT(*) as c FROM ${table} WHERE ${column} < ?${wsClause}`).get(...params) as any
+        const row = await dbGet(`SELECT COUNT(*) as c FROM ${table} WHERE ${column} < ?${wsClause}`, params) as any
         results.push({
           table: label,
           deleted: row.c,
@@ -114,14 +111,14 @@ export async function POST(request: NextRequest) {
         })
         totalDeleted += row.c
       } else {
-        const res = db.prepare(`DELETE FROM ${table} WHERE ${column} < ?${wsClause}`).run(...params)
+        const res = await dbRun(`DELETE FROM ${table} WHERE ${column} < ?${wsClause}`, params)
         results.push({
           table: label,
-          deleted: res.changes,
+          deleted: res.affectedRows,
           cutoff_date: new Date(cutoff * 1000).toISOString().split('T')[0],
           retention_days: days,
         })
-        totalDeleted += res.changes
+        totalDeleted += res.affectedRows
       }
     } catch {
       results.push({ table: label, deleted: 0, cutoff_date: '', retention_days: days })

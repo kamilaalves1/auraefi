@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+﻿import { NextRequest, NextResponse } from 'next/server'
+
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { decryptPipelineSecrets, getWorkPipelineRow } from '@/lib/work-pipeline-config'
@@ -8,12 +8,12 @@ import { testJiraConnection } from '@/lib/work-pipeline-jira'
 import type { WorkPipelineConfigJson, WorkPipelineSecrets } from '@/lib/work-pipeline-types'
 
 /**
- * POST /api/work-pipeline/test — verify credentials against JIRA or Azure (admin).
+ * POST /api/work-pipeline/test â€” verify credentials against JIRA or Azure (admin).
  * Optional body overrides saved config for a one-off test:
  * { provider, config, secrets }
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
@@ -21,11 +21,8 @@ export async function POST(request: NextRequest) {
       provider?: string
       config?: WorkPipelineConfigJson
       secrets?: WorkPipelineSecrets
-    }
-
-    const db = getDatabase()
-    const workspaceId = auth.user.workspace_id ?? 1
-    const row = getWorkPipelineRow(db, workspaceId)
+    }    const workspaceId = auth.user.workspace_id ?? 1
+    const row = await getWorkPipelineRow(workspaceId)
 
     const provider = (body.provider || row?.provider || 'none') as string
     const config = { ...(row?.config || {}), ...(body.config || {}) }

@@ -1,10 +1,11 @@
 ﻿import { NextResponse } from 'next/server'
 import { getUserFromRequest } from '@/lib/auth'
-import { getDatabase, logAuditEvent } from '@/lib/db'
+import { logAuditEvent } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { extractClientIp } from '@/lib/rate-limit'
 
 export async function POST(request: Request) {
-  const user = getUserFromRequest(request)
+  const user = await getUserFromRequest(request)
   if (!user || user.id === 0) {
     return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
@@ -12,11 +13,8 @@ export async function POST(request: Request) {
   if (user.provider !== 'google') {
     return NextResponse.json({ error: 'Account is not connected to Google' }, { status: 400 })
   }
-
-  const db = getDatabase()
-
   // Check that the user has a password set so they can still log in after disconnect
-  const row = db.prepare('SELECT password_hash FROM users WHERE id = ?').get(user.id) as { password_hash?: string } | undefined
+  const row = await dbGet('SELECT password_hash FROM users WHERE id = ?', [user.id]) as { password_hash?: string } | undefined
   if (!row?.password_hash) {
     return NextResponse.json(
       { error: 'Cannot disconnect Google — no password set. Set a password first to avoid being locked out.' },
@@ -24,11 +22,11 @@ export async function POST(request: Request) {
     )
   }
 
-  db.prepare(`
+  await dbRun(`
     UPDATE users
-    SET provider = 'local', provider_user_id = NULL, updated_at = (unixepoch())
+    SET provider = 'local', provider_user_id = NULL, updated_at = (UNIX_TIMESTAMP())
     WHERE id = ?
-  `).run(user.id)
+  `, [user.id])
 
   const ipAddress = extractClientIp(request)
   const userAgent = request.headers.get('user-agent') || undefined

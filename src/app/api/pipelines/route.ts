@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, db_helpers } from '@/lib/db'
+﻿import { NextRequest, NextResponse } from 'next/server'
+import { db_helpers } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { validateBody, createPipelineSchema, pipelineStepSchema } from '@/lib/validation'
 import { mutationLimiter } from '@/lib/rate-limit'
@@ -39,28 +40,25 @@ function parseClientMetadata(raw: string | null | undefined): Record<string, unk
  * GET /api/pipelines - List all pipelines with enriched step data
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
-    const pipelines = db.prepare(
-      'SELECT * FROM workflow_pipelines WHERE workspace_id = ? ORDER BY use_count DESC, updated_at DESC'
-    ).all(workspaceId) as Pipeline[]
+    const pipelines = await dbGetAll('SELECT * FROM workflow_pipelines WHERE workspace_id = ? ORDER BY use_count DESC, updated_at DESC', [workspaceId]) as Pipeline[]
 
     // Enrich steps with template names
-    const templates = db.prepare('SELECT id, name FROM workflow_templates').all() as Array<{ id: number; name: string }>
+    const templates = await dbGetAll('SELECT id, name FROM workflow_templates', []) as Array<{ id: number; name: string }>
     const nameMap = new Map(templates.map(t => [t.id, t.name]))
 
     // Get run counts per pipeline
-    const runCounts = db.prepare(`
+    const runCounts = await dbGetAll(`
       SELECT pipeline_id, COUNT(*) as total,
         SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
         SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) as failed,
         SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running
       FROM pipeline_runs WHERE workspace_id = ? GROUP BY pipeline_id
-    `).all(workspaceId) as Array<{ pipeline_id: number; total: number; completed: number; failed: number; running: number }>
+    `, [workspaceId]) as Array<{ pipeline_id: number; total: number; completed: number; failed: number; running: number }>
     const runMap = new Map(runCounts.map(r => [r.pipeline_id, r]))
 
     const parsed = pipelines.map((p) => {
@@ -86,7 +84,7 @@ export async function GET(request: NextRequest) {
  * POST /api/pipelines - Create a pipeline
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -96,15 +94,11 @@ export async function POST(request: NextRequest) {
     const result = await validateBody(request, createPipelineSchema)
     if ('error' in result) return result.error
     const { name, description, steps, client_metadata } = result.data
-
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
 
     // Validate template IDs exist
     const templateIds = steps.map((s: PipelineStep) => s.template_id)
-    const existing = db.prepare(
-      `SELECT id FROM workflow_templates WHERE id IN (${templateIds.map(() => '?').join(',')})`
-    ).all(...templateIds) as Array<{ id: number }>
+    const existing = await dbGetAll(`SELECT id FROM workflow_templates WHERE id IN (${templateIds.map(() => '?').join(',')})`, templateIds) as Array<{ id: number }>
     if (existing.length !== new Set(templateIds).size) {
       return NextResponse.json({ error: 'One or more template IDs not found' }, { status: 400 })
     }
@@ -122,24 +116,22 @@ export async function POST(request: NextRequest) {
 
     const metaJson = JSON.stringify(client_metadata && typeof client_metadata === 'object' ? client_metadata : {})
 
-    const insertResult = db.prepare(`
+    const insertResult = await dbRun(`
       INSERT INTO workflow_pipelines (name, description, steps, created_by, workspace_id, client_metadata_json)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(name, description || null, JSON.stringify(cleanSteps), auth.user?.username || 'system', workspaceId, metaJson)
+    `, [name, description || null, JSON.stringify(cleanSteps), auth.user?.username || 'system', workspaceId, metaJson])
 
     db_helpers.logActivity(
       'pipeline_created',
       'pipeline',
-      Number(insertResult.lastInsertRowid),
+      Number(insertResult.insertId),
       auth.user?.username || 'system',
       `Created pipeline: ${name}`,
       undefined,
       workspaceId
     )
 
-    const pipeline = db
-      .prepare('SELECT * FROM workflow_pipelines WHERE id = ? AND workspace_id = ?')
-      .get(insertResult.lastInsertRowid, workspaceId) as Pipeline
+    const pipeline = (await dbGet<Pipeline>('SELECT * FROM workflow_pipelines WHERE id = ? AND workspace_id = ?', [insertResult.insertId, workspaceId]))!
     const client_metadata_out = parseClientMetadata(pipeline.client_metadata_json)
     const { client_metadata_json: _cj, ...pout } = pipeline
     return NextResponse.json({ pipeline: { ...pout, client_metadata: client_metadata_out, steps: JSON.parse(pipeline.steps) } }, { status: 201 })
@@ -153,20 +145,17 @@ export async function POST(request: NextRequest) {
  * PUT /api/pipelines - Update a pipeline
  */
 export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const body = await request.json()
     const { id, ...updates } = body
 
     if (!id) return NextResponse.json({ error: 'Pipeline ID required' }, { status: 400 })
 
-    const existing = db
-      .prepare('SELECT * FROM workflow_pipelines WHERE id = ? AND workspace_id = ?')
-      .get(id, workspaceId) as Pipeline
+    const existing = await dbGet<Pipeline>('SELECT * FROM workflow_pipelines WHERE id = ? AND workspace_id = ?', [id, workspaceId])
     if (!existing) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
 
     const fields: string[] = []
@@ -200,11 +189,9 @@ export async function PUT(request: NextRequest) {
     params.push(Math.floor(Date.now() / 1000))
     params.push(id, workspaceId)
 
-    db.prepare(`UPDATE workflow_pipelines SET ${fields.join(', ')} WHERE id = ? AND workspace_id = ?`).run(...params)
+    await dbRun(`UPDATE workflow_pipelines SET ${fields.join(', ')} WHERE id = ? AND workspace_id = ?`, params)
 
-    const updated = db
-      .prepare('SELECT * FROM workflow_pipelines WHERE id = ? AND workspace_id = ?')
-      .get(id, workspaceId) as Pipeline
+    const updated = (await dbGet<Pipeline>('SELECT * FROM workflow_pipelines WHERE id = ? AND workspace_id = ?', [id, workspaceId]))!
     const client_metadata = parseClientMetadata(updated.client_metadata_json)
     const { client_metadata_json: _u, ...rest } = updated
     return NextResponse.json({ pipeline: { ...rest, client_metadata, steps: JSON.parse(updated.steps) } })
@@ -218,11 +205,10 @@ export async function PUT(request: NextRequest) {
  * DELETE /api/pipelines - Delete a pipeline
  */
 export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const q = new URL(request.url).searchParams.get('id')
     let id: string | number | undefined = q ? parseInt(q, 10) : undefined
@@ -238,7 +224,7 @@ export async function DELETE(request: NextRequest) {
       return NextResponse.json({ error: 'Pipeline ID required' }, { status: 400 })
     }
 
-    db.prepare('DELETE FROM workflow_pipelines WHERE id = ? AND workspace_id = ?').run(parseInt(String(id), 10), workspaceId)
+    await dbRun('DELETE FROM workflow_pipelines WHERE id = ? AND workspace_id = ?', [parseInt(String(id), 10), workspaceId])
     return NextResponse.json({ success: true })
   } catch (error) {
     logger.error({ err: error }, 'DELETE /api/pipelines error')

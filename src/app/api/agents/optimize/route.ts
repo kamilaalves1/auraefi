@@ -1,16 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { readLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
-import {
-  analyzeTokenEfficiency,
-  analyzeToolPatterns,
-  getFleetBenchmarks,
-  generateRecommendations,
-} from '@/lib/agent-optimizer'
+import { analyzeTokenEfficiency, analyzeToolPatterns, getFleetBenchmarks, generateRecommendations } from '@/lib/agent-optimizer'
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = readLimiter(request)
@@ -26,10 +21,10 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Missing required parameter: agent' }, { status: 400 })
     }
 
-    const efficiency = analyzeTokenEfficiency(agent, hours, workspaceId)
-    const toolPatterns = analyzeToolPatterns(agent, hours, workspaceId)
-    const fleet = getFleetBenchmarks(workspaceId)
-    const recommendations = generateRecommendations(agent, workspaceId)
+    const efficiency = await analyzeTokenEfficiency(agent, hours, workspaceId)
+    const toolPatterns = await analyzeToolPatterns(agent, hours, workspaceId)
+    const fleet = await getFleetBenchmarks(workspaceId)
+    const recommendations = await generateRecommendations(agent, workspaceId)
 
     // Calculate fleet percentile for tokens per session
     const fleetTokens = fleet

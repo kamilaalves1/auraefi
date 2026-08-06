@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+﻿import { NextRequest, NextResponse } from 'next/server'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { readLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -17,7 +17,7 @@ const TIMEFRAME_SECONDS: Record<Timeframe, number> = {
 }
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = readLimiter(request)
@@ -33,15 +33,13 @@ export async function GET(request: NextRequest) {
 
     const seconds = TIMEFRAME_SECONDS[timeframe] || TIMEFRAME_SECONDS.day
     const since = Math.floor(Date.now() / 1000) - seconds
-    const db = getDatabase()
-
     // Infrastructure scan (same as onboarding security scan)
-    const scan = runSecurityScan()
+    const scan = await runSecurityScan()
 
     // Event-based posture (incidents, trust scores)
-    const eventPosture = getSecurityPosture(workspaceId)
+    const eventPosture = await getSecurityPosture(workspaceId)
 
-    // Blend: weighted average — 70% infrastructure config, 30% event history
+    // Blend: weighted average â€” 70% infrastructure config, 30% event history
     const blendedScore = Math.round(scan.score * 0.7 + eventPosture.score * 0.3)
     const level = blendedScore >= 90 ? 'hardened'
       : blendedScore >= 70 ? 'secure'
@@ -49,57 +47,57 @@ export async function GET(request: NextRequest) {
       : 'at-risk'
 
     // Auth events
-    const authEventsQuery = db.prepare(`
+    const authEventsQuery = await dbGetAll(`
       SELECT event_type, severity, agent_name, detail, ip_address, created_at
       FROM security_events
       WHERE workspace_id = ? AND created_at > ?
         AND event_type IN ('auth.failure', 'auth.token_rotation', 'auth.access_denied')
       ORDER BY created_at DESC
       LIMIT 50
-    `).all(workspaceId, since) as any[]
+    `, [workspaceId, since]) as any[]
 
     const loginFailures = authEventsQuery.filter(e => e.event_type === 'auth.failure').length
     const tokenRotations = authEventsQuery.filter(e => e.event_type === 'auth.token_rotation').length
     const accessDenials = authEventsQuery.filter(e => e.event_type === 'auth.access_denied').length
 
     // Agent trust
-    const agents = db.prepare(`
+    const agents = await dbGetAll(`
       SELECT agent_name, trust_score, last_anomaly_at,
         auth_failures + injection_attempts + rate_limit_hits + secret_exposures as anomalies
       FROM agent_trust_scores
       WHERE workspace_id = ?
       ORDER BY trust_score ASC
-    `).all(workspaceId) as any[]
+    `, [workspaceId]) as any[]
 
     const flaggedCount = agents.filter((a: any) => a.trust_score < 0.8).length
 
     // Secret exposures
-    const secretEvents = db.prepare(`
+    const secretEvents = await dbGetAll(`
       SELECT event_type, severity, agent_name, detail, created_at
       FROM security_events
       WHERE workspace_id = ? AND created_at > ? AND event_type = 'secret.exposure'
       ORDER BY created_at DESC
       LIMIT 20
-    `).all(workspaceId, since) as any[]
+    `, [workspaceId, since]) as any[]
 
     // MCP audit summary
-    const mcpTotals = db.prepare(`
+    const mcpTotals = await dbGet(`
       SELECT
         COUNT(*) as total_calls,
         COUNT(DISTINCT tool_name) as unique_tools,
         SUM(CASE WHEN success = 0 THEN 1 ELSE 0 END) as failures
       FROM mcp_call_log
       WHERE workspace_id = ? AND created_at > ?
-    `).get(workspaceId, since) as any
+    `, [workspaceId, since]) as any
 
-    const topTools = db.prepare(`
+    const topTools = await dbGetAll(`
       SELECT tool_name, COUNT(*) as count
       FROM mcp_call_log
       WHERE workspace_id = ? AND created_at > ?
       GROUP BY tool_name
       ORDER BY count DESC
       LIMIT 10
-    `).all(workspaceId, since) as any[]
+    `, [workspaceId, since]) as any[]
 
     const totalCalls = mcpTotals?.total_calls ?? 0
     const failureRate = totalCalls > 0
@@ -107,29 +105,29 @@ export async function GET(request: NextRequest) {
       : 0
 
     // Rate limit hits
-    const rateLimitEvents = db.prepare(`
+    const rateLimitEvents = await dbGet(`
       SELECT COUNT(*) as total
       FROM security_events
       WHERE workspace_id = ? AND created_at > ? AND event_type = 'rate_limit.hit'
-    `).get(workspaceId, since) as any
+    `, [workspaceId, since]) as any
 
-    const rateLimitByIp = db.prepare(`
+    const rateLimitByIp = await dbGetAll(`
       SELECT ip_address, COUNT(*) as count
       FROM security_events
       WHERE workspace_id = ? AND created_at > ? AND event_type = 'rate_limit.hit' AND ip_address IS NOT NULL
       GROUP BY ip_address
       ORDER BY count DESC
       LIMIT 10
-    `).all(workspaceId, since) as any[]
+    `, [workspaceId, since]) as any[]
 
     // Injection attempts
-    const injectionEvents = db.prepare(`
+    const injectionEvents = await dbGetAll(`
       SELECT event_type, severity, agent_name, detail, ip_address, created_at
       FROM security_events
       WHERE workspace_id = ? AND created_at > ? AND event_type = 'injection.attempt'
       ORDER BY created_at DESC
       LIMIT 20
-    `).all(workspaceId, since) as any[]
+    `, [workspaceId, since]) as any[]
 
     // Timeline (bucketed by hour)
     const bucketSize = timeframe === 'hour' ? 300 : 3600
@@ -158,7 +156,7 @@ export async function GET(request: NextRequest) {
 
     timelineQuery += ' GROUP BY bucket ORDER BY bucket ASC'
 
-    const timeline = db.prepare(timelineQuery).all(...timelineParams) as any[]
+    const timeline = await dbGetAll(timelineQuery, timelineParams) as any[]
 
     const severityMap: Record<number, string> = { 3: 'critical', 2: 'warning', 1: 'info' }
 

@@ -84,9 +84,9 @@ export function FleetStatusWidget({ data }: { data: DashboardData }) {
         },
         {
           name: 'External',
-          active: externalActive,
-          total: externalLocalSessions.length,
-          sessions: externalLocalSessions,
+          active: externalActive ?? 0,
+          total: (externalLocalSessions ?? []).length,
+          sessions: externalLocalSessions ?? [],
           cost: null,
           color: 'text-green-400',
           sparkColor: '#4ade80',

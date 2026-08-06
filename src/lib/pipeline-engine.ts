@@ -6,22 +6,13 @@
  * Runs inside Next.js via the scheduler (no separate worker process needed).
  */
 
-import { getDatabase, db_helpers } from '@/lib/db'
+import { db_helpers } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { getWorkPipelineRow, decryptPipelineSecrets } from '@/lib/work-pipeline-config'
 import type { WorkPipelineConfigJson, WorkPipelineSecrets } from '@/lib/work-pipeline-types'
 import { calculateTokenCost } from '@/lib/token-pricing'
-import {
-  fetchJiraIssuesByStatus,
-  postJiraComment,
-  getJiraCommentsSince,
-  transitionJiraIssue,
-} from '@/lib/work-pipeline-jira'
-import {
-  fetchAzureWorkItemsByState,
-  postAzureComment,
-  getAzureCommentsSince,
-  moveAzureWorkItem,
-} from '@/lib/work-pipeline-azure'
+import { fetchJiraIssuesByStatus, postJiraComment, getJiraCommentsSince, transitionJiraIssue } from '@/lib/work-pipeline-jira'
+import { fetchAzureWorkItemsByState, postAzureComment, getAzureCommentsSince, moveAzureWorkItem } from '@/lib/work-pipeline-azure'
 import { logger } from '@/lib/logger'
 import { eventBus } from '@/lib/event-bus'
 
@@ -92,23 +83,22 @@ interface ActivePipelineEntry {
 
 // ─── Run DB helpers ───────────────────────────────────────────────────────────
 
-function getActiveRuns(workspaceId: number): PipelineCardRun[] {
+async function getActiveRuns(workspaceId: number): Promise<PipelineCardRun[]> {
   const now = Math.floor(Date.now() / 1000)
   const recentCutoff = now - 48 * 60 * 60  // keep monitoring done runs for 48h so users can reprocess
-  return getDatabase()
-    .prepare(
-      `SELECT * FROM pipeline_card_runs
-       WHERE workspace_id = ? AND (
-         status NOT IN ('done','cancelled','failed')
-         OR (status = 'failed' AND updated_at < ?)
-         OR (status = 'done' AND updated_at > ?)
-       )
-       ORDER BY created_at ASC`
-    )
-    .all(workspaceId, now - 60, recentCutoff) as PipelineCardRun[]
+  return dbGetAll<PipelineCardRun>(
+    `SELECT * FROM pipeline_card_runs
+     WHERE workspace_id = ? AND (
+       status NOT IN ('done','cancelled','failed')
+       OR (status = 'failed' AND updated_at < ?)
+       OR (status = 'done' AND updated_at > ?)
+     )
+     ORDER BY created_at ASC`,
+    [workspaceId, now - 60, recentCutoff]
+  )
 }
 
-function upsertRun(
+async function upsertRun(
   workspaceId: number,
   provider: string,
   cardKey: string,
@@ -116,46 +106,38 @@ function upsertRun(
   cardDescription: string,
   cardUrl: string,
   stageId: string
-): PipelineCardRun | null {
-  const db = getDatabase()
+): Promise<PipelineCardRun | null> {
   const now = Math.floor(Date.now() / 1000)
   try {
-    const result = db.prepare(
-      `INSERT INTO pipeline_card_runs
+    const result = await dbRun(`INSERT INTO pipeline_card_runs
          (workspace_id, provider, card_key, card_title, card_description, card_url, current_stage_id, status, task_id, last_comment_ts, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'running', NULL, 0, ?, ?)
-       ON CONFLICT(workspace_id, provider, card_key) DO UPDATE SET
-         card_title = excluded.card_title,
-         card_description = excluded.card_description,
-         current_stage_id = excluded.current_stage_id,
+       ON DUPLICATE KEY UPDATE
+         card_title = VALUES(card_title),
+         card_description = VALUES(card_description),
+         current_stage_id = VALUES(current_stage_id),
          status = 'running',
          task_id = NULL,
          last_comment_ts = 0,
          run_count = COALESCE(pipeline_card_runs.run_count, 1) + 1,
-         updated_at = excluded.updated_at
-       WHERE pipeline_card_runs.status IN ('done', 'failed', 'cancelled', 'waiting_input')`
-    ).run(workspaceId, provider, cardKey, cardTitle, cardDescription.slice(0, 4000), cardUrl, stageId, now, now)
+         updated_at = VALUES(updated_at)
+       WHERE pipeline_card_runs.status IN ('done', 'failed', 'cancelled', 'waiting_input')`, [workspaceId, provider, cardKey, cardTitle, cardDescription.slice(0, 4000), cardUrl, stageId, now, now])
 
     // If an existing run was reset (changes > 0 means the ON CONFLICT UPDATE fired),
     // clear all prior messages so agents run fresh instead of being skipped as "already completed"
-    if (result.changes > 0) {
-      const run = db
-        .prepare('SELECT id FROM pipeline_card_runs WHERE workspace_id = ? AND provider = ? AND card_key = ?')
-        .get(workspaceId, provider, cardKey) as { id: number } | null
+    if (result.affectedRows > 0) {
+      const run = await dbGet<{ id: number }>('SELECT id FROM pipeline_card_runs WHERE workspace_id = ? AND provider = ? AND card_key = ?', [workspaceId, provider, cardKey])
       if (run) {
-        db.prepare('DELETE FROM pipeline_card_messages WHERE run_id = ?').run(run.id)
+        await dbRun('DELETE FROM pipeline_card_messages WHERE run_id = ?', [run.id])
       }
     }
   } catch {
     return null
   }
-  return db
-    .prepare('SELECT * FROM pipeline_card_runs WHERE workspace_id = ? AND provider = ? AND card_key = ?')
-    .get(workspaceId, provider, cardKey) as PipelineCardRun | null
+  return (await dbGet<PipelineCardRun>('SELECT * FROM pipeline_card_runs WHERE workspace_id = ? AND provider = ? AND card_key = ?', [workspaceId, provider, cardKey])) ?? null
 }
 
-function updateRun(id: number, patch: Partial<Pick<PipelineCardRun, 'status' | 'current_stage_id' | 'task_id' | 'last_comment_ts'>>) {
-  const db = getDatabase()
+async function updateRun(id: number, patch: Partial<Pick<PipelineCardRun, 'status' | 'current_stage_id' | 'task_id' | 'last_comment_ts'>>): Promise<void> {
   const now = Math.floor(Date.now() / 1000)
   const sets: string[] = ['updated_at = ?']
   const vals: unknown[] = [now]
@@ -164,41 +146,38 @@ function updateRun(id: number, patch: Partial<Pick<PipelineCardRun, 'status' | '
   if (patch.task_id !== undefined) { sets.push('task_id = ?'); vals.push(patch.task_id) }
   if (patch.last_comment_ts !== undefined) { sets.push('last_comment_ts = ?'); vals.push(patch.last_comment_ts) }
   vals.push(id)
-  db.prepare(`UPDATE pipeline_card_runs SET ${sets.join(', ')} WHERE id = ?`).run(...vals)
+  await dbRun(`UPDATE pipeline_card_runs SET ${sets.join(', ')} WHERE id = ?`, [...vals])
 }
 
-function logMessage(runId: number, direction: 'agent_to_card' | 'card_to_agent', stageId: string, body: string, externalId?: string) {
-  getDatabase().prepare(
-    `INSERT INTO pipeline_card_messages (run_id, direction, stage_id, body, external_comment_id)
-     VALUES (?, ?, ?, ?, ?)`
-  ).run(runId, direction, stageId, body.slice(0, 10000), externalId ?? null)
+async function logMessage(runId: number, direction: 'agent_to_card' | 'card_to_agent', stageId: string, body: string, externalId?: string): Promise<void> {
+  await dbRun(
+    `INSERT INTO pipeline_card_messages (run_id, direction, stage_id, body, external_comment_id) VALUES (?, ?, ?, ?, ?)`,
+    [runId, direction, stageId, body.slice(0, 10000), externalId ?? null]
+  )
 }
 
 // ─── Column helpers ───────────────────────────────────────────────────────────
 
-function getColumnById(columnId: number): PipelineColumn | null {
-  return (getDatabase()
-    .prepare('SELECT * FROM pipeline_columns WHERE id = ?')
-    .get(columnId) as PipelineColumn | undefined) ?? null
+async function getColumnById(columnId: number): Promise<PipelineColumn | null> {
+  return (await dbGet<PipelineColumn>('SELECT * FROM pipeline_columns WHERE id = ?', [columnId])) ?? null
 }
 
 /** Resolve a column for a run — handles the case where columns were recreated with new IDs. */
-function resolveColumnForRun(run: PipelineCardRun): PipelineColumn | null {
+async function resolveColumnForRun(run: PipelineCardRun): Promise<PipelineColumn | null> {
   const columnId = parseInt(run.current_stage_id, 10)
   if (isNaN(columnId)) return null
 
-  const direct = getColumnById(columnId)
+  const direct = await getColumnById(columnId)
   if (direct) return direct
 
   // Column no longer exists (pipeline was saved and recreated with new IDs).
   // Find which pipeline this run belongs to and fall back to the trigger column.
-  const db = getDatabase()
-  const pipelines = db.prepare('SELECT DISTINCT pipeline_id FROM pipeline_columns').all() as { pipeline_id: number }[]
+  const pipelines = await dbGetAll('SELECT DISTINCT pipeline_id FROM pipeline_columns', []) as { pipeline_id: number }[]
   for (const { pipeline_id } of pipelines) {
-    const cols = db.prepare('SELECT * FROM pipeline_columns WHERE pipeline_id = ? ORDER BY column_order ASC').all(pipeline_id) as PipelineColumn[]
+    const cols = await dbGetAll('SELECT * FROM pipeline_columns WHERE pipeline_id = ? ORDER BY column_order ASC', [pipeline_id]) as PipelineColumn[]
     if (!cols.length) continue
     // Check if this pipeline's workspace matches the run's workspace
-    const pipeline = db.prepare('SELECT workspace_id FROM work_pipelines WHERE id = ?').get(pipeline_id) as { workspace_id: number } | undefined
+    const pipeline = await dbGet('SELECT workspace_id FROM work_pipelines WHERE id = ?', [pipeline_id]) as { workspace_id: number } | undefined
     if (!pipeline || pipeline.workspace_id !== run.workspace_id) continue
     // Prefer trigger column, otherwise first column with agents
     const trigger = cols.find(c => c.is_trigger === 1)
@@ -206,7 +185,7 @@ function resolveColumnForRun(run: PipelineCardRun): PipelineColumn | null {
     const best = trigger ?? fallback ?? cols[0]
     if (best) {
       // Auto-heal the run so this doesn't repeat every tick
-      db.prepare('UPDATE pipeline_card_runs SET current_stage_id = ?, updated_at = unixepoch() WHERE id = ?').run(String(best.id), run.id)
+      await dbRun('UPDATE pipeline_card_runs SET current_stage_id = ?, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [String(best.id), run.id])
       console.error(`[pipeline-engine] healed run ${run.id} (${run.card_key}): column ${columnId} → ${best.id} (${best.column_name})`)
       return best
     }
@@ -214,10 +193,8 @@ function resolveColumnForRun(run: PipelineCardRun): PipelineColumn | null {
   return null
 }
 
-function getNextColumn(column: PipelineColumn): PipelineColumn | null {
-  return (getDatabase()
-    .prepare('SELECT * FROM pipeline_columns WHERE pipeline_id = ? AND column_order > ? ORDER BY column_order ASC LIMIT 1')
-    .get(column.pipeline_id, column.column_order) as PipelineColumn | undefined) ?? null
+async function getNextColumn(column: PipelineColumn): Promise<PipelineColumn | null> {
+  return (await dbGet<PipelineColumn>('SELECT * FROM pipeline_columns WHERE pipeline_id = ? AND column_order > ? ORDER BY column_order ASC LIMIT 1', [column.pipeline_id, column.column_order])) ?? null
 }
 
 function parseAssignments(column: PipelineColumn): ColumnAssignment[] {
@@ -235,12 +212,11 @@ function hasAgents(column: PipelineColumn): boolean {
 
 // ─── Agent helpers ────────────────────────────────────────────────────────────
 
-function getAgentsByIds(ids: number[]): AgentFullRow[] {
+async function getAgentsByIds(ids: number[]): Promise<AgentFullRow[]> {
   if (!ids.length) return []
-  const db = getDatabase()
   const placeholders = ids.map(() => '?').join(',')
-  const rows = db.prepare(`SELECT id, name, role, status, soul_content FROM agents WHERE id IN (${placeholders})`).all(...ids) as any[]
-  return rows.map(row => ({ ...row, model: null, instructions: row.soul_content }) as AgentFullRow)
+  const rows = await dbGetAll(`SELECT id, name, role, status, soul_content, instructions, config FROM agents WHERE id IN (${placeholders})`, [...ids]) as any[]
+  return rows.map(row => ({ ...row, model: null }) as AgentFullRow)
 }
 
 // ─── Parameterized LLM layer ──────────────────────────────────────────────────
@@ -293,14 +269,13 @@ function resolveProviderAndModel(
 }
 
 /** Resolve API key for a provider from env → DB integrations settings. */
-function resolveApiKey(provider: string): string | null {
+async function resolveApiKey(provider: string): Promise<string | null> {
   const envKey = `${provider.toUpperCase()}_API_KEY`
   const fromEnv = (process.env[envKey] || '').trim()
   if (fromEnv) return fromEnv
   try {
-    const db = getDatabase()
     for (const k of [`integration.${envKey}`, `${provider.toLowerCase()}.api_key`]) {
-      const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(k) as { value: string } | undefined
+      const row = await dbGet('SELECT value FROM settings WHERE `key` = ?', [k]) as { value: string } | undefined
       const v = (row?.value || '').trim()
       if (v) return v
     }
@@ -320,8 +295,19 @@ function resolveApiKey(provider: string): string | null {
 }
 
 function agentSystemPrompt(agent: AgentFullRow): string {
-  return agent.soul_content?.trim() || agent.instructions?.trim() ||
+  const base = agent.soul_content?.trim() || agent.instructions?.trim() ||
     `You are ${agent.name}, a ${agent.role} agent. Analyze the task and provide a thorough response.`
+
+  let persona: any = null
+  try { if (agent.config) persona = JSON.parse(agent.config).persona } catch { /* ignore */ }
+  if (!persona) return base
+
+  const parts = [base]
+  if (persona.authority_level?.trim()) parts.push(`\n## Nível de autoridade\n${persona.authority_level.trim()}`)
+  if (persona.restrictions?.length) parts.push(`\n## Restrições\n${(persona.restrictions as string[]).map(r => `- ${r}`).join('\n')}`)
+  if (persona.capabilities?.length) parts.push(`\n## Capacidades\n${(persona.capabilities as string[]).map(c => `- ${c}`).join('\n')}`)
+  if (persona.collaborators?.length) parts.push(`\n## Agentes colaboradores\n${(persona.collaborators as string[]).join(', ')}`)
+  return parts.join('\n')
 }
 
 async function callAnthropicLLM(agent: AgentFullRow, prompt: string, apiKey: string, cfgModel: string | null): Promise<LLMResult> {
@@ -374,7 +360,7 @@ async function callGeminiLLM(agent: AgentFullRow, prompt: string, apiKey: string
   const text = data.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('') ?? ''
   const inputTokens = data.usageMetadata?.promptTokenCount ?? 0
   const outputTokens = data.usageMetadata?.candidatesTokenCount ?? 0
-  return { text, inputTokens, outputTokens, costUsd: 0, model }
+  return { text, inputTokens, outputTokens, costUsd: 0, model: model ?? '' }
 }
 
 const OPENAI_COMPAT_BASES: Record<string, string> = {
@@ -419,7 +405,7 @@ async function callOpenAICompatLLM(agent: AgentFullRow, prompt: string, provider
   const text = data.choices?.[0]?.message?.content ?? ''
   const inputTokens = data.usage?.prompt_tokens ?? 0
   const outputTokens = data.usage?.completion_tokens ?? 0
-  const usedModel = data.model || model
+  const usedModel = data.model || model || ''
   return { text, inputTokens, outputTokens, costUsd: calculateTokenCost(usedModel, inputTokens, outputTokens), model: usedModel }
 }
 
@@ -495,8 +481,7 @@ async function pushCodeToGitHub(
   cardTitle: string,
   llmOutput: string,
 ): Promise<{ ok: boolean; branch?: string; files?: string[]; message: string }> {
-  const db = getDatabase()
-  const repo = db.prepare('SELECT * FROM git_repositories WHERE id = ?').get(repoId) as
+  const repo = await dbGet('SELECT * FROM git_repositories WHERE id = ?', [repoId]) as
     | { repo_url: string; branch: string; access_token: string | null }
     | undefined
 
@@ -581,8 +566,7 @@ async function openPullRequest(
   cardTitle: string,
   reviewBody: string,
 ): Promise<{ ok: boolean; url?: string; prNumber?: number; message: string }> {
-  const db = getDatabase()
-  const repo = db.prepare('SELECT * FROM git_repositories WHERE id = ?').get(repoId) as
+  const repo = await dbGet('SELECT * FROM git_repositories WHERE id = ?', [repoId]) as
     | { repo_url: string; branch: string; access_token: string | null }
     | undefined
 
@@ -655,8 +639,7 @@ async function mergeToMain(
   cardKey: string,
   cardTitle: string,
 ): Promise<{ ok: boolean; sha?: string; message: string }> {
-  const db = getDatabase()
-  const repo = db.prepare('SELECT * FROM git_repositories WHERE id = ?').get(repoId) as
+  const repo = await dbGet('SELECT * FROM git_repositories WHERE id = ?', [repoId]) as
     | { repo_url: string; branch: string; access_token: string | null }
     | undefined
 
@@ -793,9 +776,7 @@ async function checkAndAdvancePRCI(
   } catch {
     return
   }
-
-  const db = getDatabase()
-  const repoRow = db.prepare('SELECT access_token FROM git_repositories WHERE id = ?').get(prInfo.repoId) as { access_token: string | null } | undefined
+  const repoRow = await dbGet('SELECT access_token FROM git_repositories WHERE id = ?', [prInfo.repoId]) as { access_token: string | null } | undefined
   if (!repoRow?.access_token) return
 
   let ciResult: { status: 'pending' | 'passed' | 'failed'; summary: string; failureDetails?: string }
@@ -809,7 +790,7 @@ async function checkAndAdvancePRCI(
   if (ciResult.status === 'pending') return
 
   if (ciResult.status === 'passed') {
-    db.prepare('UPDATE pipeline_card_runs SET pr_check_json = NULL, updated_at = unixepoch() WHERE id = ?').run(run.id)
+    await dbRun('UPDATE pipeline_card_runs SET pr_check_json = NULL, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [run.id])
     const passMsg = [
       `✅ **CI passou** — PR #${prInfo.prNumber}`,
       ``,
@@ -826,7 +807,7 @@ async function checkAndAdvancePRCI(
         run.workspace_id
       )
     } catch { /* non-critical */ }
-    const stageColumn = getColumnById(parseInt(prInfo.stageId, 10)) ?? column
+    const stageColumn = (await getColumnById(parseInt(prInfo.stageId, 10))) ?? column
     await advanceToNextColumn({ ...run, status: 'running' }, stageColumn, cfg, secrets, '')
     return
   }
@@ -845,7 +826,7 @@ async function checkAndAdvancePRCI(
 
   if (fixCount >= MAX_CI_FIX_ATTEMPTS) {
     // Give up — escalate to team lead, do NOT ask the user to manually fix
-    db.prepare('UPDATE pipeline_card_runs SET pr_check_json = NULL, updated_at = unixepoch() WHERE id = ?').run(run.id)
+    await dbRun('UPDATE pipeline_card_runs SET pr_check_json = NULL, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [run.id])
     const giveUpMsg = [
       `❌ **CI falhou após ${MAX_CI_FIX_ATTEMPTS} tentativas de correção automática** — PR #${prInfo.prNumber}`,
       ``,
@@ -855,13 +836,12 @@ async function checkAndAdvancePRCI(
       `⚠️ Limite de tentativas automáticas atingido. O time de engenharia será notificado para investigar.`,
     ].filter(Boolean).join('\n')
     await postCardComment(run.provider, cfg, secrets, run.card_key, giveUpMsg)
-    updateRun(run.id, { status: 'waiting_input' })
+    await updateRun(run.id, { status: 'waiting_input' })
     return
   }
 
   // Find the developer agent from any column in this pipeline
-  const allColumns = db.prepare('SELECT * FROM pipeline_columns WHERE pipeline_id = ? ORDER BY column_order ASC')
-    .all(column.pipeline_id) as PipelineColumn[]
+  const allColumns = await dbGetAll('SELECT * FROM pipeline_columns WHERE pipeline_id = ? ORDER BY column_order ASC', [column.pipeline_id]) as PipelineColumn[]
 
   let devAgent: AgentFullRow | null = null
   let devAssignment: ColumnAssignment | null = null
@@ -869,7 +849,7 @@ async function checkAndAdvancePRCI(
     const assignments = parseAssignments(col)
     const devAssign = assignments.find(a => a.role === 'developer')
     if (devAssign) {
-      const agents = getAgentsByIds([devAssign.agent_id])
+      const agents = await getAgentsByIds([devAssign.agent_id])
       if (agents[0]) {
         devAgent = agents[0]
         devAssignment = devAssign
@@ -880,7 +860,7 @@ async function checkAndAdvancePRCI(
 
   if (!devAgent || !devAssignment) {
     // No developer agent found — log and pause, do NOT ask user to manually fix
-    db.prepare('UPDATE pipeline_card_runs SET pr_check_json = NULL, updated_at = unixepoch() WHERE id = ?').run(run.id)
+    await dbRun('UPDATE pipeline_card_runs SET pr_check_json = NULL, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [run.id])
     const noDevMsg = [
       `❌ **CI falhou** — PR #${prInfo.prNumber}`,
       ``,
@@ -889,14 +869,12 @@ async function checkAndAdvancePRCI(
       `⚠️ Nenhum agente desenvolvedor encontrado neste pipeline para correção automática. Verifique a configuração da esteira.`,
     ].join('\n')
     await postCardComment(run.provider, cfg, secrets, run.card_key, noDevMsg)
-    updateRun(run.id, { status: 'waiting_input' })
+    await updateRun(run.id, { status: 'waiting_input' })
     return
   }
 
   // Gather full card history to give the developer full context
-  const allMessages = (db.prepare(
-    `SELECT direction, body FROM pipeline_card_messages WHERE run_id = ? ORDER BY created_at ASC`
-  ).all(run.id) as Array<{ direction: string; body: string }>)
+  const allMessages = (await dbGetAll(`SELECT direction, body FROM pipeline_card_messages WHERE run_id = ? ORDER BY created_at ASC`, [run.id]) as Array<{ direction: string; body: string }>)
     .map(m => m.body)
     .join('\n---\n')
 
@@ -932,12 +910,9 @@ async function checkAndAdvancePRCI(
 
     // Log token usage
     try {
-      db.prepare(
-        `INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, cost_usd, agent_name, task_id, created_at, workspace_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(llmResult.model, `pipeline-cifix-${run.id}-${devAgent.id}`, llmResult.inputTokens, llmResult.outputTokens, llmResult.costUsd, devAgent.name, null, nowDone, run.workspace_id)
-      db.prepare(`UPDATE pipeline_card_runs SET cost_usd = COALESCE(cost_usd, 0) + ?, updated_at = ? WHERE id = ?`)
-        .run(llmResult.costUsd, nowDone, run.id)
+      await dbRun(`INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, cost_usd, agent_name, task_id, created_at, workspace_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [llmResult.model, `pipeline-cifix-${run.id}-${devAgent.id}`, llmResult.inputTokens, llmResult.outputTokens, llmResult.costUsd, devAgent.name, null, nowDone, run.workspace_id])
+      await dbRun(`UPDATE pipeline_card_runs SET cost_usd = COALESCE(cost_usd, 0) + ?, updated_at = ? WHERE id = ?`, [llmResult.costUsd, nowDone, run.id])
     } catch { /* non-critical */ }
 
     // Push the fix to GitHub
@@ -949,7 +924,7 @@ async function checkAndAdvancePRCI(
         llmResult.text.slice(0, 1000),
       ].join('\n')
       await postCardComment(run.provider, cfg, secrets, run.card_key, pushFailMsg)
-      logMessage(run.id, 'agent_to_card', prInfo.stageId, pushFailMsg)
+      await logMessage(run.id, 'agent_to_card', prInfo.stageId, pushFailMsg)
       // Still increment counter so we don't loop forever
     } else {
       const fixMsg = [
@@ -961,14 +936,13 @@ async function checkAndAdvancePRCI(
         `⏳ Aguardando CI verificar as correções...`,
       ].join('\n')
       await postCardComment(run.provider, cfg, secrets, run.card_key, fixMsg)
-      logMessage(run.id, 'agent_to_card', prInfo.stageId, fixMsg)
+      await logMessage(run.id, 'agent_to_card', prInfo.stageId, fixMsg)
     }
 
     // Re-arm CI polling with incremented fix count
     const newPrCheckInfo: PRCheckInfo = { ...prInfo, ci_fix_count: fixCount + 1 }
-    db.prepare('UPDATE pipeline_card_runs SET pr_check_json = ?, updated_at = unixepoch() WHERE id = ?')
-      .run(JSON.stringify(newPrCheckInfo), run.id)
-    updateRun(run.id, { status: 'waiting_input' })
+    await dbRun('UPDATE pipeline_card_runs SET pr_check_json = ?, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [JSON.stringify(newPrCheckInfo), run.id])
+    await updateRun(run.id, { status: 'waiting_input' })
 
     try {
       db_helpers.logActivity(
@@ -982,16 +956,15 @@ async function checkAndAdvancePRCI(
   } catch (err) {
     logger.error({ err, run_id: run.id }, 'pipeline-engine: CI auto-fix LLM call failed')
     // Re-arm with same count so it retries the fix call next tick
-    db.prepare('UPDATE pipeline_card_runs SET pr_check_json = ?, updated_at = unixepoch() WHERE id = ?')
-      .run(JSON.stringify(prInfo), run.id)
-    updateRun(run.id, { status: 'waiting_input' })
+    await dbRun('UPDATE pipeline_card_runs SET pr_check_json = ?, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [JSON.stringify(prInfo), run.id])
+    await updateRun(run.id, { status: 'waiting_input' })
   }
 }
 
 // ─── LLM caller ───────────────────────────────────────────────────────────────
 
-function dispatchLLM(agent: AgentFullRow, prompt: string, cfg: WorkPipelineConfigJson, provider: string, model: string | null): Promise<LLMResult> {
-  const apiKey = resolveApiKey(provider)
+async function dispatchLLM(agent: AgentFullRow, prompt: string, cfg: WorkPipelineConfigJson, provider: string, model: string | null): Promise<LLMResult> {
+  const apiKey = await resolveApiKey(provider)
   switch (provider) {
     case 'gemini':    return callGeminiLLM(agent, prompt, apiKey, model)
     case 'ollama':    return callOllamaLLM(agent, prompt, cfg, model)
@@ -1108,8 +1081,7 @@ const MAX_TOTAL_CHARS = 160_000  // ~40K tokens — enough for most repos, leave
 const MAX_FILE_CHARS  =  30_000  // truncate very large individual files
 
 async function fetchRepoContext(repoId: number): Promise<string> {
-  const db = getDatabase()
-  const repo = db.prepare('SELECT repo_url, access_token, branch FROM git_repositories WHERE id = ?').get(repoId) as
+  const repo = await dbGet('SELECT repo_url, access_token, branch FROM git_repositories WHERE id = ?', [repoId]) as
     | { repo_url: string; access_token: string | null; branch: string }
     | undefined
   if (!repo?.access_token) return ''
@@ -1328,28 +1300,24 @@ function buildPrompt(
   return parts.filter(Boolean).join('\n')
 }
 
-function getLastAgentMessages(runId: number, limit = 3): string {
-  const rows = getDatabase()
-    .prepare(
-      `SELECT body, stage_id FROM pipeline_card_messages
-       WHERE run_id = ? AND direction = 'agent_to_card'
-       ORDER BY created_at DESC LIMIT ?`
-    )
-    .all(runId, limit) as Array<{ body: string; stage_id: string }>
+async function getLastAgentMessages(runId: number, limit = 3): Promise<string> {
+  const rows = await dbGetAll<{ body: string; stage_id: string }>(
+    `SELECT body, stage_id FROM pipeline_card_messages WHERE run_id = ? AND direction = 'agent_to_card' ORDER BY created_at DESC LIMIT ?`,
+    [runId, limit]
+  )
   return rows
     .reverse()
     .map((r) => `[stage ${r.stage_id}]: ${r.body}`)
     .join('\n---\n')
 }
 
-function createAgentTask(
+async function createAgentTask(
   run: PipelineCardRun,
   column: PipelineColumn,
   agent: AgentRow,
   description: string,
   isUserReply = false
-): number | null {
-  const db = getDatabase()
+): Promise<number | null> {
   const now = Math.floor(Date.now() / 1000)
   const title = isUserReply
     ? `[Reply] ${run.card_key}: ${column.column_name}`
@@ -1364,13 +1332,11 @@ function createAgentTask(
   })
 
   try {
-    const result = db
-      .prepare(
-        `INSERT INTO tasks (title, description, status, priority, assigned_to, created_by, created_at, updated_at, metadata)
-         VALUES (?, ?, 'assigned', 'high', ?, 'pipeline-engine', ?, ?, ?)`
-      )
-      .run(title, description, agent.name, now, now, metadata)
-    return result.lastInsertRowid as number
+    const result = await dbRun(
+      `INSERT INTO tasks (title, description, status, priority, assigned_to, created_by, created_at, updated_at, metadata) VALUES (?, ?, 'assigned', 'high', ?, 'pipeline-engine', ?, ?, ?)`,
+      [title, description, agent.name, now, now, metadata]
+    )
+    return result.insertId
   } catch (err) {
     logger.warn({ err }, 'pipeline-engine: failed to create task')
     return null
@@ -1450,14 +1416,14 @@ async function startColumn(
   secrets: WorkPipelineSecrets,
 ): Promise<void> {
   const assignments = parseAssignments(column).sort((a, b) => a.order - b.order)
-  const agentMap = new Map(getAgentsByIds(assignments.map(a => a.agent_id)).map(ag => [ag.id, ag]))
+  const agentMap = new Map((await getAgentsByIds(assignments.map(a => a.agent_id))).map((ag: AgentFullRow) => [ag.id, ag] as [number, AgentFullRow]))
   const stageId = String(column.id)
 
   if (!agentMap.size) {
     const noAgentMsg = `⏸️ **${column.column_name}** — aguardando atribuição de agente.`
     const cid = await postCardComment(run.provider, cfg, secrets, run.card_key, noAgentMsg)
-    logMessage(run.id, 'agent_to_card', stageId, noAgentMsg, cid ?? undefined)
-    updateRun(run.id, { status: 'waiting_input', current_stage_id: stageId })
+    await logMessage(run.id, 'agent_to_card', stageId, noAgentMsg, cid ?? undefined)
+    await updateRun(run.id, { status: 'waiting_input', current_stage_id: stageId })
     return
   }
 
@@ -1466,18 +1432,13 @@ async function startColumn(
   if (!agents.length) {
     const noAgentMsg = `⏸️ **${column.column_name}** — todos os agentes atribuídos são inválidos ou nulos.`
     const cid = await postCardComment(run.provider, cfg, secrets, run.card_key, noAgentMsg)
-    logMessage(run.id, 'agent_to_card', stageId, noAgentMsg, cid ?? undefined)
-    updateRun(run.id, { status: 'waiting_input', current_stage_id: stageId })
+    await logMessage(run.id, 'agent_to_card', stageId, noAgentMsg, cid ?? undefined)
+    await updateRun(run.id, { status: 'waiting_input', current_stage_id: stageId })
     return
   }
-
-  const db = getDatabase()
-
   // Determine which agents already completed this stage (to resume from failure point)
   const completedAgentIds = new Set<number>(
-    (db.prepare(
-      `SELECT DISTINCT body FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND body LIKE '🤖 **%'`
-    ).all(run.id, stageId) as { body: string }[])
+    (await dbGetAll(`SELECT DISTINCT body FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND body LIKE '🤖 **%'`, [run.id, stageId]) as { body: string }[])
       .map(row => {
         const match = row.body.match(/^🤖 \*\*(.+?)\*\*/)
         if (!match) return null
@@ -1509,20 +1470,18 @@ async function startColumn(
       `⏳ Processando ${run.card_key}...`,
     ].filter(l => l !== undefined).join('\n')
     const startCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, startMsg)
-    logMessage(run.id, 'agent_to_card', stageId, startMsg, startCommentId ?? undefined)
+    await logMessage(run.id, 'agent_to_card', stageId, startMsg, startCommentId ?? undefined)
   } else {
     const resumeMsg = `🔄 **Retomando ${column.column_name}** a partir de **${pendingAgents[0].name}** (${completedAgentIds.size}/${agents.length} agentes já concluídos)`
     const resumeId = await postCardComment(run.provider, cfg, secrets, run.card_key, resumeMsg)
-    logMessage(run.id, 'agent_to_card', stageId, resumeMsg, resumeId ?? undefined)
+    await logMessage(run.id, 'agent_to_card', stageId, resumeMsg, resumeId ?? undefined)
   }
 
-  updateRun(run.id, { current_stage_id: stageId, status: 'running' })
+  await updateRun(run.id, { current_stage_id: stageId, status: 'running' })
   eventBus.broadcast('pipeline.stage_started', { run_id: run.id, card_key: run.card_key, stage: column.column_name, agent: pendingAgents[0].name })
 
   // Carry forward output from already-completed agents as context
-  const outputParts: string[] = (db.prepare(
-    `SELECT body FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND body LIKE '🤖 **%' ORDER BY created_at ASC`
-  ).all(run.id, stageId) as { body: string }[]).map(r => r.body)
+  const outputParts: string[] = (await dbGetAll(`SELECT body FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND body LIKE '🤖 **%' ORDER BY created_at ASC`, [run.id, stageId]) as { body: string }[]).map(r => r.body)
 
   // Fetch repo context once for the whole stage — use the first repo_id found across any assignment,
   // or fall back to the pipeline's linked repo. All agents in the stage share the same codebase.
@@ -1540,41 +1499,35 @@ async function startColumn(
     if (completedAgentIds.has(agent.id)) continue
 
     const nowBusy = Math.floor(Date.now() / 1000)
-    db.prepare(`UPDATE agents SET status = 'busy', last_activity = ?, last_seen = ?, updated_at = ? WHERE id = ?`)
-      .run(`Pipeline: ${run.card_key} — ${column.column_name}`, nowBusy, nowBusy, agent.id)
+    await dbRun(`UPDATE agents SET status = 'busy', last_activity = ?, last_seen = ?, updated_at = ? WHERE id = ?`, [`Pipeline: ${run.card_key} — ${column.column_name}`, nowBusy, nowBusy, agent.id])
 
-    const previousMessages = getLastAgentMessages(run.id)
+    const previousMessages = await getLastAgentMessages(run.id)
     const contextSoFar = outputParts.length ? `## Outputs anteriores nesta etapa\n${outputParts.join('\n---\n')}\n\n` : ''
     const prompt = contextSoFar + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepoContext)
-    const taskId = createAgentTask(run, column, agent, prompt)
-    updateRun(run.id, { task_id: taskId ?? undefined })
+    const taskId = await createAgentTask(run, column, agent, prompt)
+    await updateRun(run.id, { task_id: taskId ?? undefined })
 
     try {
       const llmResult = await callAgentLLM(agent, prompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
       const nowDone = Math.floor(Date.now() / 1000)
 
       try {
-        db.prepare(
-          `INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, cost_usd, agent_name, task_id, created_at, workspace_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(llmResult.model, `pipeline-${run.id}-${column.id}-${agent.id}`, llmResult.inputTokens, llmResult.outputTokens, llmResult.costUsd, agent.name, taskId ?? null, nowDone, run.workspace_id)
-        db.prepare(`UPDATE pipeline_card_runs SET cost_usd = COALESCE(cost_usd, 0) + ?, updated_at = ? WHERE id = ?`)
-          .run(llmResult.costUsd, nowDone, run.id)
-        const cur = (db.prepare('SELECT llm_models FROM pipeline_card_runs WHERE id = ?').get(run.id) as { llm_models: string } | null)?.llm_models ?? ''
+        await dbRun(`INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, cost_usd, agent_name, task_id, created_at, workspace_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [llmResult.model, `pipeline-${run.id}-${column.id}-${agent.id}`, llmResult.inputTokens, llmResult.outputTokens, llmResult.costUsd, agent.name, taskId ?? null, nowDone, run.workspace_id])
+        await dbRun(`UPDATE pipeline_card_runs SET cost_usd = COALESCE(cost_usd, 0) + ?, updated_at = ? WHERE id = ?`, [llmResult.costUsd, nowDone, run.id])
+        const cur = (await dbGet('SELECT llm_models FROM pipeline_card_runs WHERE id = ?', [run.id]) as { llm_models: string } | null)?.llm_models ?? ''
         const modelSet = new Set(cur ? cur.split(',') : [])
         modelSet.add(llmResult.model)
-        db.prepare('UPDATE pipeline_card_runs SET llm_models = ? WHERE id = ?').run([...modelSet].join(','), run.id)
+        await dbRun('UPDATE pipeline_card_runs SET llm_models = ? WHERE id = ?', [[...modelSet].join(','), run.id])
       } catch (tokenErr) {
         logger.warn({ tokenErr }, 'pipeline-engine: failed to log token usage')
       }
 
       if (taskId) {
-        db.prepare(`UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?`).run(nowDone, taskId)
-        db.prepare(`INSERT INTO comments (task_id, author, content, created_at, workspace_id) VALUES (?, ?, ?, ?, ?)`)
-          .run(taskId, agent.name, llmResult.text, nowDone, run.workspace_id)
+        await dbRun(`UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?`, [nowDone, taskId])
+        await dbRun(`INSERT INTO comments (task_id, author, content, created_at, workspace_id) VALUES (?, ?, ?, ?, ?)`, [taskId, agent.name, llmResult.text, nowDone, run.workspace_id])
       }
-      db.prepare(`UPDATE agents SET status = 'idle', last_activity = ?, updated_at = ? WHERE id = ?`)
-        .run(`Concluiu ${run.card_key} — ${column.column_name}`, nowDone, agent.id)
+      await dbRun(`UPDATE agents SET status = 'idle', last_activity = ?, updated_at = ? WHERE id = ?`, [`Concluiu ${run.card_key} — ${column.column_name}`, nowDone, agent.id])
 
       // Post each agent's structured output as a separate Jira comment immediately
       const agentComment = [
@@ -1586,7 +1539,7 @@ async function startColumn(
         `*Modelo: ${llmResult.model} | Tokens: ${llmResult.inputTokens} in / ${llmResult.outputTokens} out${llmResult.costUsd > 0 ? ` | Custo: $${llmResult.costUsd.toFixed(4)}` : ''}*`,
       ].join('\n')
       const agentCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, agentComment)
-      logMessage(run.id, 'agent_to_card', stageId, agentComment, agentCommentId ?? undefined)
+      await logMessage(run.id, 'agent_to_card', stageId, agentComment, agentCommentId ?? undefined)
 
       try {
         db_helpers.logActivity(
@@ -1615,7 +1568,7 @@ async function startColumn(
                 `📝 Commit: ${archFixResult.message}`,
               ].join('\n')
               const archFixId = await postCardComment(run.provider, cfg, secrets, run.card_key, archFixMsg)
-              logMessage(run.id, 'agent_to_card', stageId, archFixMsg, archFixId ?? undefined)
+              await logMessage(run.id, 'agent_to_card', stageId, archFixMsg, archFixId ?? undefined)
             }
           }
           const mergeResult = await mergeToMain(assignment.repo_id, run.card_key, run.card_title)
@@ -1623,7 +1576,7 @@ async function startColumn(
             ? [`✅ **Merge realizado na main**`, ``, mergeResult.message].join('\n')
             : `⚠️ **Merge não realizado**: ${mergeResult.message}`
           const mergeCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, mergeMsg)
-          logMessage(run.id, 'agent_to_card', stageId, mergeMsg, mergeCommentId ?? undefined)
+          await logMessage(run.id, 'agent_to_card', stageId, mergeMsg, mergeCommentId ?? undefined)
         } catch (mergeErr) {
           logger.warn({ mergeErr }, 'pipeline-engine: merge to main failed')
         }
@@ -1635,8 +1588,7 @@ async function startColumn(
           const pushResult = await pushCodeToGitHub(assignment.repo_id, run.card_key, run.card_title, llmResult.text)
           let pushMsg: string
           if (pushResult.ok) {
-            const db2 = getDatabase()
-            const repoRow = db2.prepare('SELECT repo_url FROM git_repositories WHERE id = ?').get(assignment.repo_id) as { repo_url: string } | undefined
+            const repoRow = await dbGet<{ repo_url: string }>('SELECT repo_url FROM git_repositories WHERE id = ?', [assignment.repo_id])
             const repoSlug = repoRow?.repo_url.match(/github\.com\/([^/]+\/[^/.]+)/)?.[1] ?? ''
             pushMsg = [
               `✅ **Código commitado no GitHub**`,
@@ -1661,7 +1613,7 @@ async function startColumn(
             ].join('\n')
           }
           const pushCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, pushMsg)
-          logMessage(run.id, 'agent_to_card', stageId, pushMsg, pushCommentId ?? undefined)
+          await logMessage(run.id, 'agent_to_card', stageId, pushMsg, pushCommentId ?? undefined)
         } catch (pushErr) {
           logger.warn({ pushErr }, 'pipeline-engine: GitHub push failed')
         }
@@ -1670,9 +1622,9 @@ async function startColumn(
       outputParts.push(`### ${agent.name} (${agent.role})\n${llmResult.text}`)
     } catch (err) {
       const nowFail = Math.floor(Date.now() / 1000)
-      db.prepare(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`).run(nowFail, agent.id)
+      await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowFail, agent.id])
       logger.error({ err, run_id: run.id, column_id: column.id, agent_id: agent.id }, 'pipeline-engine: LLM call failed')
-      updateRun(run.id, { status: 'failed' })
+      await updateRun(run.id, { status: 'failed' })
       const errMsg = err instanceof Error ? err.message : String(err)
       await postCardComment(run.provider, cfg, secrets, run.card_key, `❌ Falha no agente "${agent.name}" — estágio "${column.column_name}": ${errMsg}`)
       try {
@@ -1691,15 +1643,13 @@ async function startColumn(
   }
 
   // Guard: only advance if at least one agent produced output in this stage
-  const totalCompleted = (db.prepare(
-    `SELECT COUNT(*) as n FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND body LIKE '🤖 **%'`
-  ).get(run.id, stageId) as { n: number }).n
+  const totalCompleted = (await dbGet(`SELECT COUNT(*) as n FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND body LIKE '🤖 **%'`, [run.id, stageId]) as { n: number }).n
 
   if (totalCompleted === 0) {
     const msg = `⚠️ **${column.column_name}** — nenhum agente produziu saída. Estágio não avançado.`
     await postCardComment(run.provider, cfg, secrets, run.card_key, msg)
-    logMessage(run.id, 'agent_to_card', stageId, msg)
-    updateRun(run.id, { status: 'failed' })
+    await logMessage(run.id, 'agent_to_card', stageId, msg)
+    await updateRun(run.id, { status: 'failed' })
     try {
       db_helpers.logActivity(
         'pipeline.card_failed',
@@ -1715,18 +1665,16 @@ async function startColumn(
   }
 
   // If a PR was opened and CI check is pending, pause and let the next tick poll CI
-  const freshRun = db.prepare('SELECT pr_check_json FROM pipeline_card_runs WHERE id = ?').get(run.id) as { pr_check_json: string | null } | null
+  const freshRun = await dbGet('SELECT pr_check_json FROM pipeline_card_runs WHERE id = ?', [run.id]) as { pr_check_json: string | null } | null
   if (freshRun?.pr_check_json) {
-    updateRun(run.id, { status: 'waiting_input' })
+    await updateRun(run.id, { status: 'waiting_input' })
     return
   }
 
   // QA gate: if this stage has a QA agent and output contains REPROVADO, send back to developer
   const hasQAAgent = assignments.some(a => a.role === 'qa engineer')
   if (hasQAAgent && /REPROVADO/i.test(outputParts.join('\n'))) {
-    const allPipelineCols = db.prepare(
-      'SELECT * FROM pipeline_columns WHERE pipeline_id = ? ORDER BY column_order ASC'
-    ).all(column.pipeline_id) as PipelineColumn[]
+    const allPipelineCols = await dbGetAll('SELECT * FROM pipeline_columns WHERE pipeline_id = ? ORDER BY column_order ASC', [column.pipeline_id]) as PipelineColumn[]
 
     const devColumn = allPipelineCols.find(col =>
       parseAssignments(col).some(a => a.role === 'developer')
@@ -1734,8 +1682,7 @@ async function startColumn(
 
     if (devColumn) {
       // Clear dev stage messages so it runs fresh with the QA feedback as context
-      db.prepare('DELETE FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ?')
-        .run(run.id, String(devColumn.id))
+      await dbRun('DELETE FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ?', [run.id, String(devColumn.id)])
 
       const backMsg = [
         `🔄 **QA reprovado — retornando para desenvolvimento**`,
@@ -1744,11 +1691,11 @@ async function startColumn(
         `O card foi retornado para a etapa **${devColumn.column_name}**.`,
       ].join('\n')
       const backId = await postCardComment(run.provider, cfg, secrets, run.card_key, backMsg)
-      logMessage(run.id, 'agent_to_card', stageId, backMsg, backId ?? undefined)
+      await logMessage(run.id, 'agent_to_card', stageId, backMsg, backId ?? undefined)
 
       await moveCard(run.provider, cfg, secrets, run.card_key, devColumn.column_name)
       const reworkRun: PipelineCardRun = { ...run, current_stage_id: String(devColumn.id), task_id: null, status: 'running' }
-      updateRun(run.id, { current_stage_id: String(devColumn.id), task_id: null, status: 'running' })
+      await updateRun(run.id, { current_stage_id: String(devColumn.id), task_id: null, status: 'running' })
       await startColumn(reworkRun, devColumn, cfg, secrets)
       return
     }
@@ -1764,10 +1711,10 @@ async function advanceToNextColumn(
   secrets: WorkPipelineSecrets,
   _agentOutput: string  // output already posted per-agent in startColumn; kept for reply/manual advance path
 ): Promise<void> {
-  const nextColumn = getNextColumn(currentColumn)
+  const nextColumn = await getNextColumn(currentColumn)
 
   if (!nextColumn) {
-    updateRun(run.id, { status: 'done', task_id: null })
+    await updateRun(run.id, { status: 'done', task_id: null })
     const doneMsg = `✅ **Esteira concluída** — todos os estágios de _${run.card_key}_ foram processados com sucesso.`
     await postCardComment(run.provider, cfg, secrets, run.card_key, doneMsg)
     eventBus.broadcast('pipeline.run_completed', { run_id: run.id, card_key: run.card_key })
@@ -1789,13 +1736,13 @@ async function advanceToNextColumn(
   await moveCard(run.provider, cfg, secrets, run.card_key, nextColumn.column_name)
 
   const updatedRun: PipelineCardRun = { ...run, current_stage_id: String(nextColumn.id), task_id: null, status: 'running' }
-  updateRun(run.id, { current_stage_id: String(nextColumn.id), task_id: null, status: 'running' })
+  await updateRun(run.id, { current_stage_id: String(nextColumn.id), task_id: null, status: 'running' })
 
   if (hasAgents(nextColumn)) {
     await startColumn(updatedRun, nextColumn, cfg, secrets)
-  } else if (!getNextColumn(nextColumn)) {
+  } else if (!(await getNextColumn(nextColumn))) {
     // Last column with no agents — auto-complete the run
-    updateRun(run.id, { status: 'done', task_id: null })
+    await updateRun(run.id, { status: 'done', task_id: null })
     const doneMsg = `✅ **Esteira concluída** — todos os estágios de _${run.card_key}_ foram processados com sucesso.`
     await postCardComment(run.provider, cfg, secrets, run.card_key, doneMsg)
     eventBus.broadcast('pipeline.run_completed', { run_id: run.id, card_key: run.card_key })
@@ -1814,7 +1761,7 @@ async function advanceToNextColumn(
     // Pass-through column (no agents assigned) in the middle of the pipeline — wait for user input
     const waitMsg = `⏸️ **${nextColumn.column_name}** — aguardando ação manual. Responda com \`avançar\` para continuar ou \`cancelar\` para encerrar.`
     await postCardComment(run.provider, cfg, secrets, run.card_key, waitMsg)
-    updateRun(run.id, { status: 'waiting_input' })
+    await updateRun(run.id, { status: 'waiting_input' })
   }
 }
 
@@ -1826,23 +1773,20 @@ async function checkRunningRuns(
   secrets: WorkPipelineSecrets,
   provider: string
 ): Promise<void> {
-  const runs = getActiveRuns(workspaceId)
+  const runs = await getActiveRuns(workspaceId)
 
   await Promise.allSettled(runs.map(async (run) => {
     try {
-      const column = resolveColumnForRun(run)
+      const column = await resolveColumnForRun(run)
       if (!column) return
 
       // Auto-retry: reset failed runs so startColumn can run again (max 3 attempts per stage)
       if (run.status === 'failed') {
-        const db = getDatabase()
         const stageId = run.current_stage_id
         // Count errors only for the current stage so failures in earlier stages don't block retries here
-        const errorCount = (db.prepare(
-          `SELECT COUNT(*) as n FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND body LIKE '❌%'`
-        ).get(run.id, stageId) as { n: number }).n
+        const errorCount = (await dbGet(`SELECT COUNT(*) as n FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND body LIKE '❌%'`, [run.id, stageId]) as { n: number }).n
         if (errorCount >= 3) return
-        updateRun(run.id, { status: 'running', task_id: null })
+        await updateRun(run.id, { status: 'running', task_id: null })
         await startColumn({ ...run, status: 'running', task_id: null }, column, cfg, secrets)
         return
       }
@@ -1854,20 +1798,17 @@ async function checkRunningRuns(
       }
 
       if (run.status === 'running' && run.task_id) {
-        const db = getDatabase()
-        const task = db.prepare('SELECT status FROM tasks WHERE id = ?').get(run.task_id) as { status: string } | undefined
+        const task = await dbGet('SELECT status FROM tasks WHERE id = ?', [run.task_id]) as { status: string } | undefined
         if (!task) {
-          updateRun(run.id, { status: 'waiting_input', task_id: null })
+          await updateRun(run.id, { status: 'waiting_input', task_id: null })
           return
         }
 
         if (task.status === 'done' || task.status === 'quality_review') {
-          const comment = db
-            .prepare(`SELECT content FROM comments WHERE task_id = ? AND author != 'system' AND author != 'pipeline-engine' ORDER BY created_at DESC LIMIT 1`)
-            .get(run.task_id) as { content: string } | undefined
+          const comment = await dbGet<{ content: string }>(`SELECT content FROM comments WHERE task_id = ? AND author != 'system' AND author != 'pipeline-engine' ORDER BY created_at DESC LIMIT 1`, [run.task_id])
           await advanceToNextColumn(run, column, cfg, secrets, comment?.content || '✅ Estágio concluído.')
         } else if (task.status === 'failed') {
-          updateRun(run.id, { status: 'failed' })
+          await updateRun(run.id, { status: 'failed' })
           await postCardComment(provider, cfg, secrets, run.card_key, '❌ O agente reportou falha neste estágio.')
         }
       }
@@ -1887,7 +1828,7 @@ async function executeMentionInstruction(
   userInstruction: string,
 ): Promise<void> {
   const assignments = parseAssignments(column).sort((a, b) => a.order - b.order)
-  const agentMap = new Map(getAgentsByIds(assignments.map(a => a.agent_id)).map(ag => [ag.id, ag]))
+  const agentMap = new Map((await getAgentsByIds(assignments.map(a => a.agent_id))).map((ag: AgentFullRow) => [ag.id, ag] as [number, AgentFullRow]))
   const agents = assignments.map(a => agentMap.get(a.agent_id)).filter(Boolean) as AgentFullRow[]
 
   if (!agents.length) {
@@ -1904,19 +1845,16 @@ async function executeMentionInstruction(
     `⏳ Processando...`,
   ].join('\n')
   await postCardComment(run.provider, cfg, secrets, run.card_key, ackMsg)
-
-  const db = getDatabase()
-  updateRun(run.id, { status: 'running', task_id: null })
+  await updateRun(run.id, { status: 'running', task_id: null })
 
   for (const assignment of assignments) {
     const agent = agentMap.get(assignment.agent_id)
     if (!agent) continue
 
     const nowBusy = Math.floor(Date.now() / 1000)
-    db.prepare(`UPDATE agents SET status = 'busy', last_activity = ?, last_seen = ?, updated_at = ? WHERE id = ?`)
-      .run(`Pipeline mention: ${run.card_key}`, nowBusy, nowBusy, agent.id)
+    await dbRun(`UPDATE agents SET status = 'busy', last_activity = ?, last_seen = ?, updated_at = ? WHERE id = ?`, [`Pipeline mention: ${run.card_key}`, nowBusy, nowBusy, agent.id])
 
-    const previousMessages = getLastAgentMessages(run.id)
+    const previousMessages = await getLastAgentMessages(run.id)
     const prompt = [
       `# Instrução do usuário via @menção`,
       ``,
@@ -1929,33 +1867,28 @@ async function executeMentionInstruction(
       buildPrompt(run, column, previousMessages, agent.name, agent.role),
     ].join('\n')
 
-    const taskId = createAgentTask(run, column, agent, prompt, true)
-    updateRun(run.id, { task_id: taskId ?? undefined })
+    const taskId = await createAgentTask(run, column, agent, prompt, true)
+    await updateRun(run.id, { task_id: taskId ?? undefined })
 
     try {
       const llmResult = await callAgentLLM(agent, prompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
       const nowDone = Math.floor(Date.now() / 1000)
 
       try {
-        db.prepare(
-          `INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, cost_usd, agent_name, task_id, created_at, workspace_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-        ).run(llmResult.model, `pipeline-mention-${run.id}-${agent.id}`, llmResult.inputTokens, llmResult.outputTokens, llmResult.costUsd, agent.name, taskId ?? null, nowDone, run.workspace_id)
-        db.prepare(`UPDATE pipeline_card_runs SET cost_usd = COALESCE(cost_usd, 0) + ?, updated_at = ? WHERE id = ?`)
-          .run(llmResult.costUsd, nowDone, run.id)
-        const cur2 = (db.prepare('SELECT llm_models FROM pipeline_card_runs WHERE id = ?').get(run.id) as { llm_models: string } | null)?.llm_models ?? ''
+        await dbRun(`INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, cost_usd, agent_name, task_id, created_at, workspace_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [llmResult.model, `pipeline-mention-${run.id}-${agent.id}`, llmResult.inputTokens, llmResult.outputTokens, llmResult.costUsd, agent.name, taskId ?? null, nowDone, run.workspace_id])
+        await dbRun(`UPDATE pipeline_card_runs SET cost_usd = COALESCE(cost_usd, 0) + ?, updated_at = ? WHERE id = ?`, [llmResult.costUsd, nowDone, run.id])
+        const cur2 = (await dbGet('SELECT llm_models FROM pipeline_card_runs WHERE id = ?', [run.id]) as { llm_models: string } | null)?.llm_models ?? ''
         const modelSet2 = new Set(cur2 ? cur2.split(',') : [])
         modelSet2.add(llmResult.model)
-        db.prepare('UPDATE pipeline_card_runs SET llm_models = ? WHERE id = ?').run([...modelSet2].join(','), run.id)
+        await dbRun('UPDATE pipeline_card_runs SET llm_models = ? WHERE id = ?', [[...modelSet2].join(','), run.id])
       } catch { /* ignore token log errors */ }
 
       if (taskId) {
-        db.prepare(`UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?`).run(nowDone, taskId)
-        db.prepare(`INSERT INTO comments (task_id, author, content, created_at, workspace_id) VALUES (?, ?, ?, ?, ?)`)
-          .run(taskId, agent.name, llmResult.text, nowDone, run.workspace_id)
+        await dbRun(`UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?`, [nowDone, taskId])
+        await dbRun(`INSERT INTO comments (task_id, author, content, created_at, workspace_id) VALUES (?, ?, ?, ?, ?)`, [taskId, agent.name, llmResult.text, nowDone, run.workspace_id])
       }
-      db.prepare(`UPDATE agents SET status = 'idle', last_activity = ?, updated_at = ? WHERE id = ?`)
-        .run(`Respondeu menção em ${run.card_key}`, nowDone, agent.id)
+      await dbRun(`UPDATE agents SET status = 'idle', last_activity = ?, updated_at = ? WHERE id = ?`, [`Respondeu menção em ${run.card_key}`, nowDone, agent.id])
 
       const resultComment = [
         `🤖 **${agent.name}** *(${agent.role})* — resposta à instrução`,
@@ -1967,11 +1900,11 @@ async function executeMentionInstruction(
       ].join('\n')
       const stageId = String(column.id)
       const cid = await postCardComment(run.provider, cfg, secrets, run.card_key, resultComment)
-      logMessage(run.id, 'agent_to_card', stageId, resultComment, cid ?? undefined)
+      await logMessage(run.id, 'agent_to_card', stageId, resultComment, cid ?? undefined)
 
     } catch (err) {
       const nowFail = Math.floor(Date.now() / 1000)
-      db.prepare(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`).run(nowFail, agent.id)
+      await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowFail, agent.id])
       logger.error({ err, run_id: run.id, agent_id: agent.id }, 'pipeline-engine: mention instruction LLM failed')
       await postCardComment(run.provider, cfg, secrets, run.card_key,
         `❌ Falha ao executar instrução via "${agent.name}": ${err instanceof Error ? err.message : String(err)}`)
@@ -1979,7 +1912,7 @@ async function executeMentionInstruction(
   }
 
   // Restore previous status after handling the mention
-  updateRun(run.id, { status: run.status === 'running' ? 'running' : run.status, task_id: null })
+  await updateRun(run.id, { status: run.status === 'running' ? 'running' : run.status, task_id: null })
 }
 
 async function processInboundComments(
@@ -2000,7 +1933,7 @@ async function processInboundComments(
     const BOT_PREFIXES = ['🤖', '✅', '❌', '🚀', '⏸️', '🛑', '🔄', '⏳']
     if (BOT_PREFIXES.some(p => comment.body.startsWith(p))) continue
 
-    logMessage(run.id, 'card_to_agent', String(column.id), comment.body, comment.id)
+    await logMessage(run.id, 'card_to_agent', String(column.id), comment.body, comment.id)
 
     const lower = comment.body.toLowerCase().trim()
     const botMention = (cfg.botMention || '@pipeline').toLowerCase().trim()
@@ -2023,7 +1956,7 @@ async function processInboundComments(
 
     // ── Comandos (com ou sem @menção) ─────────────────────────────────────────
     if (isCancelCmd) {
-      updateRun(run.id, { status: 'cancelled', last_comment_ts: latestMs })
+      await updateRun(run.id, { status: 'cancelled', last_comment_ts: latestMs })
       await postCardComment(run.provider, cfg, secrets, run.card_key, '🛑 Esteira cancelada a pedido do usuário.')
       return
     }
@@ -2031,24 +1964,22 @@ async function processInboundComments(
     if (isAdvanceCmd) {
       if (run.status === 'waiting_input' || hasMention) {
         await advanceToNextColumn(run, column, cfg, secrets, '')
-        updateRun(run.id, { last_comment_ts: latestMs })
+        await updateRun(run.id, { last_comment_ts: latestMs })
         return
       }
     }
 
     if (isReprocessCmd) {
-      updateRun(run.id, { status: 'running', task_id: null, last_comment_ts: latestMs })
+      await updateRun(run.id, { status: 'running', task_id: null, last_comment_ts: latestMs })
       await postCardComment(run.provider, cfg, secrets, run.card_key, `🔄 **Reprocessando etapa "${column.column_name}"** a pedido do usuário.`)
       await startColumn({ ...run, status: 'running', task_id: null }, column, cfg, secrets)
       return
     }
 
     if (isReprocessAll) {
-      const allCols = getDatabase()
-        .prepare('SELECT * FROM pipeline_columns WHERE pipeline_id = ? ORDER BY column_order ASC')
-        .all(column.pipeline_id) as PipelineColumn[]
+      const allCols = await dbGetAll<PipelineColumn>('SELECT * FROM pipeline_columns WHERE pipeline_id = ? ORDER BY column_order ASC', [column.pipeline_id])
       const firstCol = allCols.find(c => hasAgents(c)) ?? column
-      updateRun(run.id, { status: 'running', task_id: null, current_stage_id: String(firstCol.id), last_comment_ts: latestMs })
+      await updateRun(run.id, { status: 'running', task_id: null, current_stage_id: String(firstCol.id), last_comment_ts: latestMs })
       await postCardComment(run.provider, cfg, secrets, run.card_key, `🔄 **Reiniciando esteira completa** a partir de "${firstCol.column_name}".`)
       await startColumn({ ...run, status: 'running', task_id: null, current_stage_id: String(firstCol.id) }, firstCol, cfg, secrets)
       return
@@ -2057,23 +1988,24 @@ async function processInboundComments(
     // ── @menção com instrução livre → executa LLM com contexto do usuário ─────
     if (hasMention && instruction.length > 0) {
       await executeMentionInstruction(run, column, cfg, secrets, instruction)
-      updateRun(run.id, { last_comment_ts: latestMs })
+      await updateRun(run.id, { last_comment_ts: latestMs })
       return
     }
 
     // ── Resposta comum sem @menção → encaminha como contexto ao agente ────────
     if (!hasMention && hasAgents(column)) {
       const assignments = parseAssignments(column)
-      const agents = getAgentsByIds(assignments.map(a => a.agent_id))
+      const agents = await getAgentsByIds(assignments.map(a => a.agent_id))
       const agent = agents[0]
       if (agent) {
-        const replyDesc = `O usuário respondeu no card ${run.card_key}:\n\n"${comment.body}"\n\n${buildPrompt(run, column, getLastAgentMessages(run.id), agent.name, agent.role)}`
-        createAgentTask(run, column, agent, replyDesc, true)
+        const prevMsgs = await getLastAgentMessages(run.id)
+        const replyDesc = `O usuário respondeu no card ${run.card_key}:\n\n"${comment.body}"\n\n${buildPrompt(run, column, prevMsgs, agent.name, agent.role)}`
+        await createAgentTask(run, column, agent, replyDesc, true)
       }
     }
   }
 
-  updateRun(run.id, { last_comment_ts: latestMs })
+  await updateRun(run.id, { last_comment_ts: latestMs })
 }
 
 // ─── Discover new cards ───────────────────────────────────────────────────────
@@ -2103,24 +2035,20 @@ async function discoverNewCards(pipeline: ActivePipelineEntry): Promise<void> {
     )
     return
   }
-
-  const db = getDatabase()
   const toStart: Array<{ run: PipelineCardRun; col: PipelineColumn }> = []
 
   for (const card of cards) {
-    const existing = db
-      .prepare(
-        `SELECT id, status FROM pipeline_card_runs
-         WHERE workspace_id = ? AND provider = ? AND card_key = ? AND status NOT IN ('done','cancelled','failed','waiting_input')`
-      )
-      .get(workspaceId, provider, card.externalId) as { id: number; status: string } | undefined
+    const existing = await dbGet<{ id: number; status: string }>(
+      `SELECT id, status FROM pipeline_card_runs WHERE workspace_id = ? AND provider = ? AND card_key = ? AND status NOT IN ('done','cancelled','failed','waiting_input')`,
+      [workspaceId, provider, card.externalId]
+    )
 
     if (existing) {
       logger.debug({ card_key: card.externalId, status: existing.status }, 'pipeline-engine: card already has active run, skipping')
       continue
     }
 
-    const run = upsertRun(workspaceId, provider, card.externalId, card.title, card.description, card.url, String(triggerColumn.id))
+    const run = await upsertRun(workspaceId, provider, card.externalId, card.title, card.description, card.url, String(triggerColumn.id))
     if (!run || run.status !== 'running') continue
 
     // Trigger column may have no agents (pure discovery column) — skip to first worker column
@@ -2128,7 +2056,7 @@ async function discoverNewCards(pipeline: ActivePipelineEntry): Promise<void> {
     if (!hasAgents(triggerColumn)) {
       const workerCol = columns.find(c => c.column_order > triggerColumn.column_order && hasAgents(c)) ?? null
       if (workerCol) {
-        updateRun(run.id, { current_stage_id: String(workerCol.id) })
+        await updateRun(run.id, { current_stage_id: String(workerCol.id) })
         startCol = workerCol
       }
     }
@@ -2154,14 +2082,15 @@ function normalizeJiraHost(raw: string): string {
   }
 }
 
-function getActivePipelines(db: ReturnType<typeof getDatabase>): ActivePipelineEntry[] {
+async function getActivePipelines(): Promise<ActivePipelineEntry[]> {
   const entries: ActivePipelineEntry[] = []
 
   // New table: work_pipelines (created via Fluxos UI)
   try {
-    const rows = db
-      .prepare(`SELECT id, workspace_id, provider, config_json, secret_blob FROM work_pipelines WHERE enabled = 1 AND provider != 'none'`)
-      .all() as Array<{ id: number; workspace_id: number; provider: string; config_json: string; secret_blob: string | null }>
+    const rows = await dbGetAll<{ id: number; workspace_id: number; provider: string; config_json: string; secret_blob: string | null }>(
+      `SELECT id, workspace_id, provider, config_json, secret_blob FROM work_pipelines WHERE enabled = 1 AND provider != 'none'`,
+      []
+    )
 
     for (const row of rows) {
       let cfg: WorkPipelineConfigJson = {}
@@ -2169,9 +2098,10 @@ function getActivePipelines(db: ReturnType<typeof getDatabase>): ActivePipelineE
       if (cfg.jiraHost) cfg = { ...cfg, jiraHost: normalizeJiraHost(cfg.jiraHost) }
       const secrets = decryptPipelineSecrets(row.secret_blob)
 
-      const columns = db
-        .prepare('SELECT * FROM pipeline_columns WHERE pipeline_id = ? ORDER BY column_order ASC')
-        .all(row.id) as PipelineColumn[]
+      const columns = await dbGetAll<PipelineColumn>(
+        'SELECT * FROM pipeline_columns WHERE pipeline_id = ? ORDER BY column_order ASC',
+        [row.id]
+      )
 
       if (columns.length === 0) continue
 
@@ -2188,14 +2118,15 @@ function getActivePipelines(db: ReturnType<typeof getDatabase>): ActivePipelineE
 
   // Legacy table: work_pipeline_configs (backward compat — only if no new-style pipeline exists for this workspace)
   try {
-    const rows = db
-      .prepare(`SELECT DISTINCT workspace_id FROM work_pipeline_configs WHERE enabled = 1 AND provider != 'none'`)
-      .all() as Array<{ workspace_id: number }>
+    const rows = await dbGetAll<{ workspace_id: number }>(
+      `SELECT DISTINCT workspace_id FROM work_pipeline_configs WHERE enabled = 1 AND provider != 'none'`,
+      []
+    )
 
     for (const row of rows) {
       if (entries.some(e => e.workspaceId === row.workspace_id)) continue // covered by new table
 
-      const pipelineRow = getWorkPipelineRow(db, row.workspace_id)
+      const pipelineRow = await getWorkPipelineRow(row.workspace_id)
       if (!pipelineRow || !pipelineRow.enabled || pipelineRow.provider === 'none') continue
 
       // Legacy pipelines without pipeline_columns use delivery_flows — not supported in new engine
@@ -2207,8 +2138,7 @@ function getActivePipelines(db: ReturnType<typeof getDatabase>): ActivePipelineE
 }
 
 export async function tickPipelineEngine(): Promise<{ ok: boolean; message: string }> {
-  const db = getDatabase()
-  const pipelines = getActivePipelines(db)
+  const pipelines = await getActivePipelines()
 
   if (pipelines.length === 0) {
     return { ok: true, message: 'pipeline engine: no active pipelines with configured columns' }
@@ -2237,8 +2167,7 @@ export async function tickPipelineEngine(): Promise<{ ok: boolean; message: stri
     }
     if (allAgentIds.size > 0) {
       const placeholders = Array.from(allAgentIds).map(() => '?').join(',')
-      db.prepare(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id IN (${placeholders}) AND status = 'offline'`)
-        .run(Math.floor(Date.now() / 1000), ...Array.from(allAgentIds))
+      await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id IN (${placeholders}) AND status = 'offline'`, [Math.floor(Date.now() / 1000), ...Array.from(allAgentIds)])
     }
 
     let total = 0
@@ -2263,43 +2192,39 @@ export async function tickPipelineEngine(): Promise<{ ok: boolean; message: stri
 
 // ─── Manual controls (for API routes) ────────────────────────────────────────
 
-export function listCardRuns(workspaceId: number, limit = 50): PipelineCardRun[] {
-  return getDatabase()
-    .prepare('SELECT * FROM pipeline_card_runs WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT ?')
-    .all(workspaceId, limit) as PipelineCardRun[]
+export async function listCardRuns(workspaceId: number, limit = 50): Promise<PipelineCardRun[]> {
+  return dbGetAll<PipelineCardRun>('SELECT * FROM pipeline_card_runs WHERE workspace_id = ? ORDER BY updated_at DESC LIMIT ?', [workspaceId, limit])
 }
 
-export function cancelCardRun(runId: number): boolean {
-  const r = getDatabase()
-    .prepare(`UPDATE pipeline_card_runs SET status = 'cancelled', updated_at = unixepoch() WHERE id = ? AND status NOT IN ('done','cancelled','failed')`)
-    .run(runId)
-  return r.changes > 0
+export async function cancelCardRun(runId: number): Promise<boolean> {
+  const r = await dbRun(
+    `UPDATE pipeline_card_runs SET status = 'cancelled', updated_at = UNIX_TIMESTAMP() WHERE id = ? AND status NOT IN ('done','cancelled','failed')`,
+    [runId]
+  )
+  return r.affectedRows > 0
 }
 
-export function getCardMessages(runId: number): Array<{ direction: string; stage_id: string; body: string; created_at: number }> {
-  return getDatabase()
-    .prepare('SELECT direction, stage_id, body, created_at FROM pipeline_card_messages WHERE run_id = ? ORDER BY created_at ASC')
-    .all(runId) as Array<{ direction: string; stage_id: string; body: string; created_at: number }>
+export async function getCardMessages(runId: number): Promise<Array<{ direction: string; stage_id: string; body: string; created_at: number }>> {
+  return dbGetAll('SELECT direction, stage_id, body, created_at FROM pipeline_card_messages WHERE run_id = ? ORDER BY created_at ASC', [runId])
 }
 
 export async function reprocessCardRun(runId: number): Promise<{ ok: boolean; message: string }> {
   if (_running) return { ok: false, message: 'Engine busy — tente novamente em instantes' }
   _running = true
   try {
-    const db = getDatabase()
-    const run = db.prepare('SELECT * FROM pipeline_card_runs WHERE id = ?').get(runId) as PipelineCardRun | undefined
+    const run = await dbGet('SELECT * FROM pipeline_card_runs WHERE id = ?', [runId]) as PipelineCardRun | undefined
     if (!run) return { ok: false, message: `Run ${runId} não encontrado` }
     if (run.status === 'done' || run.status === 'cancelled')
       return { ok: false, message: 'Run já concluído ou cancelado' }
 
-    const pipelines = getActivePipelines(db)
+    const pipelines = await getActivePipelines()
     const pipeline = pipelines.find((p) => p.workspaceId === run.workspace_id)
     if (!pipeline) return { ok: false, message: 'Nenhum pipeline ativo encontrado para este workspace' }
 
-    const column = resolveColumnForRun(run)
+    const column = await resolveColumnForRun(run)
     if (!column) return { ok: false, message: 'Não foi possível resolver a etapa atual — verifique a configuração das colunas' }
 
-    updateRun(run.id, { status: 'running', task_id: null })
+    await updateRun(run.id, { status: 'running', task_id: null })
     await postCardComment(run.provider, pipeline.cfg, pipeline.secrets, run.card_key,
       `🔄 **Reprocessando etapa "${column.column_name}"** a pedido do usuário (via interface).`)
     await startColumn({ ...run, status: 'running', task_id: null }, column, pipeline.cfg, pipeline.secrets)

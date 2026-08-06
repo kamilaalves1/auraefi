@@ -11,11 +11,7 @@
  *   initHyperbrowserPlugin()
  */
 
-import {
-  registerIntegrations,
-  registerCategories,
-  registerToolProviders,
-} from '@/lib/plugins'
+import { registerIntegrations, registerCategories, registerToolProviders } from '@/lib/plugins'
 
 export function initHyperbrowserPlugin(): void {
   registerCategories([

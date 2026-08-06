@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { decryptWorkPipelineBlob } from '@/lib/work-pipeline-crypto'
@@ -10,15 +10,15 @@ import type { WorkPipelineConfigJson, WorkPipelineSecrets } from '@/lib/work-pip
 type Params = { params: Promise<{ id: string }> }
 
 export async function POST(request: NextRequest, { params }: Params) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
     const { id } = await params
-    const db = getDatabase()
+
     const workspaceId = auth.user.workspace_id ?? 1
 
-    const row = db.prepare('SELECT * FROM work_pipelines WHERE id = ? AND workspace_id = ?').get(Number(id), workspaceId) as any
+    const row = await dbGet('SELECT * FROM work_pipelines WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId]) as any
     if (!row) return NextResponse.json({ error: 'Pipeline not found' }, { status: 404 })
 
     let config: WorkPipelineConfigJson = {}

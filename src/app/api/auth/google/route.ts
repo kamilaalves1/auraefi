@@ -1,29 +1,29 @@
 ﻿import { randomBytes } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { createSession } from '@/lib/auth'
-import { getDatabase, logAuditEvent } from '@/lib/db'
+import { logAuditEvent } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { verifyGoogleIdToken } from '@/lib/google-auth'
 import { getMcSessionCookieName, getMcSessionCookieOptions, isRequestSecure } from '@/lib/session-cookie'
 import { loginLimiter, extractClientIp } from '@/lib/rate-limit'
 
-function upsertAccessRequest(input: {
+async function upsertAccessRequest(input: {
   email: string
   providerUserId: string
   displayName: string
   avatarUrl?: string
 }) {
-  const db = getDatabase()
-  db.prepare(`
+  await dbRun(`
     INSERT INTO access_requests (provider, email, provider_user_id, display_name, avatar_url, status, attempt_count, requested_at, last_attempt_at)
-    VALUES ('google', ?, ?, ?, ?, 'pending', 1, (unixepoch()), (unixepoch()))
-    ON CONFLICT(email, provider) DO UPDATE SET
-      provider_user_id = excluded.provider_user_id,
-      display_name = excluded.display_name,
-      avatar_url = excluded.avatar_url,
+    VALUES ('google', ?, ?, ?, ?, 'pending', 1, (UNIX_TIMESTAMP()), (UNIX_TIMESTAMP()))
+    ON DUPLICATE KEY UPDATE
+      provider_user_id = VALUES(provider_user_id),
+      display_name = VALUES(display_name),
+      avatar_url = VALUES(avatar_url),
       status = 'pending',
       attempt_count = access_requests.attempt_count + 1,
-      last_attempt_at = (unixepoch())
-  `).run(input.email.toLowerCase(), input.providerUserId, input.displayName, input.avatarUrl || null)
+      last_attempt_at = (UNIX_TIMESTAMP())
+  `, [input.email.toLowerCase(), input.providerUserId, input.displayName, input.avatarUrl || null])
 }
 
 export async function POST(request: NextRequest) {
@@ -34,14 +34,12 @@ export async function POST(request: NextRequest) {
     const body = await request.json().catch(() => ({}))
     const credential = String(body?.credential || '')
     const profile = await verifyGoogleIdToken(credential)
-
-    const db = getDatabase()
     const email = String(profile.email || '').toLowerCase().trim()
     const sub = String(profile.sub || '').trim()
     const displayName = String(profile.name || email.split('@')[0] || 'Google User').trim()
     const avatar = profile.picture ? String(profile.picture) : null
 
-    const row = db.prepare(`
+    const row = await dbGet(`
       SELECT u.id, u.username, u.display_name, u.role, u.provider, u.email, u.avatar_url, u.is_approved,
              u.created_at, u.updated_at, u.last_login_at, u.workspace_id, COALESCE(w.tenant_id, 1) as tenant_id
       FROM users u
@@ -49,13 +47,13 @@ export async function POST(request: NextRequest) {
       WHERE (provider = 'google' AND provider_user_id = ?) OR lower(email) = ?
       ORDER BY id ASC
       LIMIT 1
-    `).get(sub, email) as any
+    `, [sub, email]) as any
 
     const ipAddress = extractClientIp(request)
     const userAgent = request.headers.get('user-agent') || undefined
 
     if (!row || Number(row.is_approved ?? 1) !== 1) {
-      upsertAccessRequest({
+      await upsertAccessRequest({
         email,
         providerUserId: sub,
         displayName,
@@ -76,13 +74,13 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    db.prepare(`
+    await dbRun(`
       UPDATE users
-      SET provider = 'google', provider_user_id = ?, email = ?, avatar_url = COALESCE(?, avatar_url), updated_at = (unixepoch())
+      SET provider = 'google', provider_user_id = ?, email = ?, avatar_url = COALESCE(?, avatar_url), updated_at = (UNIX_TIMESTAMP())
       WHERE id = ?
-    `).run(sub, email, avatar, row.id)
+    `, [sub, email, avatar, row.id])
 
-    const { token, expiresAt } = createSession(row.id, ipAddress, userAgent, row.workspace_id ?? 1)
+    const { token, expiresAt } = await createSession(row.id, ipAddress, userAgent, row.workspace_id ?? 1)
 
     logAuditEvent({ action: 'login_google', actor: row.username, actor_id: row.id, ip_address: ipAddress, user_agent: userAgent })
 

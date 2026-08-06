@@ -1,22 +1,21 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+﻿import { NextRequest, NextResponse } from 'next/server'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { pullFromGitHub } from '@/lib/github-sync-engine'
 import { getSyncPollerStatus } from '@/lib/github-sync-poller'
 
 /**
- * GET /api/github/sync — sync status for all GitHub-linked projects.
+ * GET /api/github/sync â€” sync status for all GitHub-linked projects.
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
 
-    const syncs = db.prepare(`
+    const syncs = await dbGetAll(`
       SELECT
         gs.project_id,
         p.name as project_name,
@@ -30,7 +29,7 @@ export async function GET(request: NextRequest) {
       WHERE gs.workspace_id = ? AND gs.project_id IS NOT NULL
       GROUP BY gs.project_id
       ORDER BY last_synced_at DESC
-    `).all(workspaceId)
+    `, [workspaceId])
 
     const poller = getSyncPollerStatus()
 
@@ -42,25 +41,24 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/github/sync — trigger sync manually.
+ * POST /api/github/sync â€” trigger sync manually.
  * Body: { action: 'trigger', project_id: number } or { action: 'trigger-all' }
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
     const body = await request.json()
     const { action, project_id } = body
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
 
     if (action === 'trigger' && typeof project_id === 'number') {
-      const project = db.prepare(`
+      const project = await dbGet(`
         SELECT id, github_repo, github_sync_enabled, github_default_branch
         FROM projects
         WHERE id = ? AND workspace_id = ? AND status = 'active'
-      `).get(project_id, workspaceId) as any | undefined
+      `, [project_id, workspaceId]) as any | undefined
 
       if (!project) {
         return NextResponse.json({ error: 'Project not found' }, { status: 404 })
@@ -74,11 +72,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'trigger-all') {
-      const projects = db.prepare(`
+      const projects = await dbGetAll(`
         SELECT id, github_repo, github_sync_enabled, github_default_branch
         FROM projects
         WHERE github_sync_enabled = 1 AND github_repo IS NOT NULL AND workspace_id = ? AND status = 'active'
-      `).all(workspaceId) as any[]
+      `, [workspaceId]) as any[]
 
       let totalPulled = 0
       let totalPushed = 0

@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { heavyLimiter } from '@/lib/rate-limit'
 
 interface SearchResult {
@@ -18,7 +18,7 @@ interface SearchResult {
  * Global search across all MC entities.
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = heavyLimiter(request)
@@ -32,8 +32,6 @@ export async function GET(request: NextRequest) {
   if (!query || query.length < 2) {
     return NextResponse.json({ error: 'Query must be at least 2 characters' }, { status: 400 })
   }
-
-  const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
   const likeQ = `%${query}%`
   const results: SearchResult[] = []
@@ -41,17 +39,17 @@ export async function GET(request: NextRequest) {
   // Search tasks
   if (!typeFilter || typeFilter === 'task') {
     try {
-      const tasks = db.prepare(`
+      const tasks = await dbGetAll(`
         SELECT id, title, description, status, assigned_to, created_at
         FROM tasks WHERE workspace_id = ? AND (title LIKE ? OR description LIKE ? OR assigned_to LIKE ?)
         ORDER BY created_at DESC LIMIT ?
-      `).all(workspaceId, likeQ, likeQ, likeQ, limit) as any[]
+      `, [workspaceId, likeQ, likeQ, likeQ, limit]) as any[]
       for (const t of tasks) {
         results.push({
           type: 'task',
           id: t.id,
           title: t.title,
-          subtitle: `${t.status} ${t.assigned_to ? `· ${t.assigned_to}` : ''}`,
+          subtitle: `${t.status} ${t.assigned_to ? `Â· ${t.assigned_to}` : ''}`,
           excerpt: truncateMatch(t.description, query),
           created_at: t.created_at,
           relevance: t.title.toLowerCase().includes(query.toLowerCase()) ? 2 : 1,
@@ -63,17 +61,17 @@ export async function GET(request: NextRequest) {
   // Search agents
   if (!typeFilter || typeFilter === 'agent') {
     try {
-      const agents = db.prepare(`
+      const agents = await dbGetAll(`
         SELECT id, name, role, status, last_activity, created_at
         FROM agents WHERE workspace_id = ? AND (name LIKE ? OR role LIKE ? OR last_activity LIKE ?)
         ORDER BY created_at DESC LIMIT ?
-      `).all(workspaceId, likeQ, likeQ, likeQ, limit) as any[]
+      `, [workspaceId, likeQ, likeQ, likeQ, limit]) as any[]
       for (const a of agents) {
         results.push({
           type: 'agent',
           id: a.id,
           title: a.name,
-          subtitle: `${a.role} · ${a.status}`,
+          subtitle: `${a.role} Â· ${a.status}`,
           excerpt: a.last_activity,
           created_at: a.created_at,
           relevance: a.name.toLowerCase().includes(query.toLowerCase()) ? 2 : 1,
@@ -85,11 +83,11 @@ export async function GET(request: NextRequest) {
   // Search activities
   if (!typeFilter || typeFilter === 'activity') {
     try {
-      const activities = db.prepare(`
+      const activities = await dbGetAll(`
         SELECT id, type, actor, description, created_at
         FROM activities WHERE workspace_id = ? AND (description LIKE ? OR actor LIKE ?)
         ORDER BY created_at DESC LIMIT ?
-      `).all(workspaceId, likeQ, likeQ, limit) as any[]
+      `, [workspaceId, likeQ, likeQ, limit]) as any[]
       for (const a of activities) {
         results.push({
           type: 'activity',
@@ -103,14 +101,14 @@ export async function GET(request: NextRequest) {
     } catch { /* table might not exist */ }
   }
 
-  // Search audit log (admin-only — audit_log is instance-global)
+  // Search audit log (admin-only â€” audit_log is instance-global)
   if ((!typeFilter || typeFilter === 'audit') && auth.user.role === 'admin') {
     try {
-      const audits = db.prepare(`
+      const audits = await dbGetAll(`
         SELECT id, action, actor, detail, created_at
         FROM audit_log WHERE action LIKE ? OR actor LIKE ? OR detail LIKE ?
         ORDER BY created_at DESC LIMIT ?
-      `).all(likeQ, likeQ, likeQ, limit) as any[]
+      `, [likeQ, likeQ, likeQ, limit]) as any[]
       for (const a of audits) {
         results.push({
           type: 'audit',
@@ -128,16 +126,16 @@ export async function GET(request: NextRequest) {
   // Search messages
   if (!typeFilter || typeFilter === 'message') {
     try {
-      const messages = db.prepare(`
+      const messages = await dbGetAll(`
         SELECT id, from_agent, to_agent, content, conversation_id, created_at
         FROM messages WHERE workspace_id = ? AND (content LIKE ? OR from_agent LIKE ?)
         ORDER BY created_at DESC LIMIT ?
-      `).all(workspaceId, likeQ, likeQ, limit) as any[]
+      `, [workspaceId, likeQ, likeQ, limit]) as any[]
       for (const m of messages) {
         results.push({
           type: 'message',
           id: m.id,
-          title: `${m.from_agent} → ${m.to_agent || 'all'}`,
+          title: `${m.from_agent} â†’ ${m.to_agent || 'all'}`,
           subtitle: m.conversation_id,
           excerpt: truncateMatch(m.content, query),
           created_at: m.created_at,
@@ -150,11 +148,11 @@ export async function GET(request: NextRequest) {
   // Search webhooks
   if (!typeFilter || typeFilter === 'webhook') {
     try {
-      const webhooks = db.prepare(`
+      const webhooks = await dbGetAll(`
         SELECT id, name, url, events, created_at
         FROM webhooks WHERE workspace_id = ? AND (name LIKE ? OR url LIKE ?)
         ORDER BY created_at DESC LIMIT ?
-      `).all(workspaceId, likeQ, likeQ, limit) as any[]
+      `, [workspaceId, likeQ, likeQ, limit]) as any[]
       for (const w of webhooks) {
         results.push({
           type: 'webhook',
@@ -171,11 +169,11 @@ export async function GET(request: NextRequest) {
   // Search pipelines
   if (!typeFilter || typeFilter === 'pipeline') {
     try {
-      const pipelines = db.prepare(`
+      const pipelines = await dbGetAll(`
         SELECT id, name, description, created_at
         FROM workflow_pipelines WHERE workspace_id = ? AND (name LIKE ? OR description LIKE ?)
         ORDER BY created_at DESC LIMIT ?
-      `).all(workspaceId, likeQ, likeQ, limit) as any[]
+      `, [workspaceId, likeQ, likeQ, limit]) as any[]
       for (const p of pipelines) {
         results.push({
           type: 'pipeline',

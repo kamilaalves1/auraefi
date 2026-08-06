@@ -1,22 +1,17 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { heavyLimiter } from '@/lib/rate-limit'
-import {
-  searchRegistry,
-  installFromRegistry,
-  checkSkillSecurity,
-  type RegistrySource,
-} from '@/lib/skill-registry'
+import { searchRegistry, installFromRegistry, checkSkillSecurity, type RegistrySource } from '@/lib/skill-registry'
 
 const VALID_SOURCES: RegistrySource[] = ['clawhub', 'skills-sh', 'awesome-gateway']
 const VALID_TARGETS = ['user-agents', 'project-agents', 'gateway', 'workspace']
 
 /**
  * GET /api/skills/registry?source=clawhub&q=terraform
- * Proxied search — server-side only, rate-limited.
+ * Proxied search â€” server-side only, rate-limited.
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const limited = heavyLimiter(request)
@@ -38,11 +33,11 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/skills/registry — Install skill from external registry.
+ * POST /api/skills/registry â€” Install skill from external registry.
  * Admin-only. Downloads, validates, security-scans, and writes to disk.
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const limited = heavyLimiter(request)
@@ -75,11 +70,11 @@ export async function POST(request: NextRequest) {
 }
 
 /**
- * PUT /api/skills/registry — Security-check content without installing.
+ * PUT /api/skills/registry â€” Security-check content without installing.
  * Useful for preview/audit before install.
  */
 export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const body = await request.json().catch(() => ({}))

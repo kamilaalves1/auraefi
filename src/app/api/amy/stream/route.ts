@@ -1,9 +1,9 @@
-import { NextRequest } from 'next/server'
+﻿import { NextRequest } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 
 /**
- * POST /api/amy/stream — Streaming chat with Amy via Ollama
+ * POST /api/amy/stream â€” Streaming chat with Amy via Ollama
  * 
  * Body: { message: string, conversation_id?: string, model?: string }
  * Returns: Server-Sent Events stream with token-by-token response
@@ -29,7 +29,7 @@ function getHistory(conversationId: string): Array<{ role: string; content: stri
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) {
     return new Response(JSON.stringify({ error: auth.error }), { 
       status: auth.status,
@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
       })
     }
 
-    // Transform Ollama NDJSON stream → SSE stream
+    // Transform Ollama NDJSON stream â†’ SSE stream
     const reader = ollamaRes.body.getReader()
     const decoder = new TextDecoder()
     let fullReply = ''

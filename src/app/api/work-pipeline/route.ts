@@ -1,13 +1,9 @@
 ﻿import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, logAuditEvent } from '@/lib/db'
+import { logAuditEvent } from '@/lib/db'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 import { extractClientIp } from '@/lib/rate-limit'
-import {
-  getWorkPipelineRow,
-  toPublicPipelineDto,
-  upsertWorkPipeline,
-} from '@/lib/work-pipeline-config'
+import { getWorkPipelineRow, toPublicPipelineDto, upsertWorkPipeline } from '@/lib/work-pipeline-config'
 import type { WorkPipelineConfigJson, WorkPipelineProvider } from '@/lib/work-pipeline-types'
 import type { WorkPipelineSecrets } from '@/lib/work-pipeline-types'
 
@@ -19,13 +15,11 @@ function isProvider(v: unknown): v is WorkPipelineProvider {
  * GET /api/work-pipeline — current backlog source configuration (admin).
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  try {
-    const db = getDatabase()
-    const workspaceId = auth.user.workspace_id ?? 1
-    const row = getWorkPipelineRow(db, workspaceId)
+  try {    const workspaceId = auth.user.workspace_id ?? 1
+    const row = await getWorkPipelineRow(workspaceId)
     return NextResponse.json(toPublicPipelineDto(row))
   } catch (error) {
     logger.error({ err: error }, 'GET /api/work-pipeline error')
@@ -37,7 +31,7 @@ export async function GET(request: NextRequest) {
  * PUT /api/work-pipeline — save provider + parameters + optional new secrets (admin).
  */
 export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
@@ -64,12 +58,9 @@ export async function PUT(request: NextRequest) {
     }
     if (typeof (secretsBody as Record<string, unknown>).azurePat === 'string') {
       secretsPatch.azurePat = (secretsBody as { azurePat: string }).azurePat
-    }
+    }    const workspaceId = auth.user.workspace_id ?? 1
 
-    const db = getDatabase()
-    const workspaceId = auth.user.workspace_id ?? 1
-
-    upsertWorkPipeline(db, workspaceId, {
+    await upsertWorkPipeline(workspaceId, {
       provider,
       enabled,
       config,
@@ -86,7 +77,7 @@ export async function PUT(request: NextRequest) {
       ip_address: ipAddress,
     })
 
-    const row = getWorkPipelineRow(db, workspaceId)
+    const row = await getWorkPipelineRow(workspaceId)
     return NextResponse.json(toPublicPipelineDto(row))
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : 'Failed to save'

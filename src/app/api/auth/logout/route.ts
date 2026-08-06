@@ -5,7 +5,7 @@ import { getMcSessionCookieName, getMcSessionCookieOptions, isRequestSecure, par
 import { extractClientIp } from '@/lib/rate-limit'
 
 export async function POST(request: Request) {
-  const user = getUserFromRequest(request)
+  const user = await getUserFromRequest(request)
   const cookieHeader = request.headers.get('cookie') || ''
   const token = parseMcSessionCookieHeader(cookieHeader)
 

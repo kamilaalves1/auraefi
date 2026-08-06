@@ -1,10 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { execFileSync } from 'child_process'
 import fs from 'fs'
 import os from 'os'
 import path from 'path'
 import { requireRole, getUserFromRequest } from '@/lib/auth'
-import { getDatabase, logAuditEvent } from '@/lib/db'
+import { logAuditEvent } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { logger } from '@/lib/logger'
 
 export interface OsUser {
@@ -57,7 +58,7 @@ function checkToolExists(homeDir: string, tool: string): boolean {
   return false
 }
 
-/** Install a tool for a given OS user. Non-fatal — returns success/error. */
+/** Install a tool for a given OS user. Non-fatal â€” returns success/error. */
 function installToolForUser(
   homeDir: string,
   username: string,
@@ -65,7 +66,7 @@ function installToolForUser(
 ): { success: boolean; error?: string } {
   try {
     if (tool === 'gateway') {
-      // agent runtime is managed by MC — create dir structure + install latest from npm
+      // agent runtime is managed by MC â€” create dir structure + install latest from npm
       const gatewayDir = path.join(homeDir, '.gateway')
       const workspaceDir = path.join(homeDir, 'workspace')
       for (const dir of [gatewayDir, workspaceDir]) {
@@ -84,7 +85,7 @@ function installToolForUser(
           env: { ...process.env, HOME: homeDir },
         })
       } catch (npmErr: any) {
-        // Dir structure created but npm install failed — still partially useful
+        // Dir structure created but npm install failed â€” still partially useful
         const msg = npmErr?.stderr?.toString?.()?.slice(0, 200) || npmErr?.message || 'npm install failed'
         logger.warn({ tool, username, err: msg }, 'gateway runtime npm install failed, dir structure created')
         return { success: true, error: `dirs created but npm install failed: ${msg}` }
@@ -191,7 +192,7 @@ function discoverOsUsers(): OsUser[] {
  * Users already linked to a tenant have linked_tenant_id set.
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const users = discoverOsUsers()
@@ -207,7 +208,7 @@ export async function GET(request: NextRequest) {
   // Cross-reference with existing tenants to mark linked ones
   try {
     const { listTenants } = await import('@/lib/super-admin')
-    const tenants = listTenants()
+    const tenants = await listTenants()
     const tenantByLinuxUser = new Map(tenants.map(t => [t.linux_user, t.id]))
     for (const user of users) {
       user.linked_tenant_id = tenantByLinuxUser.get(user.username) ?? null
@@ -226,10 +227,10 @@ export async function GET(request: NextRequest) {
  * Body: { username, display_name, password?, gateway_mode?: boolean, gateway_port?, owner_gateway? }
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  const currentUser = getUserFromRequest(request)
+  const currentUser = await getUserFromRequest(request)
   const actor = currentUser?.username || 'system'
 
   let body: any
@@ -244,7 +245,7 @@ export async function POST(request: NextRequest) {
   const installGateway = !!body.install_gateway
   const installClaude = !!body.install_claude
 
-  // Validate username (safe for OS user creation — alphanumeric + dash/underscore)
+  // Validate username (safe for OS user creation â€” alphanumeric + dash/underscore)
   if (!/^[a-z][a-z0-9_-]{1,30}[a-z0-9]$/.test(username)) {
     return NextResponse.json({ error: 'Invalid username. Use lowercase letters, numbers, dashes, and underscores (3-32 chars).' }, { status: 400 })
   }
@@ -260,8 +261,7 @@ export async function POST(request: NextRequest) {
   const alreadyExists = existingUsers.some(u => u.username === username)
 
   // Check if already registered as tenant
-  const db = getDatabase()
-  const existingTenant = db.prepare('SELECT id FROM tenants WHERE linux_user = ? OR slug = ?').get(username, username) as any
+  const existingTenant = await dbGet('SELECT id FROM tenants WHERE linux_user = ? OR slug = ?', [username, username]) as any
   if (existingTenant) {
     return NextResponse.json({ error: 'This user is already registered as an organization' }, { status: 409 })
   }
@@ -272,7 +272,7 @@ export async function POST(request: NextRequest) {
   if (gatewayMode) {
     try {
       const { createTenantAndBootstrapJob } = await import('@/lib/super-admin')
-      const result = createTenantAndBootstrapJob({
+      const result = await createTenantAndBootstrapJob({
         slug: username,
         display_name: displayName,
         linux_user: username,
@@ -301,7 +301,7 @@ export async function POST(request: NextRequest) {
         try {
           execFileSync('/usr/sbin/sysadminctl', args, { timeout: 15000, stdio: 'pipe' })
         } catch (e: any) {
-          // sysadminctl may need sudo — try with sudo
+          // sysadminctl may need sudo â€” try with sudo
           try {
             execFileSync('/usr/bin/sudo', ['-n', '/usr/sbin/sysadminctl', ...args], { timeout: 15000, stdio: 'pipe' })
           } catch (sudoErr: any) {
@@ -336,7 +336,7 @@ export async function POST(request: NextRequest) {
               stdio: ['pipe', 'pipe', 'pipe'],
             })
           } catch {
-            // Non-critical — user created but password not set
+            // Non-critical â€” user created but password not set
           }
         }
       } else {
@@ -350,12 +350,12 @@ export async function POST(request: NextRequest) {
     const workspaceRoot = path.posix.join(homeDir, 'workspace')
 
     // Register as tenant in DB
-    const tenantRes = db.prepare(`
+    const tenantRes = await dbRun(`
       INSERT INTO tenants (slug, display_name, linux_user, plan_tier, status, gateway_home, workspace_root, gateway_port, dashboard_port, config, created_by, owner_gateway)
       VALUES (?, ?, ?, 'local', 'active', ?, ?, NULL, NULL, '{}', ?, 'local')
-    `).run(username, displayName, username, gatewayHome, workspaceRoot, actor)
+    `, [username, displayName, username, gatewayHome, workspaceRoot, actor])
 
-    const tenantId = Number(tenantRes.lastInsertRowid)
+    const tenantId = Number(tenantRes.insertId)
 
     logAuditEvent({
       action: 'tenant_local_created',
@@ -365,13 +365,13 @@ export async function POST(request: NextRequest) {
       detail: { username, display_name: displayName, os_user_existed: alreadyExists, platform },
     })
 
-    const tenant = db.prepare('SELECT * FROM tenants WHERE id = ?').get(tenantId)
+    const tenant = await dbGet('SELECT * FROM tenants WHERE id = ?', [tenantId])
 
     // Install requested tools (non-fatal)
     const installResults: Record<string, { success: boolean; error?: string }> = {}
     const toolsToInstall: Array<'gateway' | 'claude'> = []
     if (installGateway) toolsToInstall.push('gateway')
-    // When agent runtime is selected, claude is bundled — skip separate install
+    // When agent runtime is selected, claude is bundled â€” skip separate install
     if (installClaude && !installGateway) toolsToInstall.push('claude')
 
     for (const tool of toolsToInstall) {

@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import net from 'node:net'
 import { existsSync, statSync } from 'node:fs'
 import { requireRole } from '@/lib/auth'
 import { config } from '@/lib/config'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { logger } from '@/lib/logger'
 import { APP_VERSION } from '@/lib/version'
 
@@ -16,7 +16,7 @@ const INSECURE_PASSWORDS = new Set([
 ])
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
@@ -114,10 +114,8 @@ function getSecurityInfo() {
   return { score, checks }
 }
 
-function getDatabaseInfo() {
+async function getDatabaseInfo() {
   try {
-    const db = getDatabase()
-
     let sizeBytes = 0
     try {
       sizeBytes = statSync(config.dbPath).size
@@ -125,18 +123,13 @@ function getDatabaseInfo() {
       // ignore
     }
 
-    const journalRow = db.prepare('PRAGMA journal_mode').get() as { journal_mode: string } | undefined
-    const walMode = journalRow?.journal_mode === 'wal'
+    const walMode = false // MySQL does not use WAL journal mode
 
     let migrationVersion: string | null = null
     try {
-      const row = db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='migrations'"
-      ).get() as { name?: string } | undefined
+      const row = await dbGet<{ name?: string }>("SELECT TABLE_NAME as name FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'migrations'", [])
       if (row?.name) {
-        const latest = db.prepare(
-          'SELECT version FROM migrations ORDER BY rowid DESC LIMIT 1'
-        ).get() as { version: string } | undefined
+        const latest = await dbGet<{ version: string }>('SELECT version FROM migrations ORDER BY id DESC LIMIT 1', [])
         migrationVersion = latest?.version ?? null
       }
     } catch {
@@ -150,12 +143,9 @@ function getDatabaseInfo() {
   }
 }
 
-function getAgentInfo() {
+async function getAgentInfo() {
   try {
-    const db = getDatabase()
-    const rows = db.prepare(
-      'SELECT status, COUNT(*) as count FROM agents GROUP BY status'
-    ).all() as Array<{ status: string; count: number }>
+    const rows = await dbGetAll('SELECT status, COUNT(*) as count FROM agents GROUP BY status', []) as Array<{ status: string; count: number }>
 
     const byStatus: Record<string, number> = {}
     let total = 0
@@ -169,13 +159,10 @@ function getAgentInfo() {
   }
 }
 
-function getSessionInfo() {
+async function getSessionInfo() {
   try {
-    const db = getDatabase()
-    const totalRow = db.prepare('SELECT COUNT(*) as c FROM claude_sessions').get() as { c: number } | undefined
-    const activeRow = db.prepare(
-      "SELECT COUNT(*) as c FROM claude_sessions WHERE is_active = 1"
-    ).get() as { c: number } | undefined
+    const totalRow = await dbGet('SELECT COUNT(*) as c FROM claude_sessions', []) as { c: number } | undefined
+    const activeRow = await dbGet("SELECT COUNT(*) as c FROM claude_sessions WHERE is_active = 1", []) as { c: number } | undefined
     return { active: activeRow?.c ?? 0, total: totalRow?.c ?? 0 }
   } catch {
     return { active: 0, total: 0 }

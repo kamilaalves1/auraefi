@@ -192,7 +192,7 @@ const localeSet = new Set<string>(locales as unknown as string[])
  * Maps app locale (e.g. from next-intl or cookie) to a name table.
  * Unknown or regional tags (en-GB) use the language subtag when present.
  */
-export function resolvePresetLocale(locale: string | undefined): Locale {
+export function resolvePresetLocale(locale: string | undefined): string {
   if (!locale || typeof locale !== 'string') return 'en'
   const trimmed = locale.trim()
   if (localeSet.has(trimmed as Locale)) return trimmed as Locale

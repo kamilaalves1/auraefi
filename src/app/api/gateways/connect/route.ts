@@ -1,15 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { buildGatewayWebSocketUrl } from '@/lib/gateway-url'
 import { getDetectedGatewayToken } from '@/lib/gateway-runtime'
-import {
-  isTailscaleServe,
-  refreshTailscaleCache,
-  getCachedTailscaleWeb,
-  hasGwPathHandler,
-  findTailscaleServePort,
-} from '@/lib/tailscale-serve'
+import { isTailscaleServe, refreshTailscaleCache, getCachedTailscaleWeb, hasGwPathHandler, findTailscaleServePort } from '@/lib/tailscale-serve'
 
 interface GatewayEntry {
   id: number
@@ -45,7 +39,7 @@ const LOCALHOST_HOSTS = new Set(['127.0.0.1', 'localhost', '::1'])
 function isNonBrowserReachableHost(host: string): boolean {
   const h = (host || '').toLowerCase().trim()
   if (LOCALHOST_HOSTS.has(h)) return true
-  // Docker-internal hostnames — browser cannot resolve these
+  // Docker-internal hostnames â€” browser cannot resolve these
   if (h === 'host.docker.internal' || h === 'host-gateway') return true
   // Docker bridge network IPs (172.17.x.x, 172.18.x.x, etc.)
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(h)) return true
@@ -74,12 +68,12 @@ function resolveRemoteGatewayUrl(
   request: NextRequest,
 ): string | null {
   const normalized = (gateway.host || '').toLowerCase().trim()
-  if (!isNonBrowserReachableHost(normalized)) return null // browser-reachable host — use normal path
+  if (!isNonBrowserReachableHost(normalized)) return null // browser-reachable host â€” use normal path
 
   const browserHost = getBrowserHostname(request)
   if (!browserHost || LOCALHOST_HOSTS.has(browserHost.toLowerCase())) return null // local access
 
-  // Browser is remote — determine the correct proxied URL
+  // Browser is remote â€” determine the correct proxied URL
   if (isTailscaleServe()) {
     // Check for a /gw path-based proxy first
     refreshTailscaleCache()
@@ -94,29 +88,9 @@ function resolveRemoteGatewayUrl(
     }
   }
 
-  // No Tailscale Serve — try direct connection to dashboard host on gateway port
+  // No Tailscale Serve â€” try direct connection to dashboard host on gateway port
   const protocol = inferBrowserProtocol(request) === 'https:' ? 'wss' : 'ws'
   return `${protocol}://${browserHost}:${gateway.port}`
-}
-
-function ensureTable(db: ReturnType<typeof getDatabase>) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS gateways (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL UNIQUE,
-      host TEXT NOT NULL DEFAULT '127.0.0.1',
-      port INTEGER NOT NULL DEFAULT 18789,
-      token TEXT NOT NULL DEFAULT '',
-      is_primary INTEGER NOT NULL DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'unknown',
-      last_seen INTEGER,
-      latency INTEGER,
-      sessions_count INTEGER NOT NULL DEFAULT 0,
-      agents_count INTEGER NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch()),
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch())
-    )
-  `)
 }
 
 /**
@@ -127,11 +101,8 @@ export async function POST(request: NextRequest) {
   // Any authenticated dashboard user may initiate a gateway websocket connect.
   // Restricting this to operator can cause startup fallback to connect without auth,
   // which then fails as "device identity required".
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const db = getDatabase()
-  ensureTable(db)
 
   let id: number | null = null
   try {
@@ -145,7 +116,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'id is required' }, { status: 400 })
   }
 
-  const gateway = db.prepare('SELECT id, host, port, token, is_primary FROM gateways WHERE id = ?').get(id) as GatewayEntry | undefined
+  const gateway = await dbGet('SELECT id, host, port, token, is_primary FROM gateways WHERE id = ?', [id]) as GatewayEntry | undefined
   if (!gateway) {
     return NextResponse.json({ error: 'Gateway not found' }, { status: 404 })
   }
@@ -171,7 +142,7 @@ export async function POST(request: NextRequest) {
   // Keep runtime DB aligned with detected gateway token for primary gateway.
   if (gateway.is_primary === 1 && detectedToken && detectedToken !== dbToken) {
     try {
-      db.prepare('UPDATE gateways SET token = ?, updated_at = (unixepoch()) WHERE id = ?').run(detectedToken, gateway.id)
+      await dbRun('UPDATE gateways SET token = ?, updated_at = (UNIX_TIMESTAMP()) WHERE id = ?', [detectedToken, gateway.id])
     } catch {
       // Non-fatal: connect still succeeds with detected token even if persistence fails.
     }

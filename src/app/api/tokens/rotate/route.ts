@@ -1,7 +1,8 @@
 ﻿import { NextRequest, NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { requireRole } from '@/lib/auth'
-import { getDatabase, logAuditEvent } from '@/lib/db'
+import { logAuditEvent } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { mutationLimiter, extractClientIp } from '@/lib/rate-limit'
 
 interface ApiKeyRow {
@@ -23,15 +24,10 @@ function maskApiKey(key: string): string {
  * GET /api/tokens/rotate - Get metadata about the current API key
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const db = getDatabase()
-
   // Check for DB-stored override first
-  const row = db.prepare(
-    "SELECT value, updated_by, updated_at FROM settings WHERE key = 'security.api_key'"
-  ).get() as ApiKeyRow | undefined
+  const row = await dbGet("SELECT value, updated_by, updated_at FROM settings WHERE `key` = 'security.api_key'", []) as ApiKeyRow | undefined
 
   if (row) {
     return NextResponse.json({
@@ -65,7 +61,7 @@ export async function GET(request: NextRequest) {
  * POST /api/tokens/rotate - Generate and store a new API key
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -73,13 +69,8 @@ export async function POST(request: NextRequest) {
 
   // Generate a new key: mc_ prefix + 32 random hex chars
   const newKey = 'mc_' + randomBytes(24).toString('hex')
-
-  const db = getDatabase()
-
   // Get old key info for audit trail
-  const existing = db.prepare(
-    "SELECT value FROM settings WHERE key = 'security.api_key'"
-  ).get() as { value: string } | undefined
+  const existing = await dbGet("SELECT value FROM settings WHERE `key` = 'security.api_key'", []) as { value: string } | undefined
 
   const oldSource = existing ? 'database' : (process.env.API_KEY || '').trim() ? 'environment' : 'none'
   const oldMasked = existing
@@ -89,14 +80,14 @@ export async function POST(request: NextRequest) {
       : null
 
   // Store new key in settings table (overrides env var)
-  db.prepare(`
-    INSERT INTO settings (key, value, description, category, updated_by, updated_at)
-    VALUES ('security.api_key', ?, 'Active API key (overrides API_KEY env var)', 'security', ?, unixepoch())
-    ON CONFLICT(key) DO UPDATE SET
-      value = excluded.value,
-      updated_by = excluded.updated_by,
-      updated_at = unixepoch()
-  `).run(newKey, auth.user.username)
+  await dbRun(`
+    INSERT INTO settings (\`key\`, value, description, category, updated_by, updated_at)
+    VALUES ('security.api_key', ?, 'Active API key (overrides API_KEY env var)', 'security', ?, UNIX_TIMESTAMP())
+    ON DUPLICATE KEY UPDATE
+      value = VALUES(value),
+      updated_by = VALUES(updated_by),
+      updated_at = UNIX_TIMESTAMP()
+  `, [newKey, auth.user.username])
 
   // Audit log
   const ipAddress = extractClientIp(request)

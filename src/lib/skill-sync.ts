@@ -12,7 +12,7 @@ import { createHash } from 'node:crypto'
 import { readdirSync, readFileSync, statSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { homedir } from 'node:os'
-import { getDatabase } from './db'
+import { dbGet, dbGetAll, dbRun } from './db-pool'
 import { logger } from './logger'
 
 // ---------------------------------------------------------------------------
@@ -131,7 +131,6 @@ function scanDiskSkills(): DiskSkill[] {
 
 export async function syncSkillsFromDisk(): Promise<{ ok: boolean; message: string }> {
   try {
-    const db = getDatabase()
     const diskSkills = scanDiskSkills()
     const now = new Date().toISOString()
 
@@ -149,9 +148,7 @@ export async function syncSkillsFromDisk(): Promise<{ ok: boolean; message: stri
         localSources.push(s.source)
       }
     }
-    const dbRows = db.prepare(
-      `SELECT * FROM skills WHERE source IN (${localSources.map(() => '?').join(',')})`
-    ).all(...localSources) as SkillRow[]
+    const dbRows = await dbGetAll(`SELECT * FROM skills WHERE source IN (${localSources.map(() => '?').join(',')})`, [...localSources]) as SkillRow[]
 
     const dbMap = new Map<string, SkillRow>()
     for (const r of dbRows) {
@@ -162,39 +159,33 @@ export async function syncSkillsFromDisk(): Promise<{ ok: boolean; message: stri
     let updated = 0
     let deleted = 0
 
-    const insertStmt = db.prepare(`
-      INSERT INTO skills (name, source, path, description, content_hash, installed_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `)
-    const updateStmt = db.prepare(`
-      UPDATE skills SET path = ?, description = ?, content_hash = ?, updated_at = ?
-      WHERE source = ? AND name = ?
-    `)
-    const deleteStmt = db.prepare(`DELETE FROM skills WHERE source = ? AND name = ?`)
-
-    db.transaction(() => {
-      // Disk → DB: additions and changes
-      for (const [key, disk] of diskMap) {
-        const existing = dbMap.get(key)
-        if (!existing) {
-          insertStmt.run(disk.name, disk.source, disk.path, disk.description || null, disk.contentHash, now, now)
-          created++
-        } else if (existing.content_hash !== disk.contentHash) {
-          // Disk wins: content changed on disk since last sync
-          updateStmt.run(disk.path, disk.description || null, disk.contentHash, now, disk.source, disk.name)
-          updated++
-        }
+    // Disk → DB: additions and changes
+    for (const [key, disk] of diskMap) {
+      const existing = dbMap.get(key)
+      if (!existing) {
+        await dbRun(`
+          INSERT INTO skills (name, source, path, description, content_hash, installed_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `, [disk.name, disk.source, disk.path, disk.description || null, disk.contentHash, now, now])
+        created++
+      } else if (existing.content_hash !== disk.contentHash) {
+        // Disk wins: content changed on disk since last sync
+        await dbRun(`
+          UPDATE skills SET path = ?, description = ?, content_hash = ?, updated_at = ?
+          WHERE source = ? AND name = ?
+        `, [disk.path, disk.description || null, disk.contentHash, now, disk.source, disk.name])
+        updated++
       }
+    }
 
-      // DB → Disk: detect removals (skill deleted from disk since last sync)
-      for (const [key, row] of dbMap) {
-        if (!diskMap.has(key) && !row.registry_slug) {
-          // Only auto-delete non-registry skills that vanished from disk
-          deleteStmt.run(row.source, row.name)
-          deleted++
-        }
+    // DB → Disk: detect removals (skill deleted from disk since last sync)
+    for (const [key, row] of dbMap) {
+      if (!diskMap.has(key) && !row.registry_slug) {
+        // Only auto-delete non-registry skills that vanished from disk
+        await dbRun(`DELETE FROM skills WHERE source = ? AND name = ?`, [row.source, row.name])
+        deleted++
       }
-    })()
+    }
 
     const msg = `Skill sync: ${created} added, ${updated} updated, ${deleted} removed (${diskSkills.length} on disk)`
     if (created > 0 || updated > 0 || deleted > 0) {

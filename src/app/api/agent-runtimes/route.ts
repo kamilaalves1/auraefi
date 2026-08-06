@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs'
+﻿import { existsSync } from 'node:fs'
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
 import { detectAllRuntimes, detectRuntime, startInstall, getInstallJob, getActiveJobs, generateDockerSidecar } from '@/lib/agent-runtimes'
@@ -10,7 +10,7 @@ const VALID_RUNTIMES = new Set<RuntimeId>(['claude'])
 const VALID_MODES = new Set<DeploymentMode>(['local', 'docker'])
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const runtimes = detectAllRuntimes()
@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   let body: any

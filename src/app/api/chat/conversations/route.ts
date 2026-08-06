@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+﻿import { NextRequest, NextResponse } from 'next/server'
+import { dbGet, dbGetAll } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { logger } from '@/lib/logger'
 
@@ -8,12 +8,10 @@ import { logger } from '@/lib/logger'
  * Query params: agent (filter by participant), limit, offset
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  try {
-    const db = getDatabase()
-    const { searchParams } = new URL(request.url)
+  try {    const { searchParams } = new URL(request.url)
     const workspaceId = auth.user.workspace_id ?? 1
 
     const agent = searchParams.get('agent')
@@ -56,18 +54,15 @@ export async function GET(request: NextRequest) {
       params.push(workspaceId, limit, offset)
     }
 
-    const conversations = db.prepare(query).all(...params) as any[]
+    const conversations = await dbGetAll(query, params) as any[]
 
-    // Prepare last message statement once (avoids N+1)
-    const lastMsgStmt = db.prepare(`
+    const withLastMessage = await Promise.all(conversations.map(async (conv) => {
+      const lastMsg = await dbGet(`
       SELECT * FROM messages
       WHERE conversation_id = ? AND workspace_id = ?
       ORDER BY created_at DESC
       LIMIT 1
-    `);
-
-    const withLastMessage = conversations.map((conv) => {
-      const lastMsg = lastMsgStmt.get(conv.conversation_id, workspaceId) as any;
+    `, [conv.conversation_id, workspaceId]) as any;
 
       return {
         ...conv,
@@ -78,7 +73,7 @@ export async function GET(request: NextRequest) {
             }
           : null
       }
-    })
+    }))
 
     // Get total count for pagination
     let countQuery: string
@@ -93,7 +88,7 @@ export async function GET(request: NextRequest) {
     } else {
       countQuery = 'SELECT COUNT(DISTINCT conversation_id) as total FROM messages WHERE workspace_id = ?'
     }
-    const countRow = db.prepare(countQuery).get(...countParams) as { total: number }
+    const countRow = await dbGet(countQuery, countParams) as { total: number }
 
     return NextResponse.json({ conversations: withLastMessage, total: countRow.total, page: Math.floor(offset / limit) + 1, limit })
   } catch (error) {

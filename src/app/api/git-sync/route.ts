@@ -1,13 +1,13 @@
-/**
- * GET  /api/git-sync?action=status          — sync history + provider connection status
- * GET  /api/git-sync?action=issues&flow_id= — preview issues from a flow's repo
- * POST /api/git-sync  { action: 'trigger', flow_id }   — manual sync for a flow
- * POST /api/git-sync  { action: 'trigger-all' }        — sync all active flows
- * POST /api/git-sync  { action: 'test', provider }     — test provider token
+﻿/**
+ * GET  /api/git-sync?action=status          â€” sync history + provider connection status
+ * GET  /api/git-sync?action=issues&flow_id= â€” preview issues from a flow's repo
+ * POST /api/git-sync  { action: 'trigger', flow_id }   â€” manual sync for a flow
+ * POST /api/git-sync  { action: 'trigger-all' }        â€” sync all active flows
+ * POST /api/git-sync  { action: 'test', provider }     â€” test provider token
  */
 
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -15,10 +15,10 @@ import { getGitProviderClient, testAllProviders } from '@/lib/git-provider'
 import { pullFromGitProvider, type DeliveryFlowSyncConfig } from '@/lib/git-sync-engine'
 import type { GitProvider } from '@/lib/delivery-flow-types'
 
-// ── GET ─────────────────────────────────────────────────────────────────────
+// â”€â”€ GET â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const workspaceId = auth.user.workspace_id ?? 1
@@ -43,10 +43,10 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// ── POST ────────────────────────────────────────────────────────────────────
+// â”€â”€ POST â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -72,40 +72,37 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// ── Handlers ─────────────────────────────────────────────────────────────────
+// â”€â”€ Handlers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-function handleStatus(workspaceId: number) {
-  const db = getDatabase()
-
-  const syncs = db.prepare(`
+async function handleStatus(workspaceId: number) {
+  const syncs = await dbGetAll(`
     SELECT gs.*, df.name as flow_name
     FROM git_syncs gs
     LEFT JOIN delivery_flows df ON df.id = gs.flow_id
     WHERE gs.workspace_id = ?
     ORDER BY gs.created_at DESC
     LIMIT 50
-  `).all(workspaceId)
+  `, [workspaceId])
 
-  const flows = db.prepare(`
+  const flows = await dbGetAll(`
     SELECT df.id, df.name, df.is_active,
            gr.provider AS git_provider, gr.repo_url AS git_repo_url, gr.branch AS git_branch, gr.name AS repo_name
     FROM delivery_flows df
     LEFT JOIN git_repositories gr ON gr.id = df.git_repository_id
     WHERE df.workspace_id = ?
     ORDER BY df.created_at ASC
-  `).all(workspaceId)
+  `, [workspaceId])
 
   return NextResponse.json({ syncs, flows })
 }
 
 async function handlePreviewIssues(flowId: number, state: 'open' | 'closed' | 'all', workspaceId: number) {
-  const db = getDatabase()
-  const row = db.prepare(`
+  const row = await dbGet(`
     SELECT df.id, gr.provider AS git_provider, gr.repo_url AS git_repo_url, gr.branch AS git_branch
     FROM delivery_flows df
     LEFT JOIN git_repositories gr ON gr.id = df.git_repository_id
     WHERE df.id = ? AND df.workspace_id = ?
-  `).get(flowId, workspaceId) as any | undefined
+  `, [flowId, workspaceId]) as any | undefined
 
   if (!row) return NextResponse.json({ error: 'Flow not found' }, { status: 404 })
   if (!row.git_provider || !row.git_repo_url) {
@@ -119,14 +116,12 @@ async function handlePreviewIssues(flowId: number, state: 'open' | 'closed' | 'a
 
 async function handleTrigger(flowId: number, workspaceId: number) {
   if (!flowId) return NextResponse.json({ error: 'flow_id required' }, { status: 400 })
-
-  const db = getDatabase()
-  const row = db.prepare(`
+  const row = await dbGet(`
     SELECT df.id, df.name, gr.provider AS git_provider, gr.repo_url AS git_repo_url, gr.branch AS git_branch
     FROM delivery_flows df
     LEFT JOIN git_repositories gr ON gr.id = df.git_repository_id
     WHERE df.id = ? AND df.workspace_id = ?
-  `).get(flowId, workspaceId) as any | undefined
+  `, [flowId, workspaceId]) as any | undefined
 
   if (!row) return NextResponse.json({ error: 'Flow not found' }, { status: 404 })
   if (!row.git_provider || !row.git_repo_url) {
@@ -146,8 +141,7 @@ async function handleTrigger(flowId: number, workspaceId: number) {
 }
 
 async function handleTriggerAll(workspaceId: number) {
-  const db = getDatabase()
-  const flows = db.prepare(`
+  const flows = await dbGetAll(`
     SELECT df.id, df.name,
            gr.provider AS git_provider, gr.repo_url AS git_repo_url, gr.branch AS git_branch
     FROM delivery_flows df
@@ -155,7 +149,7 @@ async function handleTriggerAll(workspaceId: number) {
     WHERE df.workspace_id = ? AND df.is_active = 1
       AND gr.is_active = 1
       AND gr.repo_url IS NOT NULL AND gr.repo_url != ''
-  `).all(workspaceId) as any[]
+  `, [workspaceId]) as any[]
 
   const results: Array<{ flowId: number; name: string; provider: string; repo: string; result: any }> = []
 

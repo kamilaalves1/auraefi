@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+﻿import { NextRequest, NextResponse } from 'next/server'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { deliverWebhookPublic } from '@/lib/webhooks'
 import { logger } from '@/lib/logger'
@@ -8,11 +8,10 @@ import { logger } from '@/lib/logger'
  * POST /api/webhooks/retry - Manually retry a failed delivery
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const { delivery_id } = await request.json()
 
@@ -20,13 +19,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'delivery_id is required' }, { status: 400 })
     }
 
-    const delivery = db.prepare(`
+    const delivery = await dbGet(`
       SELECT wd.*, w.id as w_id, w.name as w_name, w.url as w_url, w.secret as w_secret,
              w.events as w_events, w.enabled as w_enabled, w.workspace_id as w_workspace_id
       FROM webhook_deliveries wd
       JOIN webhooks w ON w.id = wd.webhook_id AND w.workspace_id = wd.workspace_id
       WHERE wd.id = ? AND wd.workspace_id = ?
-    `).get(delivery_id, workspaceId) as any
+    `, [delivery_id, workspaceId]) as any
 
     if (!delivery) {
       return NextResponse.json({ error: 'Delivery not found' }, { status: 404 })

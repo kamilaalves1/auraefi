@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { logAuditEvent, getDatabase } from '@/lib/db'
+import { logAuditEvent } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { existsSync } from 'fs'
 import os from 'os'
 import { execFileSync } from 'child_process'
@@ -115,10 +116,9 @@ const BLOCKED_PREFIXES = ['LD_', 'DYLD_', 'AUTH_', 'MC_SESSION']
 
 const DB_KEY_PREFIX = 'integration.'
 
-function readIntegrationSettings(): Map<string, string> {
+async function readIntegrationSettings(): Promise<Map<string, string>> {
   try {
-    const db = getDatabase()
-    const rows = db.prepare('SELECT key, value FROM settings WHERE key LIKE ?').all(DB_KEY_PREFIX + '%') as { key: string; value: string }[]
+    const rows = await dbGetAll('SELECT `key`, value FROM settings WHERE `key` LIKE ?', [DB_KEY_PREFIX + '%']) as { key: string; value: string }[]
     const map = new Map<string, string>()
     for (const row of rows) {
       const envVar = row.key.slice(DB_KEY_PREFIX.length)
@@ -130,20 +130,17 @@ function readIntegrationSettings(): Map<string, string> {
   }
 }
 
-function writeIntegrationSetting(envVar: string, value: string): void {
-  const db = getDatabase()
+async function writeIntegrationSetting(envVar: string, value: string): Promise<void> {
   const trimmed = value.trim()
   if (trimmed) {
-    db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value')
-      .run(DB_KEY_PREFIX + envVar, trimmed)
+    await dbRun('INSERT INTO settings (`key`, value) VALUES (?, ?) ON DUPLICATE KEY UPDATE value = VALUES(value)', [DB_KEY_PREFIX + envVar, trimmed])
   } else {
-    db.prepare('DELETE FROM settings WHERE key = ?').run(DB_KEY_PREFIX + envVar)
+    await dbRun('DELETE FROM settings WHERE `key` = ?', [DB_KEY_PREFIX + envVar])
   }
 }
 
-function deleteIntegrationSetting(envVar: string): void {
-  const db = getDatabase()
-  db.prepare('DELETE FROM settings WHERE key = ?').run(DB_KEY_PREFIX + envVar)
+async function deleteIntegrationSetting(envVar: string): Promise<void> {
+  await dbRun('DELETE FROM settings WHERE `key` = ?', [DB_KEY_PREFIX + envVar])
 }
 
 // ---------------------------------------------------------------------------
@@ -252,10 +249,10 @@ function getOpEnv(dbMap: Map<string, string>): NodeJS.ProcessEnv {
 // ---------------------------------------------------------------------------
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
-  const dbMap = readIntegrationSettings()
+  const dbMap = await readIntegrationSettings()
   const probe = await getIntegrationProbeSnapshot()
   const { opAvailable, xint, ollamaInstalled, ollamaReachable, gwsInstalled } = probe
   const providerSubscriptions = detectProviderSubscriptions()
@@ -364,7 +361,7 @@ export async function GET(request: NextRequest) {
 // ---------------------------------------------------------------------------
 
 export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const body = await request.json().catch(() => null)
@@ -379,7 +376,7 @@ export async function PUT(request: NextRequest) {
 
   const updatedKeys: string[] = []
   for (const [key, value] of Object.entries(body.vars)) {
-    writeIntegrationSetting(key, String(value))
+    await writeIntegrationSetting(key, String(value))
     updatedKeys.push(key)
   }
 
@@ -400,7 +397,7 @@ export async function PUT(request: NextRequest) {
 // ---------------------------------------------------------------------------
 
 export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   // Keys can come from URL query (?keys=A,B) or request body ({ keys: [...] })
@@ -422,7 +419,7 @@ export async function DELETE(request: NextRequest) {
 
   const removed: string[] = []
   for (const key of keysToRemove) {
-    deleteIntegrationSetting(key)
+    await deleteIntegrationSetting(key)
     removed.push(key)
   }
 
@@ -443,7 +440,7 @@ export async function DELETE(request: NextRequest) {
 // ---------------------------------------------------------------------------
 
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -481,7 +478,7 @@ async function handleTest(
 ) {
   if (!integration.testable) return NextResponse.json({ error: 'This integration does not support testing' }, { status: 400 })
 
-  const dbMap = readIntegrationSettings()
+  const dbMap = await readIntegrationSettings()
 
   try {
     let result: { ok: boolean; detail: string }
@@ -654,7 +651,7 @@ async function handlePull(
   if (!integration.vaultItem) return NextResponse.json({ error: 'No vault item configured' }, { status: 400 })
   if (!checkOpAvailable()) return NextResponse.json({ error: '1Password CLI (op) is not installed' }, { status: 400 })
 
-  const dbMap = readIntegrationSettings()
+  const dbMap = await readIntegrationSettings()
   const opEnv = getOpEnv(dbMap)
   if (!opEnv.OP_SERVICE_ACCOUNT_TOKEN) return NextResponse.json({ error: 'OP_SERVICE_ACCOUNT_TOKEN not configured' }, { status: 400 })
 
@@ -672,7 +669,7 @@ async function handlePull(
     if (!value?.length) return NextResponse.json({ error: 'Empty value from 1Password' }, { status: 400 })
 
     const envVar = integration.envVars[0]
-    writeIntegrationSetting(envVar, value)
+    await writeIntegrationSetting(envVar, value)
 
     const ipAddress = extractClientIp(request)
     logAuditEvent({
@@ -699,7 +696,7 @@ async function handlePullAll(
 ) {
   if (!checkOpAvailable()) return NextResponse.json({ error: '1Password CLI (op) is not installed' }, { status: 400 })
 
-  const dbMap = readIntegrationSettings()
+  const dbMap = await readIntegrationSettings()
   const opEnv = getOpEnv(dbMap)
   if (!opEnv.OP_SERVICE_ACCOUNT_TOKEN) return NextResponse.json({ error: 'OP_SERVICE_ACCOUNT_TOKEN not configured' }, { status: 400 })
 
@@ -723,7 +720,7 @@ async function handlePullAll(
 
       if (!value?.length) { results.push({ id: integration.id, envVar, ok: false, detail: 'Empty value' }); continue }
 
-      writeIntegrationSetting(envVar, value)
+      await writeIntegrationSetting(envVar, value)
       results.push({ id: integration.id, envVar, ok: true, detail: `Pulled ${envVar}` })
     } catch (err: any) {
       results.push({ id: integration.id, envVar, ok: false, detail: err.message || 'Failed' })

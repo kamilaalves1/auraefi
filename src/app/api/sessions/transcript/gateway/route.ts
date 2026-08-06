@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { requireRole } from '@/lib/auth'
@@ -17,7 +17,7 @@ import { parseJsonlTranscript } from '@/lib/transcript-parser'
  * the sessionId from the agent's sessions.json, then the JSONL file is read.
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const { searchParams } = new URL(request.url)

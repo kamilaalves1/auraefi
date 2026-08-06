@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     const resolvedDisplayName = displayName?.trim() ||
       trimmedUsername.charAt(0).toUpperCase() + trimmedUsername.slice(1)
 
-    const user = createUser(trimmedUsername, password, resolvedDisplayName, 'admin')
+    const user = await createUser(trimmedUsername, password, resolvedDisplayName, 'admin')
 
     const ipAddress = extractClientIp(request)
     const userAgent = request.headers.get('user-agent') || undefined
@@ -91,7 +91,7 @@ export async function POST(request: Request) {
     logger.info(`First-time setup: admin user "${user.username}" created`)
 
     // Auto-login: create session and set cookie
-    const { token, expiresAt } = createSession(user.id, ipAddress, userAgent, user.workspace_id)
+    const { token, expiresAt } = await createSession(user.id, ipAddress, userAgent, user.workspace_id)
 
     const response = NextResponse.json({
       user: {

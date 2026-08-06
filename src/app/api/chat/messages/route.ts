@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase, db_helpers, Message } from '@/lib/db'
+﻿import { NextRequest, NextResponse } from 'next/server'
+import { db_helpers, Message } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { getAllGatewaySessions } from '@/lib/sessions'
 import { eventBus } from '@/lib/event-bus'
 import { requireRole } from '@/lib/auth'
@@ -61,8 +62,7 @@ function safeParseMetadata(raw: string | null | undefined): any | null {
   }
 }
 
-function createChatReply(
-  db: ReturnType<typeof getDatabase>,
+async function createChatReply(
   workspaceId: number,
   conversationId: string,
   fromAgent: string,
@@ -71,29 +71,19 @@ function createChatReply(
   messageType: 'text' | 'status' | 'tool_call' = 'status',
   metadata: Record<string, any> | null = null
 ) {
-  const replyInsert = db
-    .prepare(`
+  const replyInsert = await dbRun(`
       INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, metadata, workspace_id)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `)
-    .run(
-      conversationId,
-      fromAgent,
-      toAgent,
-      content,
-      messageType,
-      metadata ? JSON.stringify(metadata) : null,
-      workspaceId
-    )
+    `, [conversationId, fromAgent, toAgent, content, messageType, metadata ? JSON.stringify(metadata) : null, workspaceId])
 
-  const row = db
-    .prepare('SELECT * FROM messages WHERE id = ? AND workspace_id = ?')
-    .get(replyInsert.lastInsertRowid, workspaceId) as Message
+  const row = await dbGet<Message>('SELECT * FROM messages WHERE id = ? AND workspace_id = ?', [replyInsert.insertId, workspaceId])
 
-  eventBus.broadcast('chat.message', {
-    ...row,
-    metadata: safeParseMetadata(row.metadata),
-  })
+  if (row) {
+    eventBus.broadcast('chat.message', {
+      ...row,
+      metadata: safeParseMetadata(row.metadata),
+    })
+  }
 }
 
 function extractReplyText(waitPayload: any): string | null {
@@ -228,11 +218,10 @@ function extractToolEvents(waitPayload: any): ToolEvent[] {
  * Query params: conversation_id, from_agent, to_agent, limit, offset, since
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const { searchParams } = new URL(request.url)
 
@@ -269,7 +258,7 @@ export async function GET(request: NextRequest) {
     query += ' ORDER BY created_at ASC LIMIT ? OFFSET ?'
     params.push(limit, offset)
 
-    const messages = db.prepare(query).all(...params) as Message[]
+    const messages = await dbGetAll(query, params) as Message[]
 
     const parsed = messages.map((msg) => ({
       ...msg,
@@ -295,7 +284,7 @@ export async function GET(request: NextRequest) {
       countQuery += ' AND created_at > ?'
       countParams.push(parseInt(since))
     }
-    const countRow = db.prepare(countQuery).get(...countParams) as { total: number }
+    const countRow = await dbGet(countQuery, countParams) as { total: number }
 
     return NextResponse.json({ messages: parsed, total: countRow.total, page: Math.floor(offset / limit) + 1, limit })
   } catch (error) {
@@ -310,11 +299,10 @@ export async function GET(request: NextRequest) {
  * Sender identity is always resolved server-side from authenticated user.
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
     const workspaceId = auth.user.workspace_id ?? 1
     const body = await request.json()
 
@@ -351,27 +339,23 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const stmt = db.prepare(`
+    const result = await dbRun(`
       INSERT INTO messages (conversation_id, from_agent, to_agent, content, message_type, metadata, workspace_id)
       VALUES (?, ?, ?, ?, ?, ?, ?)
-    `)
-
-    const result = stmt.run(
-      conversation_id,
+    `, [conversation_id,
       from,
       to,
       content,
       message_type,
       metadata ? JSON.stringify(metadata) : null,
-      workspaceId
-    )
+      workspaceId])
 
-    const messageId = result.lastInsertRowid as number
+    const messageId = result.insertId as number
 
     let forwardInfo: ForwardInfo | null = null
 
     // Log activity
-    db_helpers.logActivity(
+    await db_helpers.logActivity(
       'chat_message',
       'message',
       messageId,
@@ -383,7 +367,7 @@ export async function POST(request: NextRequest) {
 
     // Create notification for recipient if specified
     if (to) {
-      db_helpers.createNotification(
+      await db_helpers.createNotification(
         to,
         'chat_message',
         `Message from ${from}`,
@@ -397,9 +381,7 @@ export async function POST(request: NextRequest) {
       if (body.forward) {
         forwardInfo = { attempted: true, delivered: false }
 
-        const agent = db
-          .prepare('SELECT * FROM agents WHERE lower(name) = lower(?) AND workspace_id = ?')
-          .get(to, workspaceId) as any
+        const agent = await dbGet('SELECT * FROM agents WHERE lower(name) = lower(?) AND workspace_id = ?', [to, workspaceId]) as any
 
         const explicitSessionKey = typeof body.sessionKey === 'string' && body.sessionKey
           ? body.sessionKey
@@ -407,14 +389,10 @@ export async function POST(request: NextRequest) {
         const sessions = getAllGatewaySessions()
         const isCoordinatorSend = String(to).toLowerCase() === COORDINATOR_AGENT.toLowerCase()
         const allAgents = isCoordinatorSend
-          ? (db
-              .prepare('SELECT name, session_key, config FROM agents WHERE workspace_id = ?')
-              .all(workspaceId) as Array<{ name: string; session_key?: string | null; config?: string | null }>)
+          ? await dbGetAll<{ name: string; session_key?: string | null; config?: string | null }>('SELECT name, session_key, config FROM agents WHERE workspace_id = ?', [workspaceId])
           : []
         const configuredCoordinatorTarget = isCoordinatorSend
-          ? (db
-              .prepare("SELECT value FROM settings WHERE key = 'chat.coordinator_target_agent'")
-              .get() as { value?: string } | undefined)?.value || null
+          ? ((await dbGet<{ value?: string }>("SELECT value FROM settings WHERE `key` = 'chat.coordinator_target_agent'", []))?.value || null)
           : null
 
         const coordinatorResolution = resolveCoordinatorDeliveryTarget({
@@ -452,8 +430,7 @@ export async function POST(request: NextRequest) {
           // For coordinator messages, emit an immediate visible status reply
           if (typeof conversation_id === 'string' && conversation_id.startsWith('coord:')) {
             try {
-                createChatReply(
-                  db,
+                await createChatReply(
                   workspaceId,
                   conversation_id,
                   COORDINATOR_AGENT,
@@ -467,15 +444,14 @@ export async function POST(request: NextRequest) {
             }
           }
         } else {
-          // Gateway RPC delivery is no longer available — forward is a no-op.
+          // Gateway RPC delivery is no longer available â€” forward is a no-op.
           forwardInfo.delivered = false
           forwardInfo.reason = 'gateway_rpc_unavailable'
           forwardInfo.session = sessionKey || undefined
 
           if (typeof conversation_id === 'string' && conversation_id.startsWith('coord:')) {
             try {
-              createChatReply(
-                db,
+              await createChatReply(
                 workspaceId,
                 conversation_id,
                 COORDINATOR_AGENT,
@@ -492,7 +468,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const created = db.prepare('SELECT * FROM messages WHERE id = ? AND workspace_id = ?').get(messageId, workspaceId) as Message
+    const created = await dbGet('SELECT * FROM messages WHERE id = ? AND workspace_id = ?', [messageId, workspaceId]) as Message
     const parsedMessage = {
       ...created,
       metadata: {

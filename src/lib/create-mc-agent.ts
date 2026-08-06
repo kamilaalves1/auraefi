@@ -1,11 +1,10 @@
 
-import BetterSqlite3 from 'better-sqlite3'
+import { dbGet, dbRun } from '@/lib/db-pool'
 import { db_helpers, logAuditEvent, type Agent } from '@/lib/db'
 import { eventBus } from '@/lib/event-bus'
 import { getTemplate, buildAgentConfig } from '@/lib/agent-templates'
 import { writeAgentToConfig, enrichAgentConfigFromWorkspace } from '@/lib/agent-sync'
 import { logger } from '@/lib/logger'
-import { config as appConfig } from '@/lib/config'
 
 
 export type CreateMcAgentBody = {
@@ -55,10 +54,7 @@ export type CreateMcAgentContext = {
 /**
  * Shared create-agent logic for POST /api/agents and bulk presets.
  */
-type SqliteDatabase = InstanceType<typeof BetterSqlite3>
-
 export async function createMcAgent(
-  db: SqliteDatabase,
   ctx: CreateMcAgentContext,
   body: CreateMcAgentBody,
 ): Promise<CreateMcAgentResult> {
@@ -119,28 +115,26 @@ export async function createMcAgent(
     return { ok: false, status: 400, error: 'Name and role are required' }
   }
 
-  const existingAgent = db
-    .prepare('SELECT id FROM agents WHERE name = ? AND workspace_id = ?')
-    .get(name, ctx.workspaceId)
+  const existingAgent = await dbGet<{ id: number }>(
+    'SELECT id FROM agents WHERE name = ? AND workspace_id = ?',
+    [name, ctx.workspaceId]
+  )
   if (existingAgent) {
     return { ok: false, status: 409, error: 'Agent name already exists' }
   }
 
   if (provision_workspace) {
-    // Gateway CLI workspace provisioning is not available in this build
     logger.warn({ agentSlug, workspace_path }, 'provision_workspace requested but gateway CLI is not available; skipping')
   }
 
   const now = Math.floor(Date.now() / 1000)
 
-  const stmt = db.prepare(`
-      INSERT INTO agents (
-        name, role, session_key, soul_content, status,
-        created_at, updated_at, config, workspace_id, model, instructions
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `)
-
-  const dbResult = stmt.run(
+  const dbResult = await dbRun(`
+    INSERT INTO agents (
+      name, role, session_key, soul_content, status,
+      created_at, updated_at, config, workspace_id, model, instructions
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [
     name,
     finalRole,
     session_key ?? null,
@@ -152,11 +146,11 @@ export async function createMcAgent(
     ctx.workspaceId,
     model,
     instructions,
-  )
+  ])
 
-  const agentId = dbResult.lastInsertRowid as number
+  const agentId = dbResult.insertId
 
-  db_helpers.logActivity(
+  await db_helpers.logActivity(
     'agent_created',
     'agent',
     agentId,
@@ -172,9 +166,14 @@ export async function createMcAgent(
     ctx.workspaceId,
   )
 
-  const createdAgent = db
-    .prepare('SELECT * FROM agents WHERE id = ? AND workspace_id = ?')
-    .get(agentId, ctx.workspaceId) as Agent
+  const createdAgent = await dbGet<Agent>(
+    'SELECT * FROM agents WHERE id = ? AND workspace_id = ?',
+    [agentId, ctx.workspaceId]
+  )
+
+  if (!createdAgent) {
+    return { ok: false, status: 500, error: 'Failed to retrieve created agent' }
+  }
 
   const parsedAgent = {
     ...createdAgent,
@@ -205,7 +204,7 @@ export async function createMcAgent(
         ...(fc.memorySearch && { memorySearch: fc.memorySearch }),
       })
 
-      logAuditEvent({
+      await logAuditEvent({
         action: 'agent_gateway_create',
         actor: ctx.actorUsername,
         actor_id: ctx.actorUserId,

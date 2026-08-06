@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 
 /**
  * GET /api/alerts/block-status
@@ -8,21 +8,19 @@ import { getDatabase } from '@/lib/db'
  * Used by task dispatch to reject new LLM requests when cost limit is exceeded.
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
   const now = Math.floor(Date.now() / 1000)
 
   try {
     // A block is active when: action_type='block', entity_type='token_cost', enabled=1,
     // and last_triggered_at is within the cooldown window (rule was triggered recently)
-    const blockRules = db.prepare(`
+    const blockRules = await dbGetAll(`
       SELECT id, name, cooldown_minutes, last_triggered_at
       FROM alert_rules
       WHERE workspace_id = ? AND enabled = 1 AND action_type = 'block' AND entity_type = 'token_cost'
-    `).all(workspaceId) as { id: number; name: string; cooldown_minutes: number; last_triggered_at: number | null }[]
+    `, [workspaceId]) as { id: number; name: string; cooldown_minutes: number; last_triggered_at: number | null }[]
 
     const activeBlock = blockRules.find(r =>
       r.last_triggered_at != null &&

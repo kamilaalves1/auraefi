@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { existsSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { requireRole } from '@/lib/auth'
@@ -24,7 +24,7 @@ function isAllowedDirectory(input: string): boolean {
  * Opens a new local Terminal window at the given working directory.
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const body = await request.json().catch(() => ({}))

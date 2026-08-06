@@ -1,5 +1,5 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+﻿import { NextRequest, NextResponse } from 'next/server'
+
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { validateBody, softwareEngineeringPresetSchema } from '@/lib/validation'
@@ -14,7 +14,7 @@ import { setWorkspaceSquadActive } from '@/lib/workspace-squad-state-db'
  * Creates the default software-engineering squad (or skips names that already exist).
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
@@ -28,9 +28,7 @@ export async function POST(request: NextRequest) {
   const acceptLang = request.headers.get('accept-language')?.split(',')[0]?.trim().split(';')[0]
   const resolvedLocale = resolvePresetLocale(bodyLocale || acceptLang || undefined)
 
-  try {
-    const db = getDatabase()
-    const workspaceId = auth.user.workspace_id ?? 1
+  try {    const workspaceId = auth.user.workspace_id ?? 1
     const ipAddress = request.headers.get('x-forwarded-for') || 'unknown'
     const ctx = {
       workspaceId,
@@ -46,7 +44,7 @@ export async function POST(request: NextRequest) {
     const warnings: string[] = []
 
     for (const m of members) {
-      const result = await createMcAgent(db, ctx, {
+      const result = await await createMcAgent(ctx, {
         name: m.name,
         agent_id: (m.name || m.template || 'agent').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
         template: m.template,
@@ -74,7 +72,7 @@ export async function POST(request: NextRequest) {
 
     if (errors.length === 0 && (created.length > 0 || skipped.length > 0)) {
       try {
-        setWorkspaceSquadActive(db, workspaceId, true, auth.user.username)
+        await setWorkspaceSquadActive(workspaceId, true, auth.user.username)
       } catch (e) {
         logger.warn({ err: e }, 'Could not persist squad_active after preset')
       }

@@ -1,13 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { requireRole } from '@/lib/auth'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 import { updateProjectSchema, validateBody } from '@/lib/validation'
-import {
-  ensureTenantWorkspaceAccess,
-  ForbiddenError
-} from '@/lib/workspaces'
+import { ensureTenantWorkspaceAccess, ForbiddenError } from '@/lib/workspaces'
 
 function normalizePrefix(input: string): string {
   const normalized = input.trim().toUpperCase().replace(/[^A-Z0-9]/g, '')
@@ -23,15 +20,15 @@ export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
-    const db = getDatabase()
+
     const workspaceId = auth.user.workspace_id ?? 1
     const tenantId = auth.user.tenant_id ?? 1
     const forwardedFor = (request.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() || null
-    ensureTenantWorkspaceAccess(db, tenantId, workspaceId, {
+    await ensureTenantWorkspaceAccess(tenantId, workspaceId, {
       actor: auth.user.username,
       actorId: auth.user.id,
       route: '/api/projects/[id]',
@@ -41,23 +38,23 @@ export async function GET(
     const { id } = await params
     const projectId = toProjectId(id)
     if (Number.isNaN(projectId)) return NextResponse.json({ error: 'Invalid project ID' }, { status: 400 })
-    const projectScope = db.prepare(`
+    const projectScope = await dbGet(`
       SELECT p.id
       FROM projects p
       JOIN workspaces w ON w.id = p.workspace_id
       WHERE p.id = ? AND p.workspace_id = ? AND w.tenant_id = ?
       LIMIT 1
-    `).get(projectId, workspaceId, tenantId)
+    `, [projectId, workspaceId, tenantId])
     if (!projectScope) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
 
-    const row = db.prepare(`
+    const row = await dbGet(`
       SELECT p.id, p.workspace_id, p.name, p.slug, p.description, p.ticket_prefix, p.ticket_counter, p.status,
              p.github_repo, p.deadline, p.color, p.github_sync_enabled, p.github_labels_initialized, p.github_default_branch, p.created_at, p.updated_at,
              (SELECT COUNT(*) FROM tasks t WHERE t.project_id = p.id) as task_count,
              (SELECT GROUP_CONCAT(paa.agent_name) FROM project_agent_assignments paa WHERE paa.project_id = p.id) as assigned_agents_csv
       FROM projects p
       WHERE p.id = ? AND p.workspace_id = ?
-    `).get(projectId, workspaceId) as Record<string, unknown> | undefined
+    `, [projectId, workspaceId]) as Record<string, unknown> | undefined
     if (!row) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
 
     const project = {
@@ -80,18 +77,18 @@ export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
   if (rateCheck) return rateCheck
 
   try {
-    const db = getDatabase()
+
     const workspaceId = auth.user.workspace_id ?? 1
     const tenantId = auth.user.tenant_id ?? 1
     const forwardedFor = (request.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() || null
-    ensureTenantWorkspaceAccess(db, tenantId, workspaceId, {
+    await ensureTenantWorkspaceAccess(tenantId, workspaceId, {
       actor: auth.user.username,
       actorId: auth.user.id,
       route: '/api/projects/[id]',
@@ -101,16 +98,16 @@ export async function PATCH(
     const { id } = await params
     const projectId = toProjectId(id)
     if (Number.isNaN(projectId)) return NextResponse.json({ error: 'Invalid project ID' }, { status: 400 })
-    const projectScope = db.prepare(`
+    const projectScope = await dbGet(`
       SELECT p.id
       FROM projects p
       JOIN workspaces w ON w.id = p.workspace_id
       WHERE p.id = ? AND p.workspace_id = ? AND w.tenant_id = ?
       LIMIT 1
-    `).get(projectId, workspaceId, tenantId)
+    `, [projectId, workspaceId, tenantId])
     if (!projectScope) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
 
-    const current = db.prepare(`SELECT id, workspace_id, slug FROM projects WHERE id = ? AND workspace_id = ?`).get(projectId, workspaceId) as {
+    const current = await dbGet(`SELECT id, workspace_id, slug FROM projects WHERE id = ? AND workspace_id = ?`, [projectId, workspaceId]) as {
       id: number
       workspace_id: number
       slug: string
@@ -140,10 +137,10 @@ export async function PATCH(
       const raw = String(body.ticket_prefix ?? body.ticketPrefix)
       const prefix = normalizePrefix(raw)
       if (!prefix) return NextResponse.json({ error: 'Invalid ticket prefix' }, { status: 400 })
-      const conflict = db.prepare(`
+      const conflict = await dbGet(`
         SELECT id FROM projects
         WHERE workspace_id = ? AND ticket_prefix = ? AND id != ?
-      `).get(workspaceId, prefix, projectId)
+      `, [workspaceId, prefix, projectId])
       if (conflict) return NextResponse.json({ error: 'Ticket prefix already in use' }, { status: 409 })
       updates.push('ticket_prefix = ?')
       paramsList.push(prefix)
@@ -180,10 +177,10 @@ export async function PATCH(
     const assignedAgents = body.assigned_agents
     if (assignedAgents?.length) {
       const placeholders = assignedAgents.map(() => '?').join(', ')
-      const knownAgents = db.prepare(`
+      const knownAgents = await dbGetAll(`
         SELECT name FROM agents
         WHERE workspace_id = ? AND name IN (${placeholders})
-      `).all(workspaceId, ...assignedAgents) as Array<{ name: string }>
+      `, [workspaceId, ...assignedAgents]) as Array<{ name: string }>
       const knownNames = new Set(knownAgents.map((agent) => agent.name))
       const unknownAgents = assignedAgents.filter((name) => !knownNames.has(name))
       if (unknownAgents.length) {
@@ -191,41 +188,35 @@ export async function PATCH(
       }
     }
 
-    updates.push('updated_at = unixepoch()')
-    const updateProject = db.prepare(`
-        UPDATE projects
-        SET ${updates.join(', ')}
-        WHERE id = ? AND workspace_id = ?
-      `)
-    const insertAssignment = db.prepare(`
-      INSERT OR IGNORE INTO project_agent_assignments (project_id, agent_name, role)
-      VALUES (?, ?, 'member')
-    `)
-    const updateTransaction = db.transaction(() => {
-      updateProject.run(...paramsList, projectId, workspaceId)
+    updates.push('updated_at = UNIX_TIMESTAMP()')
+    await dbRun(`
+      UPDATE projects
+      SET ${updates.join(', ')}
+      WHERE id = ? AND workspace_id = ?
+    `, [...paramsList, projectId, workspaceId])
 
-      if (assignedAgents !== undefined) {
-        if (assignedAgents.length === 0) {
-          db.prepare('DELETE FROM project_agent_assignments WHERE project_id = ?').run(projectId)
-        } else {
-          const placeholders = assignedAgents.map(() => '?').join(', ')
-          db.prepare(`
-            DELETE FROM project_agent_assignments
-            WHERE project_id = ? AND agent_name NOT IN (${placeholders})
-          `).run(projectId, ...assignedAgents)
-          for (const agentName of assignedAgents) insertAssignment.run(projectId, agentName)
+    if (assignedAgents !== undefined) {
+      if (assignedAgents.length === 0) {
+        await dbRun('DELETE FROM project_agent_assignments WHERE project_id = ?', [projectId])
+      } else {
+        const placeholders = assignedAgents.map(() => '?').join(', ')
+        await dbRun(`
+          DELETE FROM project_agent_assignments
+          WHERE project_id = ? AND agent_name NOT IN (${placeholders})
+        `, [projectId, ...assignedAgents])
+        for (const agentName of assignedAgents) {
+          await dbRun(`INSERT IGNORE INTO project_agent_assignments (project_id, agent_name, role) VALUES (?, ?, 'member')`, [projectId, agentName])
         }
       }
-    })
-    updateTransaction()
+    }
 
-    const projectRow = db.prepare(`
+    const projectRow = await dbGet(`
       SELECT id, workspace_id, name, slug, description, ticket_prefix, ticket_counter, status,
              github_repo, deadline, color, github_sync_enabled, github_labels_initialized, github_default_branch, created_at, updated_at,
              (SELECT GROUP_CONCAT(paa.agent_name) FROM project_agent_assignments paa WHERE paa.project_id = projects.id) as assigned_agents_csv
       FROM projects
       WHERE id = ? AND workspace_id = ?
-    `).get(projectId, workspaceId) as Record<string, unknown>
+    `, [projectId, workspaceId]) as Record<string, unknown>
     const project = {
       ...projectRow,
       assigned_agents: projectRow.assigned_agents_csv ? String(projectRow.assigned_agents_csv).split(',') : [],
@@ -246,18 +237,18 @@ export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
   if (rateCheck) return rateCheck
 
   try {
-    const db = getDatabase()
+
     const workspaceId = auth.user.workspace_id ?? 1
     const tenantId = auth.user.tenant_id ?? 1
     const forwardedFor = (request.headers.get('x-forwarded-for') || '').split(',')[0]?.trim() || null
-    ensureTenantWorkspaceAccess(db, tenantId, workspaceId, {
+    await ensureTenantWorkspaceAccess(tenantId, workspaceId, {
       actor: auth.user.username,
       actorId: auth.user.id,
       route: '/api/projects/[id]',
@@ -267,16 +258,16 @@ export async function DELETE(
     const { id } = await params
     const projectId = toProjectId(id)
     if (Number.isNaN(projectId)) return NextResponse.json({ error: 'Invalid project ID' }, { status: 400 })
-    const projectScope = db.prepare(`
+    const projectScope = await dbGet(`
       SELECT p.id
       FROM projects p
       JOIN workspaces w ON w.id = p.workspace_id
       WHERE p.id = ? AND p.workspace_id = ? AND w.tenant_id = ?
       LIMIT 1
-    `).get(projectId, workspaceId, tenantId)
+    `, [projectId, workspaceId, tenantId])
     if (!projectScope) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
 
-    const current = db.prepare(`SELECT * FROM projects WHERE id = ? AND workspace_id = ?`).get(projectId, workspaceId) as any
+    const current = await dbGet(`SELECT * FROM projects WHERE id = ? AND workspace_id = ?`, [projectId, workspaceId]) as any
     if (!current) return NextResponse.json({ error: 'Project not found' }, { status: 404 })
     if (current.slug === 'general') {
       return NextResponse.json({ error: 'Default project cannot be deleted' }, { status: 400 })
@@ -284,27 +275,19 @@ export async function DELETE(
 
     const mode = new URL(request.url).searchParams.get('mode') || 'archive'
     if (mode !== 'delete') {
-      db.prepare(`UPDATE projects SET status = 'archived', updated_at = unixepoch() WHERE id = ? AND workspace_id = ?`).run(projectId, workspaceId)
+      await dbRun(`UPDATE projects SET status = 'archived', updated_at = UNIX_TIMESTAMP() WHERE id = ? AND workspace_id = ?`, [projectId, workspaceId])
       return NextResponse.json({ success: true, mode: 'archive' })
     }
 
-    const fallback = db.prepare(`
+    const fallback = await dbGet(`
       SELECT id FROM projects
       WHERE workspace_id = ? AND slug = 'general'
       LIMIT 1
-    `).get(workspaceId) as { id: number } | undefined
+    `, [workspaceId]) as { id: number } | undefined
     if (!fallback) return NextResponse.json({ error: 'Default project missing' }, { status: 500 })
 
-    const tx = db.transaction(() => {
-      db.prepare(`
-        UPDATE tasks
-        SET project_id = ?
-        WHERE workspace_id = ? AND project_id = ?
-      `).run(fallback.id, workspaceId, projectId)
-
-      db.prepare(`DELETE FROM projects WHERE id = ? AND workspace_id = ?`).run(projectId, workspaceId)
-    })
-    tx()
+    await dbRun(`UPDATE tasks SET project_id = ? WHERE workspace_id = ? AND project_id = ?`, [fallback.id, workspaceId, projectId])
+    await dbRun(`DELETE FROM projects WHERE id = ? AND workspace_id = ?`, [projectId, workspaceId])
 
     return NextResponse.json({ success: true, mode: 'delete' })
   } catch (error) {

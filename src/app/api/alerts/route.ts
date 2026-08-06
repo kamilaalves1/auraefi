@@ -1,6 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { getDatabase } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { mutationLimiter } from '@/lib/rate-limit'
 import { createAlertSchema, validateBody } from '@/lib/validation'
 
@@ -27,15 +27,11 @@ interface AlertRule {
  * GET /api/alerts - List all alert rules
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
-
-  const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
   try {
-    const rules = db
-      .prepare('SELECT * FROM alert_rules WHERE workspace_id = ? ORDER BY created_at DESC')
-      .all(workspaceId) as AlertRule[]
+    const rules = await dbGetAll<AlertRule>('SELECT * FROM alert_rules WHERE workspace_id = ? ORDER BY created_at DESC', [workspaceId])
     return NextResponse.json({ rules })
   } catch {
     return NextResponse.json({ rules: [] })
@@ -46,13 +42,11 @@ export async function GET(request: NextRequest) {
  * POST /api/alerts - Create a new alert rule or evaluate rules
  */
 export async function POST(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
   if (rateCheck) return rateCheck
-
-  const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
 
   // Check for evaluate action first (peek at body without consuming)
@@ -62,7 +56,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (rawBody.action === 'evaluate') {
-    return evaluateRules(db, workspaceId)
+    return evaluateRules(workspaceId)
   }
 
   // Validate for create using schema
@@ -76,11 +70,10 @@ export async function POST(request: NextRequest) {
   const { name, description, entity_type, condition_field, condition_operator, condition_value, action_type, action_config, cooldown_minutes } = parseResult.data
 
   try {
-    const result = db.prepare(`
+    const result = await dbRun(`
       INSERT INTO alert_rules (name, description, entity_type, condition_field, condition_operator, condition_value, action_type, action_config, cooldown_minutes, created_by, workspace_id)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      name,
+    `, [name,
       description || null,
       entity_type,
       condition_field,
@@ -90,21 +83,16 @@ export async function POST(request: NextRequest) {
       JSON.stringify(action_config || {}),
       cooldown_minutes || 60,
       auth.user?.username || 'system',
-      workspaceId
-    )
+      workspaceId])
 
     // Audit log
     try {
-      db.prepare('INSERT INTO audit_log (action, actor, detail) VALUES (?, ?, ?)').run(
-        'alert_rule_created',
+      await dbRun('INSERT INTO audit_log (action, actor, detail) VALUES (?, ?, ?)', ['alert_rule_created',
         auth.user?.username || 'system',
-        `Created alert rule: ${name}`
-      )
+        `Created alert rule: ${name}`])
     } catch { /* audit table might not exist */ }
 
-    const rule = db
-      .prepare('SELECT * FROM alert_rules WHERE id = ? AND workspace_id = ?')
-      .get(result.lastInsertRowid, workspaceId) as AlertRule
+    const rule = await dbGet<AlertRule>('SELECT * FROM alert_rules WHERE id = ? AND workspace_id = ?', [result.insertId, workspaceId])
     return NextResponse.json({ rule }, { status: 201 })
   } catch (err: any) {
     return NextResponse.json({ error: err.message || 'Failed to create rule' }, { status: 500 })
@@ -115,22 +103,18 @@ export async function POST(request: NextRequest) {
  * PUT /api/alerts - Update an alert rule
  */
 export async function PUT(request: NextRequest) {
-  const auth = requireRole(request, 'operator')
+  const auth = await requireRole(request, 'operator')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
   if (rateCheck) return rateCheck
-
-  const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
   const body = await request.json()
   const { id, ...updates } = body
 
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
 
-  const existing = db
-    .prepare('SELECT * FROM alert_rules WHERE id = ? AND workspace_id = ?')
-    .get(id, workspaceId) as AlertRule | undefined
+  const existing = await dbGet<AlertRule>('SELECT * FROM alert_rules WHERE id = ? AND workspace_id = ?', [id, workspaceId])
   if (!existing) return NextResponse.json({ error: 'Rule not found' }, { status: 404 })
 
   const allowed = ['name', 'description', 'enabled', 'entity_type', 'condition_field', 'condition_operator', 'condition_value', 'action_type', 'action_config', 'cooldown_minutes']
@@ -146,14 +130,12 @@ export async function PUT(request: NextRequest) {
 
   if (sets.length === 0) return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
 
-  sets.push('updated_at = (unixepoch())')
+  sets.push('updated_at = (UNIX_TIMESTAMP())')
   values.push(id, workspaceId)
 
-  db.prepare(`UPDATE alert_rules SET ${sets.join(', ')} WHERE id = ? AND workspace_id = ?`).run(...values)
+  await dbRun(`UPDATE alert_rules SET ${sets.join(', ')} WHERE id = ? AND workspace_id = ?`, values)
 
-  const updated = db
-    .prepare('SELECT * FROM alert_rules WHERE id = ? AND workspace_id = ?')
-    .get(id, workspaceId) as AlertRule
+  const updated = await dbGet<AlertRule>('SELECT * FROM alert_rules WHERE id = ? AND workspace_id = ?', [id, workspaceId])
   return NextResponse.json({ rule: updated })
 }
 
@@ -161,39 +143,35 @@ export async function PUT(request: NextRequest) {
  * DELETE /api/alerts - Delete an alert rule
  */
 export async function DELETE(request: NextRequest) {
-  const auth = requireRole(request, 'admin')
+  const auth = await requireRole(request, 'admin')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const rateCheck = mutationLimiter(request)
   if (rateCheck) return rateCheck
-
-  const db = getDatabase()
   const workspaceId = auth.user.workspace_id ?? 1
   const body = await request.json()
   const { id } = body
 
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
 
-  const result = db.prepare('DELETE FROM alert_rules WHERE id = ? AND workspace_id = ?').run(id, workspaceId)
+  const result = await dbRun('DELETE FROM alert_rules WHERE id = ? AND workspace_id = ?', [id, workspaceId])
 
   try {
-    db.prepare('INSERT INTO audit_log (action, actor, detail) VALUES (?, ?, ?)').run(
-      'alert_rule_deleted',
+    await dbRun('INSERT INTO audit_log (action, actor, detail) VALUES (?, ?, ?)', ['alert_rule_deleted',
       auth.user?.username || 'system',
-      `Deleted alert rule #${id}`
-    )
+      `Deleted alert rule #${id}`])
   } catch { /* audit table might not exist */ }
 
-  return NextResponse.json({ deleted: result.changes > 0 })
+  return NextResponse.json({ deleted: result.affectedRows > 0 })
 }
 
 /**
  * Evaluate all enabled alert rules against current data
  */
-function evaluateRules(db: ReturnType<typeof getDatabase>, workspaceId: number) {
+async function evaluateRules(workspaceId: number) {
   let rules: AlertRule[]
   try {
-    rules = db.prepare('SELECT * FROM alert_rules WHERE enabled = 1 AND workspace_id = ?').all(workspaceId) as AlertRule[]
+    rules = await dbGetAll('SELECT * FROM alert_rules WHERE enabled = 1 AND workspace_id = ?', [workspaceId]) as AlertRule[]
   } catch {
     return NextResponse.json({ evaluated: 0, triggered: 0, results: [] })
   }
@@ -208,18 +186,18 @@ function evaluateRules(db: ReturnType<typeof getDatabase>, workspaceId: number) 
       continue
     }
 
-    const triggered = evaluateRule(db, rule, now, workspaceId)
+    const triggered = await evaluateRule(rule, now, workspaceId)
     results.push({ rule_id: rule.id, rule_name: rule.name, triggered, reason: triggered ? 'Condition met' : 'Condition not met' })
 
     if (triggered) {
       // Update trigger tracking
-      db.prepare('UPDATE alert_rules SET last_triggered_at = ?, trigger_count = trigger_count + 1 WHERE id = ?').run(now, rule.id)
+      await dbRun('UPDATE alert_rules SET last_triggered_at = ?, trigger_count = trigger_count + 1 WHERE id = ?', [now, rule.id])
 
       try {
         const config = JSON.parse(rule.action_config || '{}')
 
         if (rule.action_type === 'webhook' && config.url) {
-          // Fire webhook asynchronously — don't block evaluation
+          // Fire webhook asynchronously â€” don't block evaluation
           fetch(config.url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -232,26 +210,26 @@ function evaluateRules(db: ReturnType<typeof getDatabase>, workspaceId: number) 
             }),
           }).catch(() => {})
         } else if (rule.action_type === 'email' && config.email_to) {
-          // Email dispatch — requires SMTP config; log as notification for now
-          db.prepare(`
+          // Email dispatch â€” requires SMTP config; log as notification for now
+          await dbRun(`
             INSERT INTO notifications (recipient, type, title, message, source_type, source_id, workspace_id)
             VALUES (?, 'alert', ?, ?, 'alert_rule', ?, ?)
-          `).run('coordinator', `📧 E-mail: ${rule.name}`, `Limite excedido. Envio para ${config.email_to} requer SMTP configurado.`, rule.id, workspaceId)
+          `, ['coordinator', `ðŸ“§ E-mail: ${rule.name}`, `Limite excedido. Envio para ${config.email_to} requer SMTP configurado.`, rule.id, workspaceId])
         } else if (rule.action_type === 'block') {
           // Block rules are evaluated on demand via /api/alerts/block-status
           // Just update the notification so admins see it
           const recipient = config.recipient || 'coordinator'
-          db.prepare(`
+          await dbRun(`
             INSERT INTO notifications (recipient, type, title, message, source_type, source_id, workspace_id)
             VALUES (?, 'alert', ?, ?, 'alert_rule', ?, ?)
-          `).run(recipient, `🚫 Bloqueio ativo: ${rule.name}`, `Limite excedido — novos envios LLM bloqueados. Regra: "${rule.name}"`, rule.id, workspaceId)
+          `, [recipient, `ðŸš« Bloqueio ativo: ${rule.name}`, `Limite excedido â€” novos envios LLM bloqueados. Regra: "${rule.name}"`, rule.id, workspaceId])
         } else {
           // Default: internal notification
           const recipient = config.recipient || 'system'
-          db.prepare(`
+          await dbRun(`
             INSERT INTO notifications (recipient, type, title, message, source_type, source_id, workspace_id)
             VALUES (?, 'alert', ?, ?, 'alert_rule', ?, ?)
-          `).run(recipient, `Alert: ${rule.name}`, rule.description || `Rule "${rule.name}" triggered`, rule.id, workspaceId)
+          `, [recipient, `Alert: ${rule.name}`, rule.description || `Rule "${rule.name}" triggered`, rule.id, workspaceId])
         }
       } catch { /* notification creation failed */ }
     }
@@ -261,14 +239,14 @@ function evaluateRules(db: ReturnType<typeof getDatabase>, workspaceId: number) 
   return NextResponse.json({ evaluated: rules.length, triggered, results })
 }
 
-function evaluateRule(db: ReturnType<typeof getDatabase>, rule: AlertRule, now: number, workspaceId: number): boolean {
+async function evaluateRule(rule: AlertRule, now: number, workspaceId: number): Promise<boolean> {
   try {
     switch (rule.entity_type) {
-      case 'agent': return evaluateAgentRule(db, rule, now, workspaceId)
-      case 'task': return evaluateTaskRule(db, rule, now, workspaceId)
-      case 'session': return evaluateSessionRule(db, rule, now, workspaceId)
-      case 'activity': return evaluateActivityRule(db, rule, now, workspaceId)
-      case 'token_cost': return evaluateTokenCostRule(db, rule, now, workspaceId)
+      case 'agent': return evaluateAgentRule(rule, now, workspaceId)
+      case 'task': return evaluateTaskRule(rule, now, workspaceId)
+      case 'session': return evaluateSessionRule(rule, now, workspaceId)
+      case 'activity': return evaluateActivityRule(rule, now, workspaceId)
+      case 'token_cost': return evaluateTokenCostRule(rule, now, workspaceId)
       default: return false
     }
   } catch {
@@ -276,68 +254,68 @@ function evaluateRule(db: ReturnType<typeof getDatabase>, rule: AlertRule, now: 
   }
 }
 
-function evaluateAgentRule(db: ReturnType<typeof getDatabase>, rule: AlertRule, now: number, workspaceId: number): boolean {
+async function evaluateAgentRule(rule: AlertRule, now: number, workspaceId: number): Promise<boolean> {
   const { condition_field, condition_operator, condition_value } = rule
 
   if (condition_operator === 'count_above' || condition_operator === 'count_below') {
-    const count = (db.prepare(`SELECT COUNT(*) as c FROM agents WHERE workspace_id = ? AND ${safeColumn('agents', condition_field)} = ?`).get(workspaceId, condition_value) as any)?.c || 0
+    const count = (await dbGet(`SELECT COUNT(*) as c FROM agents WHERE workspace_id = ? AND ${safeColumn('agents', condition_field)} = ?`, [workspaceId, condition_value]) as any)?.c || 0
     return condition_operator === 'count_above' ? count > parseInt(condition_value) : count < parseInt(condition_value)
   }
 
   if (condition_operator === 'age_minutes_above') {
     // Check agents where field value is older than N minutes (e.g., last_seen)
     const threshold = now - parseInt(condition_value) * 60
-    const count = (db.prepare(`SELECT COUNT(*) as c FROM agents WHERE workspace_id = ? AND status != 'offline' AND ${safeColumn('agents', condition_field)} < ?`).get(workspaceId, threshold) as any)?.c || 0
+    const count = (await dbGet(`SELECT COUNT(*) as c FROM agents WHERE workspace_id = ? AND status != 'offline' AND ${safeColumn('agents', condition_field)} < ?`, [workspaceId, threshold]) as any)?.c || 0
     return count > 0
   }
 
-  const agents = db.prepare(`SELECT ${safeColumn('agents', condition_field)} as val FROM agents WHERE workspace_id = ? AND status != 'offline'`).all(workspaceId) as any[]
+  const agents = await dbGetAll(`SELECT ${safeColumn('agents', condition_field)} as val FROM agents WHERE workspace_id = ? AND status != 'offline'`, [workspaceId]) as any[]
   return agents.some(a => compareValue(a.val, condition_operator, condition_value))
 }
 
-function evaluateTaskRule(db: ReturnType<typeof getDatabase>, rule: AlertRule, _now: number, workspaceId: number): boolean {
+async function evaluateTaskRule(rule: AlertRule, _now: number, workspaceId: number): Promise<boolean> {
   const { condition_field, condition_operator, condition_value } = rule
 
   if (condition_operator === 'count_above') {
-    const count = (db.prepare(`SELECT COUNT(*) as c FROM tasks WHERE workspace_id = ? AND ${safeColumn('tasks', condition_field)} = ?`).get(workspaceId, condition_value) as any)?.c || 0
+    const count = (await dbGet(`SELECT COUNT(*) as c FROM tasks WHERE workspace_id = ? AND ${safeColumn('tasks', condition_field)} = ?`, [workspaceId, condition_value]) as any)?.c || 0
     return count > parseInt(condition_value)
   }
 
   if (condition_operator === 'count_below') {
-    const count = (db.prepare(`SELECT COUNT(*) as c FROM tasks WHERE workspace_id = ?`).get(workspaceId) as any)?.c || 0
+    const count = (await dbGet(`SELECT COUNT(*) as c FROM tasks WHERE workspace_id = ?`, [workspaceId]) as any)?.c || 0
     return count < parseInt(condition_value)
   }
 
-  const tasks = db.prepare(`SELECT ${safeColumn('tasks', condition_field)} as val FROM tasks WHERE workspace_id = ?`).all(workspaceId) as any[]
+  const tasks = await dbGetAll(`SELECT ${safeColumn('tasks', condition_field)} as val FROM tasks WHERE workspace_id = ?`, [workspaceId]) as any[]
   return tasks.some(t => compareValue(t.val, condition_operator, condition_value))
 }
 
-function evaluateSessionRule(db: ReturnType<typeof getDatabase>, rule: AlertRule, _now: number, workspaceId: number): boolean {
+async function evaluateSessionRule(rule: AlertRule, _now: number, workspaceId: number): Promise<boolean> {
   // Session data comes from the gateway, not the DB, so we check the agents table for session info
   const { condition_operator, condition_value } = rule
 
   if (condition_operator === 'count_above') {
-    const count = (db.prepare(`SELECT COUNT(*) as c FROM agents WHERE workspace_id = ? AND status = 'busy'`).get(workspaceId) as any)?.c || 0
+    const count = (await dbGet(`SELECT COUNT(*) as c FROM agents WHERE workspace_id = ? AND status = 'busy'`, [workspaceId]) as any)?.c || 0
     return count > parseInt(condition_value)
   }
 
   return false
 }
 
-function evaluateActivityRule(db: ReturnType<typeof getDatabase>, rule: AlertRule, now: number, workspaceId: number): boolean {
+async function evaluateActivityRule(rule: AlertRule, now: number, workspaceId: number): Promise<boolean> {
   const { condition_field, condition_operator, condition_value } = rule
 
   if (condition_operator === 'count_above') {
     // Count activities in the last hour
     const hourAgo = now - 3600
-    const count = (db.prepare(`SELECT COUNT(*) as c FROM activities WHERE workspace_id = ? AND created_at > ? AND ${safeColumn('activities', condition_field)} = ?`).get(workspaceId, hourAgo, condition_value) as any)?.c || 0
+    const count = (await dbGet(`SELECT COUNT(*) as c FROM activities WHERE workspace_id = ? AND created_at > ? AND ${safeColumn('activities', condition_field)} = ?`, [workspaceId, hourAgo, condition_value]) as any)?.c || 0
     return count > parseInt(condition_value)
   }
 
   return false
 }
 
-function evaluateTokenCostRule(db: ReturnType<typeof getDatabase>, rule: AlertRule, now: number, workspaceId: number): boolean {
+async function evaluateTokenCostRule(rule: AlertRule, now: number, workspaceId: number): Promise<boolean> {
   const { condition_field, condition_operator, condition_value } = rule
   const threshold = Number(condition_value)
 
@@ -345,31 +323,23 @@ function evaluateTokenCostRule(db: ReturnType<typeof getDatabase>, rule: AlertRu
   const dayAgo = now - 86400
 
   if (condition_field === 'daily_cost_usd') {
-    const row = db.prepare(
-      `SELECT COALESCE(SUM(cost_usd), 0) as total FROM token_usage WHERE workspace_id = ? AND created_at > ?`
-    ).get(workspaceId, dayAgo) as { total: number }
+    const row = await dbGet(`SELECT COALESCE(SUM(cost_usd), 0) as total FROM token_usage WHERE workspace_id = ? AND created_at > ?`, [workspaceId, dayAgo]) as { total: number }
     return compareValue(row.total, condition_operator, condition_value)
   }
 
   if (condition_field === 'daily_tokens') {
-    const row = db.prepare(
-      `SELECT COALESCE(SUM(input_tokens + output_tokens), 0) as total FROM token_usage WHERE workspace_id = ? AND created_at > ?`
-    ).get(workspaceId, dayAgo) as { total: number }
+    const row = await dbGet(`SELECT COALESCE(SUM(input_tokens + output_tokens), 0) as total FROM token_usage WHERE workspace_id = ? AND created_at > ?`, [workspaceId, dayAgo]) as { total: number }
     return compareValue(row.total, condition_operator, condition_value)
   }
 
   if (condition_field === 'total_cost_usd') {
-    const row = db.prepare(
-      `SELECT COALESCE(SUM(cost_usd), 0) as total FROM token_usage WHERE workspace_id = ?`
-    ).get(workspaceId) as { total: number }
+    const row = await dbGet(`SELECT COALESCE(SUM(cost_usd), 0) as total FROM token_usage WHERE workspace_id = ?`, [workspaceId]) as { total: number }
     return compareValue(row.total, condition_operator, condition_value)
   }
 
   if (condition_field === 'monthly_cost_usd') {
     const monthAgo = now - 30 * 86400
-    const row = db.prepare(
-      `SELECT COALESCE(SUM(cost_usd), 0) as total FROM token_usage WHERE workspace_id = ? AND created_at > ?`
-    ).get(workspaceId, monthAgo) as { total: number }
+    const row = await dbGet(`SELECT COALESCE(SUM(cost_usd), 0) as total FROM token_usage WHERE workspace_id = ? AND created_at > ?`, [workspaceId, monthAgo]) as { total: number }
     return compareValue(row.total, condition_operator, condition_value)
   }
 

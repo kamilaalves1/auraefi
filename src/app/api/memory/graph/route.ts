@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { existsSync, readdirSync, statSync } from 'fs'
 import path from 'path'
-import Database from 'better-sqlite3'
-import { config } from '@/lib/config'
 import { requireRole } from '@/lib/auth'
 import { readLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
@@ -26,24 +24,22 @@ const memoryDbDir = ''
 function getAgentData(dbPath: string, agentName: string): AgentGraphData | null {
   try {
     const dbStat = statSync(dbPath)
-    const db = new Database(dbPath, { readonly: true, fileMustExist: true })
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { DatabaseSync } = require('node:sqlite') as typeof import('node:sqlite')
+    const db = new DatabaseSync(dbPath, { open: true })
 
     let files: AgentFileInfo[] = []
     let totalChunks = 0
     let totalFiles = 0
 
     try {
-      // Check if chunks table exists
       const tableCheck = db
         .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chunks'")
         .get() as { name: string } | undefined
 
       if (tableCheck) {
-        // Use COUNT only — skip SUM(LENGTH(text)) which forces a full data scan
         const rows = db
-          .prepare(
-            'SELECT path, COUNT(*) as chunks FROM chunks GROUP BY path ORDER BY chunks DESC'
-          )
+          .prepare('SELECT path, COUNT(*) as chunks FROM chunks GROUP BY path ORDER BY chunks DESC')
           .all() as Array<{ path: string; chunks: number }>
 
         files = rows.map((r) => ({
@@ -73,7 +69,7 @@ function getAgentData(dbPath: string, agentName: string): AgentGraphData | null 
 }
 
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   const limited = readLimiter(request)
@@ -102,7 +98,6 @@ export async function GET(request: NextRequest) {
       if (data) agents.push(data)
     }
 
-    // Sort by total chunks descending
     agents.sort((a, b) => b.totalChunks - a.totalChunks)
 
     return NextResponse.json({ agents })

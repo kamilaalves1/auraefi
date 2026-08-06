@@ -4,27 +4,11 @@
  * instead of metadata JSON for matching.
  */
 
-import { getDatabase, db_helpers } from '@/lib/db'
+import { db_helpers } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { logger } from '@/lib/logger'
-import {
-  fetchIssues,
-  fetchIssue,
-  updateIssue,
-  createIssue,
-  ensureLabels,
-  type GitHubIssue,
-} from '@/lib/github'
-import {
-  ALL_MC_LABELS,
-  ALL_STATUS_LABEL_NAMES,
-  ALL_PRIORITY_LABEL_NAMES,
-  statusToLabel,
-  labelToStatus,
-  priorityToLabel,
-  labelToPriority,
-  type TaskStatus,
-  type TaskPriority,
-} from '@/lib/github-label-map'
+import { fetchIssues, fetchIssue, updateIssue, createIssue, ensureLabels, type GitHubIssue } from '@/lib/github'
+import { ALL_MC_LABELS, ALL_STATUS_LABEL_NAMES, ALL_PRIORITY_LABEL_NAMES, statusToLabel, labelToStatus, priorityToLabel, labelToPriority, type TaskStatus, type TaskPriority } from '@/lib/github-label-map'
 
 /**
  * Idempotently create all MC labels on a GitHub repo.
@@ -56,8 +40,6 @@ export async function pushTaskToGitHub(
 ): Promise<void> {
   const repo = task.github_repo || project.github_repo
   if (!repo) return
-
-  const db = getDatabase()
   const now = Math.floor(Date.now() / 1000)
 
   const statusLabel = statusToLabel(task.status as TaskStatus)
@@ -89,9 +71,9 @@ export async function pushTaskToGitHub(
     })
 
     // Mark synced to prevent ping-pong
-    db.prepare(`
+    await dbRun(`
       UPDATE tasks SET github_synced_at = ? WHERE id = ?
-    `).run(now, task.id)
+    `, [now, task.id])
 
     logger.info({ repo, issue: task.github_issue_number }, 'Pushed task update to GitHub')
   } else if (project.github_sync_enabled) {
@@ -105,11 +87,11 @@ export async function pushTaskToGitHub(
     })
 
     // Store the issue number and repo on the task
-    db.prepare(`
+    await dbRun(`
       UPDATE tasks
       SET github_issue_number = ?, github_repo = ?, github_synced_at = ?
       WHERE id = ?
-    `).run(created.number, repo, now, task.id)
+    `, [created.number, repo, now, task.id])
 
     logger.info({ repo, issue: created.number, taskId: task.id }, 'Created GitHub issue for task')
   }
@@ -131,18 +113,16 @@ export async function pullFromGitHub(
   if (!repo || !project.github_sync_enabled) {
     return { pulled: 0, pushed: 0 }
   }
-
-  const db = getDatabase()
   const now = Math.floor(Date.now() / 1000)
   let pulled = 0
   let pushed = 0
 
   // Find last sync time for this project
-  const lastSync = db.prepare(`
+  const lastSync = await dbGet(`
     SELECT last_synced_at FROM github_syncs
     WHERE project_id = ? AND workspace_id = ?
     ORDER BY created_at DESC LIMIT 1
-  `).get(project.id, workspaceId) as { last_synced_at: number } | undefined
+  `, [project.id, workspaceId]) as { last_synced_at: number } | undefined
 
   const sinceDate = lastSync
     ? new Date(lastSync.last_synced_at * 1000).toISOString()
@@ -159,20 +139,20 @@ export async function pullFromGitHub(
   } catch (err) {
     logger.error({ err, repo }, 'Failed to fetch issues from GitHub')
     // Record failed sync
-    db.prepare(`
+    await dbRun(`
       INSERT INTO github_syncs (repo, last_synced_at, issue_count, sync_direction, status, error, project_id, changes_pushed, changes_pulled, workspace_id)
       VALUES (?, ?, 0, 'inbound', 'error', ?, ?, 0, 0, ?)
-    `).run(repo, now, (err as Error).message, project.id, workspaceId)
+    `, [repo, now, (err as Error).message, project.id, workspaceId])
     return { pulled: 0, pushed: 0 }
   }
 
   for (const issue of issues) {
     try {
       // Match to existing task via DB columns
-      const existingTask = db.prepare(`
+      const existingTask = await dbGet(`
         SELECT * FROM tasks
         WHERE github_repo = ? AND github_issue_number = ? AND workspace_id = ?
-      `).get(repo, issue.number, workspaceId) as any | undefined
+      `, [repo, issue.number, workspaceId]) as any | undefined
 
       const issueUpdatedAt = Math.floor(new Date(issue.updated_at).getTime() / 1000)
       const labelNames = issue.labels.map(l => l.name)
@@ -185,15 +165,14 @@ export async function pullFromGitHub(
         const priority = labelToPriority(labelNames)
         const tags = labelNames.filter(l => !ALL_STATUS_LABEL_NAMES.includes(l) && !ALL_PRIORITY_LABEL_NAMES.includes(l))
 
-        db.prepare(`
+        await dbRun(`
           INSERT INTO tasks (
             title, description, status, priority, created_by,
             created_at, updated_at, tags, metadata,
             github_issue_number, github_repo, github_synced_at,
             project_id, workspace_id
           ) VALUES (?, ?, ?, ?, 'github-sync', ?, ?, ?, '{}', ?, ?, ?, ?, ?)
-        `).run(
-          issue.title,
+        `, [issue.title,
           issue.body || '',
           status,
           priority,
@@ -201,7 +180,7 @@ export async function pullFromGitHub(
           JSON.stringify(tags),
           issue.number, repo, now,
           project.id, workspaceId
-        )
+        ])
 
         pulled++
         db_helpers.logActivity(
@@ -226,19 +205,17 @@ export async function pullFromGitHub(
         ) || existingTask.status)
         const priority = labelToPriority(labelNames)
 
-        db.prepare(`
+        await dbRun(`
           UPDATE tasks
           SET title = ?, description = ?, status = ?, priority = ?,
               github_synced_at = ?, updated_at = ?
           WHERE id = ? AND workspace_id = ?
-        `).run(
-          issue.title,
+        `, [issue.title,
           issue.body || '',
           status,
           priority,
           now, now,
-          existingTask.id, workspaceId
-        )
+          existingTask.id, workspaceId])
 
         pulled++
         db_helpers.logActivity(
@@ -254,10 +231,10 @@ export async function pullFromGitHub(
   }
 
   // Record sync
-  db.prepare(`
+  await dbRun(`
     INSERT INTO github_syncs (repo, last_synced_at, issue_count, sync_direction, status, project_id, changes_pushed, changes_pulled, workspace_id)
     VALUES (?, ?, ?, 'inbound', 'success', ?, ?, ?, ?)
-  `).run(repo, now, pulled, project.id, pushed, pulled, workspaceId)
+  `, [repo, now, pulled, project.id, pushed, pulled, workspaceId])
 
   logger.info({ repo, pulled, pushed, projectId: project.id }, 'GitHub sync completed')
 

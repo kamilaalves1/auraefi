@@ -1,5 +1,6 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getDatabase, Activity } from '@/lib/db';
+﻿import { NextRequest, NextResponse } from 'next/server';
+import { Activity } from '@/lib/db'
+import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool';
 import { requireRole } from '@/lib/auth';
 import { logger } from '@/lib/logger';
 
@@ -8,7 +9,7 @@ import { logger } from '@/lib/logger';
  * Query params: type, actor, entity_type, limit, offset, since, hours (for stats)
  */
 export async function GET(request: NextRequest) {
-  const auth = requireRole(request, 'viewer')
+  const auth = await requireRole(request, 'viewer')
   if ('error' in auth) return NextResponse.json({ error: auth.error }, { status: auth.status })
 
   try {
@@ -33,7 +34,6 @@ export async function GET(request: NextRequest) {
  */
 async function handleActivitiesRequest(request: NextRequest, workspaceId: number) {
   try {
-    const db = getDatabase();
     const { searchParams } = new URL(request.url);
     
     // Parse query parameters
@@ -77,41 +77,36 @@ async function handleActivitiesRequest(request: NextRequest, workspaceId: number
     query += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';
     params.push(limit, offset);
     
-    const stmt = db.prepare(query);
-    const activities = stmt.all(...params) as Activity[];
     
-    // Prepare entity detail statements once (avoids N+1)
-    const taskDetailStmt = db.prepare('SELECT id, title, status FROM tasks WHERE id = ? AND workspace_id = ?');
-    const agentDetailStmt = db.prepare('SELECT id, name, role, status FROM agents WHERE id = ? AND workspace_id = ?');
-    const commentDetailStmt = db.prepare(`
-      SELECT c.id, c.content, c.task_id, t.title as task_title
-      FROM comments c
-      LEFT JOIN tasks t ON c.task_id = t.id
-      WHERE c.id = ? AND c.workspace_id = ? AND t.workspace_id = ?
-    `);
-
+    const activities = await dbGetAll(query, params) as Activity[];
+    
     // Parse JSON data field and enhance with related entity data
-    const enhancedActivities = activities.map(activity => {
+    const enhancedActivities = await Promise.all(activities.map(async activity => {
       let entityDetails = null;
 
       try {
         switch (activity.entity_type) {
           case 'task': {
-            const task = taskDetailStmt.get(activity.entity_id, workspaceId) as any;
+            const task = await dbGet('SELECT id, title, status FROM tasks WHERE id = ? AND workspace_id = ?', [activity.entity_id, workspaceId]) as any;
             if (task) {
               entityDetails = { type: 'task', ...task };
             }
             break;
           }
           case 'agent': {
-            const agent = agentDetailStmt.get(activity.entity_id, workspaceId) as any;
+            const agent = await dbGet('SELECT id, name, role, status FROM agents WHERE id = ? AND workspace_id = ?', [activity.entity_id, workspaceId]) as any;
             if (agent) {
               entityDetails = { type: 'agent', ...agent };
             }
             break;
           }
           case 'comment': {
-            const comment = commentDetailStmt.get(activity.entity_id, workspaceId, workspaceId) as any;
+            const comment = await dbGet(`
+      SELECT c.id, c.content, c.task_id, t.title as task_title
+      FROM comments c
+      LEFT JOIN tasks t ON c.task_id = t.id
+      WHERE c.id = ? AND c.workspace_id = ? AND t.workspace_id = ?
+    `, [activity.entity_id, workspaceId, workspaceId]) as any;
             if (comment) {
               entityDetails = {
                 type: 'comment',
@@ -131,7 +126,7 @@ async function handleActivitiesRequest(request: NextRequest, workspaceId: number
         data: activity.data ? JSON.parse(activity.data) : null,
         entity: entityDetails
       };
-    });
+    }));
     
     // Get total count for pagination
     let countQuery = 'SELECT COUNT(*) as total FROM activities WHERE workspace_id = ?';
@@ -163,7 +158,7 @@ async function handleActivitiesRequest(request: NextRequest, workspaceId: number
       countParams.push(parseInt(since));
     }
     
-    const countResult = db.prepare(countQuery).get(...countParams) as { total: number };
+    const countResult = await dbGet(countQuery, countParams) as { total: number };
     
     return NextResponse.json({ 
       activities: enhancedActivities,
@@ -181,7 +176,6 @@ async function handleActivitiesRequest(request: NextRequest, workspaceId: number
  */
 async function handleStatsRequest(request: NextRequest, workspaceId: number) {
   try {
-    const db = getDatabase();
     const { searchParams } = new URL(request.url);
     
     // Parse timeframe parameter (defaults to 24 hours)
@@ -189,7 +183,7 @@ async function handleStatsRequest(request: NextRequest, workspaceId: number) {
     const since = Math.floor(Date.now() / 1000) - (hours * 3600);
     
     // Get activity counts by type
-    const activityStats = db.prepare(`
+    const activityStats = await dbGetAll(`
       SELECT 
         type,
         COUNT(*) as count
@@ -197,10 +191,10 @@ async function handleStatsRequest(request: NextRequest, workspaceId: number) {
       WHERE created_at > ? AND workspace_id = ?
       GROUP BY type
       ORDER BY count DESC
-    `).all(since, workspaceId) as { type: string; count: number }[];
+    `, [since, workspaceId]) as { type: string; count: number }[];
     
     // Get most active actors
-    const activeActors = db.prepare(`
+    const activeActors = await dbGetAll(`
       SELECT 
         actor,
         COUNT(*) as activity_count
@@ -209,10 +203,10 @@ async function handleStatsRequest(request: NextRequest, workspaceId: number) {
       GROUP BY actor
       ORDER BY activity_count DESC
       LIMIT 10
-    `).all(since, workspaceId) as { actor: string; activity_count: number }[];
+    `, [since, workspaceId]) as { actor: string; activity_count: number }[];
     
     // Get activity timeline (hourly buckets)
-    const timeline = db.prepare(`
+    const timeline = await dbGetAll(`
       SELECT 
         (created_at / 3600) * 3600 as hour_bucket,
         COUNT(*) as count
@@ -220,7 +214,7 @@ async function handleStatsRequest(request: NextRequest, workspaceId: number) {
       WHERE created_at > ? AND workspace_id = ?
       GROUP BY hour_bucket
       ORDER BY hour_bucket ASC
-    `).all(since, workspaceId) as { hour_bucket: number; count: number }[];
+    `, [since, workspaceId]) as { hour_bucket: number; count: number }[];
     
     return NextResponse.json({
       timeframe: `${hours} hours`,
