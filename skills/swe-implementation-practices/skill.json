@@ -1,8 +1,8 @@
-{
+﻿{
   "name": "swe-implementation-practices",
   "version": "1.0.0",
   "description": "Implementation: incremental delivery, tests, and review hygiene",
-  "author": "Vertex Control Center",
+  "author": "AURA",
   "license": "MIT",
   "tags": ["development", "testing", "review", "swe-squad"]
 }

@@ -1,8 +1,8 @@
-{
+﻿{
   "name": "swe-orchestration-coordination",
   "version": "1.0.0",
   "description": "Multi-agent orchestration: decomposition, handoffs, and conflict resolution for software delivery",
-  "author": "Vertex Control Center",
+  "author": "AURA",
   "license": "MIT",
   "tags": ["orchestration", "agents", "workflow", "swe-squad"]
 }

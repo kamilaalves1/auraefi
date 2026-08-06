@@ -1,7 +1,7 @@
-{
+﻿{
   "name": "vertex-control-center",
   "version": "1.0.0",
-  "description": "Vertex Control Center — AI Agent Orchestration Dashboard by Silver Snow Studios",
+  "description": "AURA — AI Agent Orchestration Dashboard by Silver Snow Studios",
   "scripts": {
     "verify:node": "node scripts/check-node-version.mjs",
     "api:parity": "node scripts/check-api-contract-parity.mjs --root . --openapi openapi.json --ignore-file scripts/api-contract-parity.ignore",

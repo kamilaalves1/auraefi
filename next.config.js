@@ -11,6 +11,7 @@ const nextConfig = {
     '/*': ['./.data/**/*'],
   },
   turbopack: {},
+  devIndicators: false,
   // Transpile ESM-only packages so they resolve correctly in all environments
   transpilePackages: ['react-markdown', 'remark-gfm'],
   

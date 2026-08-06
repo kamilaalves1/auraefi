@@ -383,7 +383,7 @@ export default function Home() {
           </div>
           <footer className="px-4 pb-4 pt-2">
             <p className="text-2xs text-muted-foreground/50 text-center">
-              Vertex Control Center
+              AURA
             </p>
           </footer>
         </main>

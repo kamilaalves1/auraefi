@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import Image from 'next/image'
 import { useEffect, useState } from 'react'
@@ -86,14 +86,14 @@ export function Sidebar() {
           <div className="w-8 h-8 rounded-lg overflow-hidden bg-background border border-border/50 flex items-center justify-center">
             <Image
               src="/brand/mc-logo-128.png"
-              alt="Vertex Control Center logo"
+              alt="AURA logo"
               width={32}
               height={32}
               className="w-full h-full object-cover"
             />
           </div>
           <div>
-            <h2 className="font-bold text-foreground">Vertex Control</h2>
+            <h2 className="font-bold text-foreground">AURA</h2>
             <p className="text-xs text-muted-foreground">AI Agent Orchestration</p>
           </div>
         </div>

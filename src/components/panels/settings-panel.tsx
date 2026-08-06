@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useCallback } from 'react'
 import { useTranslations } from 'next-intl'
@@ -73,7 +73,7 @@ function parseCoordinatorTargetAgents(rawAgents: any[]): CoordinatorTargetAgent[
 }
 
 const categoryLabels: Record<string, { label: string; icon: string; description: string }> = {
-  general: { label: 'Geral', icon: '⚙', description: 'Configurações principais do Vertex Control Center' },
+  general: { label: 'Geral', icon: '⚙', description: 'Configurações principais do AURA' },
   security: { label: 'Segurança', icon: '🔑', description: 'Gerenciamento de chaves de API e configurações de segurança' },
   retention: { label: 'Retenção de Dados', icon: '🗄', description: 'Por quanto tempo os dados são mantidos antes da limpeza' },
   chat: { label: 'Chat', icon: '💬', description: 'Roteamento do coordenador e configurações de comportamento do chat' },

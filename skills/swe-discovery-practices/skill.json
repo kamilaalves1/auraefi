@@ -1,8 +1,8 @@
-{
+﻿{
   "name": "swe-discovery-practices",
   "version": "1.0.0",
   "description": "Discovery: product, analysis, facilitation, and prioritization playbooks",
-  "author": "Vertex Control Center",
+  "author": "AURA",
   "license": "MIT",
   "tags": ["discovery", "backlog", "agile", "swe-squad"]
 }

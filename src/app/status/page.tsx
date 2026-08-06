@@ -1,9 +1,9 @@
-'use client'
+﻿'use client'
 
 import { useEffect, useState, useCallback } from 'react'
 
 /**
- * Public Status Page — Vertex Control Center
+ * Public Status Page — AURA
  *
  * Like GitHub Status or Vercel Status, shows the real-time health
  * of all Amy services in a beautiful, animated interface.
@@ -134,7 +134,7 @@ export default function StatusPage() {
         <header className="text-center mb-12">
           <div className="inline-flex items-center gap-2 mb-4 px-3 py-1 rounded-full border border-purple-500/20 bg-purple-500/5 text-xs text-purple-400">
             <span className="h-2 w-2 rounded-full bg-purple-500 animate-pulse" />
-            Vertex Control Center
+            AURA
           </div>
           <h1 className="text-3xl font-bold tracking-tight mb-2">
             Status do Sistema
@@ -278,7 +278,7 @@ export default function StatusPage() {
           </div>
           <div className="mt-4 flex items-center justify-center gap-2 text-xs text-zinc-700">
             <span className="h-1.5 w-1.5 rounded-full bg-purple-500/50" />
-            Silver Snow Vertex — Powered by Amy
+            AURA — Powered by Amy
           </div>
         </footer>
       </div>

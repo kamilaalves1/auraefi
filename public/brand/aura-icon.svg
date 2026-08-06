@@ -1,68 +1,63 @@
 <svg viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0.7" y2="1">
-      <stop offset="0%" stop-color="#111827"/>
-      <stop offset="100%" stop-color="#060b14"/>
-    </linearGradient>
-    <linearGradient id="rayTop" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0"/>
-      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0.95"/>
-    </linearGradient>
-    <linearGradient id="rayMid" x1="0" y1="1" x2="0" y2="0">
-      <stop offset="0%" stop-color="#7c3aed" stop-opacity="0"/>
-      <stop offset="100%" stop-color="#a78bfa" stop-opacity="0.75"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="0.6" y2="1">
+      <stop offset="0%" stop-color="#111111"/>
+      <stop offset="100%" stop-color="#050505"/>
     </linearGradient>
     <linearGradient id="letter" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#f1f5f9"/>
-      <stop offset="100%" stop-color="#94a3b8"/>
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#c8cdd6"/>
     </linearGradient>
-    <linearGradient id="apexGlow" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#67e8f9"/>
-      <stop offset="100%" stop-color="#7c3aed"/>
+    <linearGradient id="orangeGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#ffb347"/>
+      <stop offset="100%" stop-color="#f47920"/>
     </linearGradient>
-    <filter id="blur4">
-      <feGaussianBlur stdDeviation="4"/>
+    <linearGradient id="rayGrad" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0%" stop-color="#f47920" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#f47920" stop-opacity="0.7"/>
+    </linearGradient>
+    <filter id="blur6">
+      <feGaussianBlur stdDeviation="6"/>
     </filter>
-    <filter id="blur8">
-      <feGaussianBlur stdDeviation="8"/>
+    <filter id="blur3">
+      <feGaussianBlur stdDeviation="3"/>
     </filter>
-    <filter id="blur2">
-      <feGaussianBlur stdDeviation="2"/>
+    <filter id="blur10">
+      <feGaussianBlur stdDeviation="10"/>
     </filter>
   </defs>
 
-  <!-- Background rounded square -->
+  <!-- Background -->
   <rect width="256" height="256" rx="52" fill="url(#bg)"/>
 
-  <!-- Ambient background glow -->
-  <ellipse cx="128" cy="90" rx="88" ry="60" fill="#6d28d9" opacity="0.09" filter="url(#blur8)"/>
+  <!-- Orange ambient glow behind apex -->
+  <ellipse cx="128" cy="82" rx="70" ry="44" fill="#f47920" opacity="0.08" filter="url(#blur10)"/>
 
-  <!-- Aurora rays — blurred glow layer beneath -->
-  <polygon points="128,44 135,96 128,92 121,96" fill="#22d3ee" opacity="0.5" filter="url(#blur4)"/>
-  <polygon points="128,50 118,88 112,82 122,50" fill="#a78bfa" opacity="0.4" filter="url(#blur4)"/>
-  <polygon points="128,50 138,88 144,82 134,50" fill="#a78bfa" opacity="0.4" filter="url(#blur4)"/>
-  <polygon points="128,56 102,80 97,73 122,56" fill="#7c3aed" opacity="0.25" filter="url(#blur4)"/>
-  <polygon points="128,56 154,80 159,73 134,56" fill="#7c3aed" opacity="0.25" filter="url(#blur4)"/>
+  <!-- Subtle orange rays — glow layer -->
+  <polygon points="128,52 133,96 128,92 123,96" fill="#f47920" opacity="0.35" filter="url(#blur6)"/>
+  <polygon points="128,58 116,90 110,84 122,58" fill="#f47920" opacity="0.18" filter="url(#blur6)"/>
+  <polygon points="128,58 140,90 146,84 134,58" fill="#f47920" opacity="0.18" filter="url(#blur6)"/>
 
-  <!-- Aurora rays — crisp on top -->
-  <polygon points="128,46 133,94 128,91 123,94" fill="url(#rayTop)" opacity="0.95"/>
-  <polygon points="128,52 119,87 114,83 123,52" fill="url(#rayMid)" opacity="0.8"/>
-  <polygon points="128,52 137,87 142,83 133,52" fill="url(#rayMid)" opacity="0.8"/>
-  <polygon points="128,58 104,79 100,74 124,58" fill="url(#rayMid)" opacity="0.45"/>
-  <polygon points="128,58 152,79 156,74 132,58" fill="url(#rayMid)" opacity="0.45"/>
+  <!-- Rays — crisp -->
+  <polygon points="128,54 132,94 128,91 124,94" fill="url(#rayGrad)" opacity="0.9"/>
+  <polygon points="128,60 117,88 112,83 123,60" fill="url(#rayGrad)" opacity="0.55"/>
+  <polygon points="128,60 139,88 144,83 133,60" fill="url(#rayGrad)" opacity="0.55"/>
 
-  <!-- "A" letterform — left leg -->
-  <path d="M70 202 L107 92 L128 92 L128 92 L91 202 Z" fill="url(#letter)"/>
-  <!-- "A" letterform — right leg -->
-  <path d="M186 202 L149 92 L128 92 L165 202 Z" fill="url(#letter)"/>
-  <!-- "A" crossbar -->
-  <rect x="88" y="152" width="80" height="14" rx="5" fill="url(#letter)" opacity="0.88"/>
+  <!-- "A" — left leg -->
+  <path d="M68 205 L108 90 L128 90 L90 205 Z" fill="url(#letter)"/>
+  <!-- "A" — right leg -->
+  <path d="M188 205 L148 90 L128 90 L166 205 Z" fill="url(#letter)"/>
+  <!-- "A" — crossbar -->
+  <rect x="86" y="152" width="84" height="14" rx="5" fill="url(#letter)" opacity="0.9"/>
 
-  <!-- Apex cap — bright dot with glow -->
-  <circle cx="128" cy="90" r="18" fill="#22d3ee" opacity="0.12" filter="url(#blur4)"/>
-  <circle cx="128" cy="90" r="6" fill="url(#apexGlow)" opacity="0.95"/>
-  <circle cx="128" cy="90" r="3" fill="#e0f2fe" opacity="1"/>
+  <!-- Efí-style triangle apex — the signature diagonal arrow -->
+  <!-- Outer orange glow -->
+  <circle cx="128" cy="72" r="22" fill="#f47920" opacity="0.15" filter="url(#blur6)"/>
+  <!-- The triangle (like the accent in Efí logo, pointing upper-right) -->
+  <polygon points="114,82 142,52 142,78 118,82" fill="url(#orangeGrad)"/>
+  <!-- Bright highlight on triangle -->
+  <polygon points="135,55 142,52 142,62" fill="#ffcc80" opacity="0.5"/>
 
   <!-- Subtle border -->
-  <rect width="256" height="256" rx="52" fill="none" stroke="#ffffff" stroke-opacity="0.06" stroke-width="1.5"/>
+  <rect width="256" height="256" rx="52" fill="none" stroke="#ffffff" stroke-opacity="0.05" stroke-width="1.5"/>
 </svg>

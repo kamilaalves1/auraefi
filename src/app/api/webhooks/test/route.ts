@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     }
 
     const payload = {
-      message: 'This is a test webhook from Vertex Control Center',
+      message: 'This is a test webhook from AURA',
       webhook_id: webhook.id,
       webhook_name: webhook.name,
       triggered_by: auth.user.username,

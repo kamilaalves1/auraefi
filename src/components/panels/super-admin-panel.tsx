@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useTranslations } from 'next-intl'
@@ -170,7 +170,7 @@ export function SuperAdminPanel() {
           tenantRows = [{
             id: -1,
             slug: 'local-system',
-            display_name: 'Local Vertex Control Center',
+            display_name: 'Local AURA',
             linux_user: currentUser?.username || 'local',
             created_by: 'local',
             owner_gateway: primaryGateway?.name || 'local',
@@ -214,7 +214,7 @@ export function SuperAdminPanel() {
               id,
               tenant_id: -1,
               tenant_slug: 'local-system',
-              tenant_display_name: 'Local Vertex Control Center',
+              tenant_display_name: 'Local AURA',
               job_type: 'automation',
               status,
               dry_run: 1,

@@ -1,4 +1,4 @@
-import { db_helpers } from './db'
+﻿import { db_helpers } from './db'
 import { dbGet, dbGetAll, dbRun } from './db-pool'
 import { eventBus } from './event-bus'
 import { logger } from './logger'
@@ -94,7 +94,7 @@ function buildTaskPrompt(task: DispatchableTask, rejectionFeedback?: string | nu
     : `TASK-${task.id}`
 
   const lines = [
-    'You have been assigned a task in Vertex Control Center.',
+    'You have been assigned a task in AURA.',
     '',
     `**[${ticket}] ${task.title}**`,
     `Priority: ${task.priority}`,

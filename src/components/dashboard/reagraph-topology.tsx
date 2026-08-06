@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
@@ -196,7 +196,7 @@ const EDGE_DEFS = [
 
 const INITIAL_NODES: TopologyNodeData[] = [
   { id: 'bridge',    label: 'Amy Bridge',      icon: '🌉', status: 'loading', detail: ':3100',         port: ':3100',  tier: 'core',    description: 'Central API gateway connecting all Amy services. All traffic flows through here.' },
-  { id: 'dashboard', label: 'Dashboard',       icon: '🖥️', status: 'loading', detail: ':3000',         port: ':3000',  tier: 'core',    description: 'This Vertex Control Center dashboard — where you are right now!' },
+  { id: 'dashboard', label: 'Dashboard',       icon: '🖥️', status: 'loading', detail: ':3000',         port: ':3000',  tier: 'core',    description: 'This AURA dashboard — where you are right now!' },
   { id: 'ollama',    label: 'Ollama LLM',      icon: '🧠', status: 'loading', detail: ':11434',        port: ':11434', tier: 'core',    description: 'Local AI inference engine running 4 models: amy-local, qwen3, llama3.1, nomic-embed-text.' },
   { id: 'vault',     label: 'Sovereign Vault',  icon: '🏛️', status: 'loading', detail: '1.7M+ words',                 tier: 'service', description: 'Amy\'s knowledge store — 1.7M+ words of ingested documents, policies, and context.' },
   { id: 'engines',   label: 'Amy Engines',      icon: '⚙️', status: 'loading', detail: '8 modules',                   tier: 'service', description: '8 autonomous Python modules: intelligence, approval, council, tasks, notifications, scheduler, activity, config.' },

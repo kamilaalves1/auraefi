@@ -1,5 +1,5 @@
-/**
- * Design tokens for Vertex Control Center aesthetic.
+﻿/**
+ * Design tokens for AURA aesthetic.
  * Server-safe — no 'use client' directive needed.
  *
  * Use the `hsl()` helper when you need inline styles (ReactFlow nodes, recharts),

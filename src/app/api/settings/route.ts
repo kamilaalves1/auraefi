@@ -38,7 +38,7 @@ const settingDefinitions: Record<string, { category: string; description: string
   },
 
   // General
-  'general.site_name': { category: 'general', description: 'Vertex Control Center display name', default: 'Vertex Control Center' },
+  'general.site_name': { category: 'general', description: 'AURA display name', default: 'AURA' },
   'general.auto_cleanup': { category: 'general', description: 'Enable automatic data cleanup', default: 'false' },
   'general.auto_backup': { category: 'general', description: 'Enable automatic daily backups', default: 'false' },
   'general.backup_retention_count': { category: 'general', description: 'Number of backup files to keep', default: '10' },

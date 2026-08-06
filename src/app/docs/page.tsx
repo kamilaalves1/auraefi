@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import { ApiReferenceReact } from '@scalar/api-reference-react'
 import '@scalar/api-reference-react/style.css'
@@ -18,7 +18,7 @@ export default function DocsPage() {
             clientKey: 'curl',
           },
           metaData: {
-            title: 'Vertex Control Center API Docs',
+            title: 'AURA API Docs',
           },
         }}
       />

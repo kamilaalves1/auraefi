@@ -9,14 +9,14 @@ import { logger } from '@/lib/logger'
  * Body: { message: string, conversation_id?: string, model?: string }
  * Returns: { reply: string, model: string, conversation_id: string }
  * 
- * This is the Vertex-specific chat endpoint that bypasses the gateway
+ * This is the AURA-specific chat endpoint that bypasses the gateway
  * and talks directly to Ollama on the local machine.
  */
 
 const OLLAMA_URL = process.env.OLLAMA_URL || 'http://127.0.0.1:11434'
 const DEFAULT_MODEL = process.env.AMY_MODEL || 'llama3.1:8b'
 
-const SYSTEM_PROMPT = `You are Amy, an AI operations assistant for Silver Snow Vertex.
+const SYSTEM_PROMPT = `You are Amy, an AI operations assistant for AURA.
 You help with task management, document analysis, and operational decisions.
 You are professional, concise, and provide actionable insights.
 When asked about tasks, you can reference the knowledge base and provide structured recommendations.

@@ -1,8 +1,8 @@
-{
+﻿{
   "name": "swe-ux-research",
   "version": "1.0.0",
   "description": "UX discovery: tasks, accessibility, and lightweight validation",
-  "author": "Vertex Control Center",
+  "author": "AURA",
   "license": "MIT",
   "tags": ["ux", "accessibility", "research", "swe-squad"]
 }

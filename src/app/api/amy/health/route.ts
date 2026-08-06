@@ -1,9 +1,9 @@
-import { NextRequest } from 'next/server'
+﻿import { NextRequest } from 'next/server'
 
 // Health endpoint is intentionally public — no auth required
 
 /**
- * GET /api/amy/health — Unified health check for Vertex Control Center
+ * GET /api/amy/health — Unified health check for AURA
  *
  * Aggregates:
  * - Bridge health (:3100/api/health)
@@ -146,6 +146,6 @@ export async function GET(request: NextRequest) {
     services: results,
     uptime: process.uptime(),
     timestamp: new Date().toISOString(),
-    version: 'vertex-control-center@1.0.0',
+    version: 'aura@1.0.0',
   })
 }

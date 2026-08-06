@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 
 import Image from 'next/image'
 import { useEffect } from 'react'
@@ -77,7 +77,7 @@ function PageLoader({ steps }: { steps?: InitStep[] }) {
           <div className="animate-float">
             <Image
               src="/brand/mc-logo-128.png"
-              alt="Vertex Control Center"
+              alt="AURA"
               width={56}
               height={56}
               priority
