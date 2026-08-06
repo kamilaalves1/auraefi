@@ -91,13 +91,15 @@ function StatCard({ label, value, sub, accent, pulse }: {
   label: string; value: string | number; sub: string; accent: string; pulse?: boolean
 }) {
   return (
-    <div className="rounded-xl border border-border/60 bg-card px-4 py-4 flex flex-col gap-1">
-      <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">{label}</p>
+    <div className="stat-accent-top card-hover rounded-xl border border-border/50 bg-card px-4 py-4 flex flex-col gap-1.5">
+      <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground/50">{label}</p>
       <div className="flex items-end gap-2">
-        <p className={`text-3xl font-black leading-none ${accent}`}>{value}</p>
-        {pulse && <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse mb-1" />}
+        <p className={`text-3xl font-black leading-none tabular-nums ${accent}`}>{value}</p>
+        {pulse && (
+          <span className="w-2 h-2 rounded-full bg-emerald-400 mb-1 status-ring-pulse" />
+        )}
       </div>
-      <p className="text-[10px] text-muted-foreground/50 leading-tight">{sub}</p>
+      <p className="text-[10px] text-muted-foreground/45 leading-tight">{sub}</p>
     </div>
   )
 }

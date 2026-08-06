@@ -225,13 +225,13 @@ export function NavRail() {
       <nav
         role="navigation"
         aria-label="Main navigation"
-        className={`hidden md:flex flex-col bg-gradient-to-b from-card to-background border-r border-border shrink-0 transition-all duration-200 ease-in-out ${
+        className={`hidden md:flex flex-col sidebar-gradient border-r border-border/60 shrink-0 transition-all duration-200 ease-in-out ${
           sidebarExpanded ? 'w-[220px]' : 'w-14'
         }`}
       >
         {/* Header: Logo + toggle */}
         <div className={`flex items-center shrink-0 ${sidebarExpanded ? 'px-3 py-3 gap-2.5' : 'flex-col py-3 gap-2'}`}>
-          <div className="w-9 h-9 rounded-lg overflow-hidden bg-background border border-border/50 flex items-center justify-center shrink-0 hover:border-void-purple/40 hover:glow-purple transition-smooth">
+          <div className="w-9 h-9 rounded-lg overflow-hidden bg-background border border-border/50 flex items-center justify-center shrink-0 logo-hover">
             <Image
               src="/brand/mc-logo-128.png"
               alt="Vertex Control Center logo"
@@ -274,12 +274,11 @@ export function NavRail() {
 
               {/* Group header (expanded mode, only for groups with labels) */}
               {sidebarExpanded && group.label && (
-                <Button
-                  variant="ghost"
+                <button
                   onClick={() => toggleGroup(group.id)}
-                  className="w-full flex items-center justify-between px-3 mt-3 mb-1 h-auto py-0 rounded-none hover:bg-transparent group/header"
+                  className="w-full flex items-center justify-between px-3 mt-1 mb-0.5 h-auto py-0 rounded-none hover:bg-transparent group/header"
                 >
-                  <span className="text-[10px] tracking-wider text-muted-foreground/60 font-semibold select-none">
+                  <span className="nav-group-label">
                     {group.label}
                   </span>
                   <svg
@@ -289,13 +288,13 @@ export function NavRail() {
                     strokeWidth="1.5"
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    className={`w-3 h-3 text-muted-foreground/40 group-hover/header:text-muted-foreground transition-transform duration-150 ${
+                    className={`w-3 h-3 text-muted-foreground/30 group-hover/header:text-muted-foreground/60 transition-transform duration-150 mr-1 ${
                       collapsedGroups.includes(group.id) ? '-rotate-90' : ''
                     }`}
                   >
                     <polyline points="4,6 8,10 12,6" />
                   </svg>
-                </Button>
+                </button>
               )}
 
               {/* Group items */}
@@ -449,19 +448,26 @@ function NavButton({ item, active, expanded, onClick, onPrefetch, nested }: {
         onMouseEnter={onPrefetch}
         onFocus={onPrefetch}
         aria-current={active ? 'page' : undefined}
-        className={`w-full flex items-center gap-2 px-2 h-auto rounded-lg text-left justify-start relative ${
+        className={`w-full flex items-center gap-2.5 px-2 h-auto rounded-lg text-left justify-start relative transition-all duration-150 ${
           nested ? 'py-1' : 'py-1.5'
         } ${
           active
-            ? 'bg-primary/15 text-primary hover:bg-primary/20'
-            : ''
+            ? 'nav-active hover:brightness-110'
+            : 'hover:bg-muted/60 hover:text-foreground'
         }`}
       >
         {active && (
-          <span className="absolute left-0 w-0.5 h-5 bg-void-purple rounded-r glow-purple" />
+          <span
+            className="nav-active-bar"
+            style={{ height: nested ? '14px' : '18px' }}
+          />
         )}
-        <div className={`shrink-0 ${nested ? 'w-4 h-4' : 'w-5 h-5'}`}>{item.icon}</div>
-        <span className={`truncate ${nested ? 'text-xs' : 'text-sm'}`}>{item.label}</span>
+        <div className={`shrink-0 ${nested ? 'w-4 h-4' : 'w-5 h-5'} ${active ? 'text-void-purple' : 'text-muted-foreground/70'} transition-colors duration-150`}>
+          {item.icon}
+        </div>
+        <span className={`truncate font-medium ${nested ? 'text-xs' : 'text-sm'} ${active ? 'text-void-purple' : ''}`}>
+          {item.label}
+        </span>
       </Button>
     )
   }
@@ -475,20 +481,22 @@ function NavButton({ item, active, expanded, onClick, onPrefetch, nested }: {
       onFocus={onPrefetch}
       title={item.label}
       aria-current={active ? 'page' : undefined}
-      className={`rounded-lg group relative ${
+      className={`rounded-lg group relative transition-all duration-150 ${
         active
-          ? 'bg-primary/15 text-primary hover:bg-primary/20'
-          : ''
+          ? 'nav-active hover:brightness-110'
+          : 'hover:bg-muted/60'
       }`}
     >
-      <div className="w-5 h-5">{item.icon}</div>
+      <div className={`w-5 h-5 transition-colors duration-150 ${active ? 'text-void-purple' : 'text-muted-foreground/70 group-hover:text-foreground'}`}>
+        {item.icon}
+      </div>
       {/* Tooltip */}
-      <span className="absolute left-full ml-2 px-2 py-1 text-xs font-medium bg-popover text-popover-foreground border border-border rounded-md opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
+      <span className="absolute left-full ml-2.5 px-2.5 py-1.5 text-xs font-medium bg-popover text-popover-foreground border border-border/60 rounded-md shadow-lg opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-all duration-150 translate-x-0 group-hover:translate-x-0">
         {item.label}
       </span>
-      {/* Active indicator */}
+      {/* Active indicator — left bar */}
       {active && (
-        <span className="absolute left-0 w-0.5 h-5 bg-primary rounded-r" />
+        <span className="nav-active-bar" style={{ height: '18px' }} />
       )}
     </Button>
   )

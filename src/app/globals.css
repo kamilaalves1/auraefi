@@ -347,16 +347,136 @@
 
   /* Void glow utilities */
   .glow-purple {
-    box-shadow: 0 0 20px hsl(var(--void-purple) / 0.2), 0 0 40px hsl(var(--void-purple) / 0.08);
+    box-shadow: 0 0 20px hsl(var(--void-purple) / 0.22), 0 0 40px hsl(var(--void-purple) / 0.08);
   }
   .glow-mint {
-    box-shadow: 0 0 20px hsl(var(--void-mint) / 0.2), 0 0 40px hsl(var(--void-mint) / 0.08);
+    box-shadow: 0 0 20px hsl(var(--void-mint) / 0.22), 0 0 40px hsl(var(--void-mint) / 0.08);
   }
   .glow-amber {
-    box-shadow: 0 0 20px hsl(var(--void-amber) / 0.2), 0 0 40px hsl(var(--void-amber) / 0.08);
+    box-shadow: 0 0 20px hsl(var(--void-amber) / 0.22), 0 0 40px hsl(var(--void-amber) / 0.08);
   }
   .glow-violet {
-    box-shadow: 0 0 20px hsl(var(--void-violet) / 0.2), 0 0 40px hsl(var(--void-violet) / 0.08);
+    box-shadow: 0 0 20px hsl(var(--void-violet) / 0.22), 0 0 40px hsl(var(--void-violet) / 0.08);
+  }
+
+  /* ── Nav active item ── */
+  .nav-active {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--void-purple) / 0.18) 0%,
+      hsl(var(--void-purple) / 0.06) 100%
+    );
+    color: hsl(var(--void-purple));
+  }
+  .dark .nav-active {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--void-purple) / 0.22) 0%,
+      hsl(var(--void-purple) / 0.07) 100%
+    );
+  }
+  .nav-active-bar {
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    border-radius: 0 3px 3px 0;
+    background: hsl(var(--void-purple));
+    box-shadow: 0 0 8px hsl(var(--void-purple) / 0.7);
+  }
+
+  /* ── Card hover lift ── */
+  .card-hover {
+    @apply transition-all duration-200 ease-out;
+  }
+  .card-hover:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 8px 24px hsl(var(--foreground) / 0.06), 0 1px 3px hsl(var(--foreground) / 0.04);
+  }
+  .dark .card-hover:hover {
+    box-shadow: 0 8px 24px hsl(var(--background) / 0.6), 0 0 0 1px hsl(var(--void-purple) / 0.06);
+  }
+
+  /* ── Panel entrance ── */
+  .panel-enter {
+    animation: panelEnter 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes panelEnter {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ── Sidebar gradient background ── */
+  .sidebar-gradient {
+    background: linear-gradient(
+      180deg,
+      hsl(var(--card)) 0%,
+      hsl(var(--background)) 100%
+    );
+  }
+  .dark .sidebar-gradient {
+    background: linear-gradient(
+      180deg,
+      hsl(220 32% 9%) 0%,
+      hsl(215 27% 4%) 100%
+    );
+  }
+
+  /* ── Logo glow on hover ── */
+  .logo-hover {
+    @apply transition-all duration-300;
+  }
+  .logo-hover:hover {
+    box-shadow: 0 0 0 1px hsl(var(--void-purple) / 0.4), 0 0 16px hsl(var(--void-purple) / 0.2);
+  }
+
+  /* ── Group label ── */
+  .nav-group-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: hsl(var(--muted-foreground) / 0.45);
+    padding: 14px 12px 4px;
+    display: block;
+    user-select: none;
+  }
+
+  /* ── Stat card accent line ── */
+  .stat-accent-top {
+    position: relative;
+    overflow: hidden;
+  }
+  .stat-accent-top::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, hsl(var(--void-purple)), hsl(var(--void-mint)));
+    opacity: 0.7;
+  }
+
+  /* ── Status ring pulse ── */
+  @keyframes statusRing {
+    0%   { box-shadow: 0 0 0 0 hsl(var(--success) / 0.5); }
+    70%  { box-shadow: 0 0 0 6px hsl(var(--success) / 0); }
+    100% { box-shadow: 0 0 0 0 hsl(var(--success) / 0); }
+  }
+  .status-ring-pulse {
+    animation: statusRing 2.5s ease-out infinite;
+  }
+
+  /* ── Header bar backdrop ── */
+  .header-glass {
+    background: hsl(var(--card) / 0.8);
+    backdrop-filter: blur(12px) saturate(1.2);
+    -webkit-backdrop-filter: blur(12px) saturate(1.2);
+    border-bottom: 1px solid hsl(var(--border) / 0.6);
+  }
+  .dark .header-glass {
+    background: hsl(220 30% 7% / 0.85);
+    border-bottom: 1px solid hsl(var(--border) / 0.4);
   }
 
   /* Void panel — glass card with luminous border */

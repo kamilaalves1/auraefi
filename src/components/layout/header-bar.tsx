@@ -295,7 +295,7 @@ export function HeaderBar() {
   }
 
   return (
-    <header role="banner" aria-label="Application header" className="relative z-50 h-14 bg-card/80 backdrop-blur-sm border-b border-border px-3 md:px-4 shrink-0">
+    <header role="banner" aria-label="Application header" className="relative z-50 h-14 header-glass px-3 md:px-4 shrink-0">
       <div className="h-full flex items-center gap-2 md:gap-3">
         {/* Left: Page title + context */}
         <div className="flex min-w-0 items-center gap-2.5 shrink-0">
@@ -326,21 +326,21 @@ export function HeaderBar() {
 
         {/* Center: wide command search (desktop) */}
         <div className="hidden md:flex items-center justify-center flex-1 min-w-0 max-w-[28rem] lg:max-w-[34rem] xl:max-w-[42rem]">
-          <Button
-            variant="outline"
-            size="sm"
+          <button
             onClick={openCommandPalette}
-            className="h-10 w-full justify-between bg-secondary/35 hover:border-primary/40 hover:bg-secondary/50 px-3"
+            className="group h-9 w-full flex items-center justify-between bg-muted/40 hover:bg-muted/70 border border-border/50 hover:border-void-purple/30 rounded-lg px-3 transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <span className="flex items-center gap-2 min-w-0">
-              <SearchIcon />
-              <span className="truncate text-sm text-muted-foreground">{th('jumpToSearch')}</span>
+            <span className="flex items-center gap-2.5 min-w-0">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0 group-hover:text-muted-foreground transition-colors">
+                <circle cx="7" cy="7" r="4.5" />
+                <path d="M10.5 10.5L13 13" />
+              </svg>
+              <span className="truncate text-sm text-muted-foreground/60 group-hover:text-muted-foreground transition-colors">{th('jumpToSearch')}</span>
             </span>
             <span className="hidden xl:flex items-center gap-1 ml-2 shrink-0">
-              <kbd className="text-2xs px-1.5 py-0.5 rounded bg-muted border border-border font-mono">&#8984;K</kbd>
-              <kbd className="text-2xs px-1.5 py-0.5 rounded bg-muted border border-border font-mono">/</kbd>
+              <kbd className="text-2xs px-1.5 py-0.5 rounded bg-background border border-border/60 font-mono text-muted-foreground/50">⌘K</kbd>
             </span>
-          </Button>
+          </button>
         </div>
 
         {/* Right: status + actions */}

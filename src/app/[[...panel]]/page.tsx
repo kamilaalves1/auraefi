@@ -376,7 +376,9 @@ export default function Home() {
         >
           <div aria-live="polite" className="flex flex-col min-h-full">
             <ErrorBoundary key={activeTab}>
-              <ContentRouter tab={activeTab} />
+              <div key={activeTab} className="panel-enter flex flex-col flex-1">
+                <ContentRouter tab={activeTab} />
+              </div>
             </ErrorBoundary>
           </div>
           <footer className="px-4 pb-4 pt-2">
