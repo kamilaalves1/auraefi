@@ -1,15 +1,15 @@
 <div align="center">
 
-# Vertex Control Center
+# AURA
 
-**Dashboard de Orquestração de Agentes de IA**
+**Plataforma de Operações de IA**
 
 Implante, monitore e orquestre frotas de agentes de IA a partir de uma única interface.\
 Conecte seu backlog (JIRA ou Azure DevOps), defina pipelines em múltiplos estágios e deixe os agentes executar cada etapa de forma autônoma — com visibilidade completa de custo, eventos em tempo real e trilha de auditoria.
 
 [![Next.js 16](https://img.shields.io/badge/Next.js-16-black?logo=next.js)](https://nextjs.org/)
 [![TypeScript 5](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)](https://typescriptlang.org/)
-[![SQLite](https://img.shields.io/badge/SQLite-WAL-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/)
+[![MySQL](https://img.shields.io/badge/MySQL-8-4479A1?logo=mysql&logoColor=white)](https://www.mysql.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![pnpm](https://img.shields.io/badge/pnpm-only-F69220?logo=pnpm&logoColor=white)](https://pnpm.io/)
 
@@ -19,13 +19,15 @@ Conecte seu backlog (JIRA ou Azure DevOps), defina pipelines em múltiplos está
 
 ## O que é
 
-Vertex Control Center é um dashboard auto-hospedado para equipes que executam fluxos de trabalho com agentes de IA. Funciona como uma aplicação Next.js standalone com banco de dados SQLite embutido — nenhum serviço externo obrigatório.
+AURA é um dashboard auto-hospedado para equipes que executam fluxos de trabalho com agentes de IA. Funciona como uma aplicação Next.js standalone com banco de dados MySQL — compatível com qualquer instância MySQL 8+.
 
 **Capacidades principais:**
 
 - **Pipeline engine** — monitora JIRA ou Azure DevOps, roteia cards por pipelines em múltiplos estágios, chama LLMs diretamente, posta resultados e avança os cards automaticamente
-- **Gestão de frota de agentes** — registre, monitore, configure e agende agentes autônomos; acompanhe heartbeats, memória e histórico de execução
-- **Rastreamento de custo** — visibilidade de custo por agente e por modelo a partir do uso de tokens armazenado; relatórios mensais ou por período exportáveis
+- **Gestão de frota de agentes** — registre, monitore, configure e agende agentes autônomos; edite soul content, ative modo compacto por agente e acompanhe heartbeats, memória e histórico de execução
+- **Modo econômico** — ative por agente um bloco de instruções que reduz verbosidade de output; o dashboard exibe o comparativo de tokens economizados automaticamente
+- **Skill viewer** — visualize e edite arquivos `SKILL.md` referenciados no soul content de cada agente diretamente pelo painel
+- **Rastreamento de custo** — visibilidade de custo por agente e por modelo a partir do uso de tokens armazenado; gráfico de impacto do modo econômico no overview
 - **Eventos em tempo real** — stream SSE entrega mudanças de status de agente, progresso de pipeline e atualizações de tarefa para todos os clientes conectados instantaneamente
 - **Multi-workspace** — isolamento completo por tenant; cada workspace tem seus próprios agentes, tarefas, pipelines e dados de custo
 - **Segurança hardened** — proteção SSRF, rate limiting com cadeia de proxies confiáveis, CSP com nonces, HSTS, SSE com escopo por workspace e exportação de audit log com escopo por workspace
@@ -36,7 +38,7 @@ Vertex Control Center é um dashboard auto-hospedado para equipes que executam f
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Vertex Control Center                        │
+│                           AURA                                   │
 │                      Next.js 16 (App Router)                    │
 │                                                                  │
 │  ┌───────────────────┐        ┌──────────────────────────────┐  │
@@ -55,7 +57,7 @@ Vertex Control Center é um dashboard auto-hospedado para equipes que executam f
 │                  └────────┬────────┘                             │
 │                           │                                      │
 │             ┌─────────────▼──────────────┐                      │
-│             │    SQLite (modo WAL)        │                      │
+│             │    MySQL 8                 │                      │
 │             │                            │                      │
 │             │  agents       tasks        │                      │
 │             │  token_usage  audit_log    │                      │
@@ -92,7 +94,7 @@ sequenceDiagram
     participant U as Usuário/Browser
     participant P as proxy.ts (middleware)
     participant A as /api/auth/login
-    participant DB as SQLite
+    participant DB as MySQL
 
     U->>P: POST /api/auth/login {username, password}
     P->>P: Gera nonce CSP
@@ -116,7 +118,7 @@ sequenceDiagram
 sequenceDiagram
     participant AG as Processo Agente
     participant API as /api/agents/register
-    participant DB as SQLite
+    participant DB as MySQL
     participant EB as Event Bus
     participant UI as Dashboard (SSE)
 
@@ -146,7 +148,7 @@ sequenceDiagram
     participant SCH as Scheduler (30s tick)
     participant ENG as Pipeline Engine
     participant JP as JIRA/Azure API
-    participant DB as SQLite
+    participant DB as MySQL
     participant LLM as LLM Gateway
     participant EB as Event Bus
     participant UI as Dashboard (SSE)
@@ -163,7 +165,7 @@ sequenceDiagram
             EB->>UI: SSE → atualiza painel de pipelines
             loop para cada estágio do pipeline
                 ENG->>DB: SELECT agents WHERE stage_id = ?
-                ENG->>LLM: POST /v1/messages {system, user: card_content}
+                ENG->>LLM: POST /v1/messages {system: soul_content, user: card_content}
                 LLM-->>ENG: completion + tokens usados
                 ENG->>DB: INSERT token_usage (cost_usd, input_tokens, ...)
                 ENG->>JP: postJiraComment(card_key, resultado_llm)
@@ -187,7 +189,7 @@ sequenceDiagram
     participant API as /api/tasks
     participant DIS as task-dispatch
     participant LLM as LLM Gateway
-    participant DB as SQLite
+    participant DB as MySQL
     participant WH as Webhook Engine
 
     AG->>API: GET /api/tasks?status=assigned&assigned_to=agent-x
@@ -209,28 +211,29 @@ sequenceDiagram
     WH->>WH: POST para URLs configuradas
 ```
 
-### Fluxo de Rastreamento de Custo
+### Fluxo de Rastreamento de Custo e Modo Econômico
 
 ```mermaid
 sequenceDiagram
-    participant UI as Cost Tracker Panel
-    participant API as /api/tokens/by-agent
-    participant DB as SQLite
+    participant UI as Overview Dashboard
+    participant CMA as /api/tokens/compact-mode
+    participant BA as /api/tokens/by-agent
+    participant DB as MySQL
 
-    UI->>API: GET /api/tokens/by-agent?workspace_id=1
-    API->>DB: SELECT agent_id, SUM(cost_usd) FROM token_usage\n         GROUP BY agent_id ORDER BY total DESC
-    DB-->>API: [{agent_id, name, total_cost_stored, models:[...]}]
-    API->>API: Para cada agente: custo por modelo → total armazenado → fallback recálculo
-    API-->>UI: [{agent, totalCost, models, lastActivity}]
-    UI->>UI: Renderiza gráfico de barras + tabela
-    UI->>UI: Calcula modelData para OverviewView
+    UI->>BA: GET /api/tokens/by-agent?days=30
+    BA->>DB: SELECT agent_name, SUM(tokens), SUM(cost_usd) FROM token_usage GROUP BY agent_name
+    DB-->>BA: rows por agente
+    BA-->>UI: [{agent, total_tokens, total_cost, models}]
 
-    alt usuário clica "↓ Relatório"
-        UI->>UI: setShowReport(true) → exibe ReportDownloadCard
-        UI->>API: GET /api/export?type=activities&format=csv&since=...&until=...
-        API->>DB: SELECT * FROM token_usage WHERE workspace_id = ?
-        API-->>UI: CSV com custo por período
-    end
+    UI->>CMA: GET /api/tokens/compact-mode?days=30
+    CMA->>DB: SELECT name, soul_content FROM agents
+    CMA->>DB: SELECT agent_name, SUM(output_tokens), COUNT(*) FROM token_usage GROUP BY agent_name
+    DB-->>CMA: agentes + uso
+    CMA->>CMA: Cruza soul_content com token_usage\nSepara grupos: compact vs standard
+    CMA-->>UI: {compact, standard, savings: {pct, tokens_saved}, per_agent}
+
+    UI->>UI: Renderiza gráfico por agente (verde=compacto, cinza=padrão)
+    UI->>UI: Exibe KPI: % redução output, tokens poupados
 ```
 
 ### Fluxo SSE (Server-Sent Events)
@@ -263,7 +266,7 @@ sequenceDiagram
 
 ## Quick Start
 
-**Pré-requisitos:** Node.js ≥ 22, pnpm (`corepack enable`)
+**Pré-requisitos:** Node.js ≥ 22, pnpm (`corepack enable`), MySQL 8+
 
 ```bash
 git clone https://github.com/kamilaalves1/vertex-control-center.git
@@ -306,7 +309,7 @@ docker compose -f docker-compose.yml -f docker-compose.hardened.yml up -d
 | Framework | Next.js 16 — App Router | Server components + route handlers |
 | UI | React 19, Tailwind CSS 3 | Painéis client com navegação via `startTransition` |
 | Linguagem | TypeScript 5 | Modo strict, zero `any` nos caminhos críticos |
-| Banco de dados | SQLite via `better-sqlite3` | Modo WAL, busy timeout 5 s, migrações incrementais |
+| Banco de dados | MySQL 8 via `mysql2` | Pool de conexões, migrações incrementais automáticas |
 | Estado | Zustand | Estado client-side de painéis e filtros |
 | Tempo real | Server-Sent Events (SSE) | Event bus in-process com entrega por workspace |
 | Autenticação | Sessões JWT + RBAC | Roles: `viewer` · `operator` · `admin` |
@@ -321,7 +324,9 @@ docker compose -f docker-compose.yml -f docker-compose.hardened.yml up -d
 Registre agentes via dashboard, API REST ou servidor MCP. Cada agente possui:
 
 - **Role** — `coder`, `reviewer`, `tester`, `devops`, `researcher`, `assistant`, `agent`
-- **Config** — override de modelo, prompt de sistema, config de gateway, modelo de despacho
+- **Soul content** — prompt de sistema lido pelo pipeline engine; editável diretamente pelo painel
+- **Modo econômico** — ative "Ativar modo compacto" por agente para inserir instruções de output conciso no soul content; o dashboard compara automaticamente o consumo de tokens
+- **Skills inline** — arquivos `SKILL.md` referenciados no soul content aparecem como seções expansíveis e editáveis diretamente no painel do agente
 - **Memória** — armazenamento chave-valor por agente, com busca
 - **Heartbeat** — transição automática `idle → offline` após timeout
 - **Diagnósticos** — saída da última execução, traces de erro, histórico de atribuição
@@ -343,12 +348,28 @@ Conecte seu backlog de gerenciamento de projetos e defina pipelines em múltiplo
 2. **Mapeie colunas** — cada coluna do board vira um estágio do pipeline
 3. **Atribua agentes** — um ou mais agentes por estágio, com cascade de fallback opcional
 4. **Engine monitora** — cards que entram em uma coluna gatilho são capturados automaticamente
-5. **LLM executa** — o agente atribuído lê o card, gera saída e posta um comentário
+5. **LLM executa** — o agente atribuído lê o card, gera saída e posta um comentário (usando o `soul_content` do agente como system prompt)
 6. **Card avança** — engine transiciona o card para a próxima coluna
 
 **Cascade de fallback** — se o agente principal falhar, o engine pode tentar modelos alternativos ou todos os modelos configurados em ordem, garantindo que nenhum card seja descartado silenciosamente.
 
 **Bot mention** — usuários podem responder a um comentário do card com `@pipeline <instrução>` para disparar reprocessamento com novo contexto.
+
+### Modo Econômico
+
+O modo econômico insere um bloco de instruções compactas no `soul_content` do agente, orientando o LLM a produzir respostas mais curtas sem comprometer a qualidade:
+
+- Ative/desative por agente na aba **Instruções** do painel de detalhes
+- O dashboard (Visão Geral) exibe um gráfico comparando tokens de output por requisição entre agentes compactos e padrão
+- Calcula automaticamente a % de redução e os tokens poupados no período selecionado
+
+### Skill Viewer
+
+Skills são arquivos `SKILL.md` que os agentes podem referenciar em seu `soul_content` com o padrão `skills/<nome>/SKILL.md`. O painel de detalhes do agente:
+
+- Detecta automaticamente as referências no soul content
+- Exibe cada skill como um acordeão expansível
+- Permite edição direta do arquivo com botão Salvar/Cancelar (requer role `operator`)
 
 ### Rastreamento de Custo
 
@@ -357,7 +378,7 @@ Cada chamada LLM registra tokens de entrada, tokens de saída, modelo e custo ca
 - **Custo por agente** — gasto total por agente, ordenado por custo
 - **Breakdown por modelo** — divisão de custo por modelo dentro de cada agente
 - **Tendência diária** — últimos 5 dias de gasto (gráfico de barras)
-- **Relatório exportável** — exportação CSV para qualquer intervalo de datas, acessível pelo botão no cabeçalho
+- **Relatório exportável** — exportação CSV para qualquer intervalo de datas
 
 Os custos são lidos da coluna `cost_usd` armazenada no momento da chamada — sem recálculo na hora da exibição, garantindo precisão mesmo para modelos customizados ou auto-hospedados.
 
@@ -402,11 +423,18 @@ Toda mutação — login, criação de agente, mudança de config, execução de
 | **Isolamento por workspace** | Toda query filtra por `workspace_id`; SSE entrega apenas eventos do workspace do subscriber |
 | **RBAC** | Três roles impostos no nível do route handler: `viewer` (somente leitura), `operator` (criar/atualizar), `admin` (acesso total) |
 | **Trilha de auditoria** | Todas as mutações registradas com ator, IP e target; exportação com escopo por workspace via subquery de actor_id |
+| **Path traversal** | Endpoints que servem arquivos do projeto (project-skills) validam o caminho resolvido contra a raiz permitida antes de qualquer leitura/escrita |
 
 ### Variáveis de Ambiente
 
 | Variável | Padrão | Descrição |
 |---|---|---|
+| `MYSQL_HOST` | `localhost` | Host do MySQL |
+| `MYSQL_PORT` | `3306` | Porta do MySQL |
+| `MYSQL_USER` | `root` | Usuário do MySQL |
+| `MYSQL_PASSWORD` | _(vazio)_ | Senha do MySQL |
+| `MYSQL_DATABASE` | `aura` | Nome do banco de dados |
+| `MYSQL_SSL` | `false` | Defina como `true` para habilitar TLS na conexão MySQL |
 | `AUTH_SECRET` | auto-gerado | Segredo de assinatura JWT — rotacione para invalidar todas as sessões |
 | `API_KEY` | auto-gerado | API key mestre para acesso de agente/MCP |
 | `AUTH_PASS` | `admin` | Senha padrão do admin (altere imediatamente) |
@@ -417,7 +445,6 @@ Toda mutação — login, criação de agente, mudança de config, execução de
 | `MC_COOKIE_SAMESITE` | `lax` | `lax` ou `strict` |
 | `MC_ALLOWED_HOSTS` | _(nenhum)_ | Valores permitidos do header Host separados por vírgula |
 | `MISSION_CONTROL_DATA_DIR` | `.data/` | Sobrescreve o diretório de dados |
-| `MISSION_CONTROL_DB_PATH` | `.data/mission-control.db` | Sobrescreve o caminho do banco de dados |
 | `MC_DISABLE_RATE_LIMIT` | `0` | Defina como `1` para desabilitar rate limits não-críticos (apenas testes) |
 | `NEXT_PUBLIC_GATEWAY_OPTIONAL` | `false` | Defina como `true` para deployments standalone sem gateway |
 
@@ -450,15 +477,19 @@ curl -X POST http://localhost:3000/api/auth/login \
 | `GET` | `/api/agents/:id` | viewer | Detalhe do agente + config |
 | `PUT` | `/api/agents/:id` | operator | Atualiza config do agente |
 | `DELETE` | `/api/agents/:id` | admin | Remove agente |
+| `PUT` | `/api/agents/:id/soul` | operator | Salva soul_content do agente |
 | `POST` | `/api/agents/register` | viewer | Auto-registro de agente |
 | `GET` | `/api/agents/:id/heartbeat` | viewer | Recebe heartbeat |
 | `GET` | `/api/agents/:id/memory` | viewer | Memória do agente |
+| `GET` | `/api/project-skills` | viewer | Lê arquivo SKILL.md do projeto |
+| `PUT` | `/api/project-skills` | operator | Salva arquivo SKILL.md do projeto |
 | `GET` | `/api/tasks` | viewer | Lista tarefas |
 | `POST` | `/api/tasks` | operator | Cria tarefa |
 | `PUT` | `/api/tasks/:id` | operator | Atualiza tarefa |
 | `GET` | `/api/tasks/queue` | viewer | Visão de fila (pendentes + atribuídas) |
 | `GET` | `/api/tokens` | viewer | Log de uso de tokens |
 | `GET` | `/api/tokens/by-agent` | viewer | Custo por agente |
+| `GET` | `/api/tokens/compact-mode` | viewer | Comparativo de tokens: modo compacto vs padrão |
 | `GET` | `/api/events` | viewer | Stream SSE |
 | `POST` | `/api/connect` | operator | Registra conexão CLI |
 | `GET` | `/api/work-pipeline` | admin | Config do pipeline |
@@ -496,6 +527,7 @@ src/
 │   └── panels/       # Painéis do dashboard (um arquivo por painel)
 └── lib/
     ├── db.ts               # Conexão com banco + migrações de schema
+    ├── db-pool.ts          # Pool MySQL (mysql2)
     ├── auth.ts             # Sessões JWT + RBAC
     ├── rate-limit.ts       # Rate limiters (por IP + identidade de agente)
     ├── csp.ts              # Builder de Content Security Policy
@@ -505,8 +537,11 @@ src/
     ├── scheduler.ts        # Scheduler de background estilo cron
     └── webhooks.ts         # Entrega de webhooks de saída
 
+skills/            # Arquivos SKILL.md por domínio (editáveis pelo dashboard)
+├── swe-orchestration-coordination/SKILL.md
+└── ...
+
 .data/             # Dados de runtime (no .gitignore)
-├── mission-control.db
 └── ...
 
 scripts/
@@ -516,17 +551,12 @@ scripts/
 
 ### Banco de Dados
 
-SQLite em modo WAL. O schema é gerenciado via migrações incrementais em `src/lib/migrations.ts`. Para resetar o banco durante o desenvolvimento:
+MySQL 8. O schema é gerenciado via migrações incrementais em `src/lib/migrations-mysql.ts`. Para resetar o banco durante o desenvolvimento:
 
 ```bash
-rm .data/mission-control.db
+# Drope e recrie o banco no MySQL
+mysql -u root -e "DROP DATABASE IF EXISTS aura; CREATE DATABASE aura;"
 pnpm dev   # migrações são reaplicadas no próximo start
-```
-
-**Ao trocar versões do Node.js**, reconstrua o addon nativo:
-
-```bash
-pnpm rebuild better-sqlite3
 ```
 
 ---
@@ -559,7 +589,7 @@ O container remove todas as capabilities Linux exceto `NET_BIND_SERVICE`, roda c
 ```nginx
 server {
     listen 443 ssl;
-    server_name control.suaempresa.com;
+    server_name aura.suaempresa.com;
 
     location / {
         proxy_pass http://127.0.0.1:3000;
@@ -581,20 +611,18 @@ Configure `MC_TRUSTED_PROXIES=127.0.0.1` e `MC_ENABLE_HSTS=1` no seu ambiente.
 
 ### Nível 1 — Contexto do Sistema
 
-Visão de alto nível de quem usa o sistema e quais sistemas externos ele precisa acessar.
-
 ```mermaid
 C4Context
-    title Contexto do Sistema — Vertex Control Center
+    title Contexto do Sistema — AURA
 
     Person(operador, "Operador / Admin", "Acessa o dashboard via browser para configurar pipelines, monitorar agentes e analisar custos")
     Person(agente, "Processo Agente", "Agente autônomo que se registra, recebe tarefas e reporta resultados via REST API")
 
-    System(vcc, "Vertex Control Center", "Dashboard de orquestração de agentes de IA. Gerencia frota, pipelines, custos e eventos em tempo real.")
+    System(vcc, "AURA", "Plataforma de operações de IA. Gerencia frota de agentes, pipelines, custos e eventos em tempo real.")
 
-    System_Ext(jira, "JIRA / Azure DevOps", "Backlog de projetos. O VCC lê cards, posta comentários e transiciona status automaticamente.")
-    System_Ext(github, "GitHub", "Repositórios de código. O VCC cria PRs, posta comentários e atualiza status de CI.")
-    System_Ext(llm, "LLM Provider", "API de modelos de linguagem (Anthropic, Ollama, etc). O VCC envia prompts e recebe completions.")
+    System_Ext(jira, "JIRA / Azure DevOps", "Backlog de projetos. A AURA lê cards, posta comentários e transiciona status automaticamente.")
+    System_Ext(github, "GitHub", "Repositórios de código. A AURA cria PRs, posta comentários e atualiza status de CI.")
+    System_Ext(llm, "LLM Provider", "API de modelos de linguagem (Anthropic, Ollama, etc). A AURA envia prompts e recebe completions.")
 
     Rel(operador, vcc, "Acessa via HTTPS", "Browser")
     Rel(agente, vcc, "Registra, heartbeat, reporta tarefas", "HTTPS REST")
@@ -603,11 +631,7 @@ C4Context
     Rel(vcc, llm, "Envia tarefas, recebe completions", "HTTPS")
 ```
 
----
-
 ### Nível 2 — Containers (Deploy AWS)
-
-Detalhamento dos componentes dentro do sistema e como se conectam na infraestrutura AWS.
 
 ```mermaid
 C4Container
@@ -625,16 +649,16 @@ C4Container
             }
 
             Boundary(priv, "Subnet Privada") {
-                Container(ecs, "ECS Fargate Task", "Docker · Next.js 16 · Node 22", "Aplicação principal. Stateless — persiste dados no EFS. Porta 3000.")
-                ContainerDb(efs, "EFS (SQLite)", "AWS Elastic File System", "Armazena mission-control.db com acesso persistente montado em /app/.data")
+                Container(ecs, "ECS Fargate Task", "Docker · Next.js 16 · Node 22", "Aplicação principal. Porta 3000.")
+                ContainerDb(rds, "RDS MySQL 8", "AWS RDS", "Banco de dados principal — multi-AZ em produção")
                 Container(nat, "NAT Gateway", "AWS NAT Gateway", "Permite saída à internet (JIRA, GitHub, LLM API) sem expor IP privado")
             }
         }
 
-        Container(secrets, "Secrets Manager", "AWS Secrets Manager", "Armazena AUTH_SECRET, API_KEY, JIRA token, GitHub token, LLM API key")
+        Container(secrets, "Secrets Manager", "AWS Secrets Manager", "Armazena AUTH_SECRET, API_KEY, credenciais MySQL, JIRA token, GitHub token, LLM API key")
         Container(ecr, "ECR", "AWS Elastic Container Registry", "Repositório privado da imagem Docker da aplicação")
         Container(cw, "CloudWatch", "AWS CloudWatch", "Logs de container, métricas de CPU/memória e alarmes")
-        Container(r53, "Route 53", "AWS Route 53", "DNS: control.suaempresa.com → ALB")
+        Container(r53, "Route 53", "AWS Route 53", "DNS: aura.suaempresa.com → ALB")
         Container(acm, "ACM", "AWS Certificate Manager", "Certificado TLS para o domínio — renovação automática")
     }
 
@@ -646,7 +670,7 @@ C4Container
     Rel(agente, alb, "HTTPS REST", "Bearer token")
     Rel(r53, alb, "Resolve DNS", "A record")
     Rel(alb, ecs, "HTTP :3000", "Target Group")
-    Rel(ecs, efs, "Mount /app/.data", "NFS")
+    Rel(ecs, rds, "MySQL :3306", "VPC privada")
     Rel(ecs, secrets, "GetSecretValue", "IAM + TLS")
     Rel(ecs, cw, "PutLogEvents", "IAM + TLS")
     Rel(ecs, nat, "Saída internet", "TCP")
@@ -662,8 +686,6 @@ C4Container
 
 #### IAM — Task Role do ECS
 
-A IAM Role atribuída à task precisa das seguintes permissões mínimas:
-
 ```json
 {
   "Version": "2012-10-17",
@@ -672,17 +694,7 @@ A IAM Role atribuída à task precisa das seguintes permissões mínimas:
       "Sid": "SecretsRead",
       "Effect": "Allow",
       "Action": ["secretsmanager:GetSecretValue"],
-      "Resource": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:vertex-control-center/*"
-    },
-    {
-      "Sid": "EFSAccess",
-      "Effect": "Allow",
-      "Action": [
-        "elasticfilesystem:ClientMount",
-        "elasticfilesystem:ClientWrite",
-        "elasticfilesystem:ClientRootAccess"
-      ],
-      "Resource": "arn:aws:elasticfilesystem:REGION:ACCOUNT_ID:file-system/EFS_ID"
+      "Resource": "arn:aws:secretsmanager:REGION:ACCOUNT_ID:secret:aura/*"
     },
     {
       "Sid": "Logs",
@@ -692,7 +704,7 @@ A IAM Role atribuída à task precisa das seguintes permissões mínimas:
         "logs:CreateLogStream",
         "logs:PutLogEvents"
       ],
-      "Resource": "arn:aws:logs:REGION:ACCOUNT_ID:log-group:/ecs/vertex-control-center:*"
+      "Resource": "arn:aws:logs:REGION:ACCOUNT_ID:log-group:/ecs/aura:*"
     },
     {
       "Sid": "ECRPull",
@@ -711,7 +723,7 @@ A IAM Role atribuída à task precisa das seguintes permissões mínimas:
 
 #### GitHub — Permissões do GitHub App
 
-Crie um **GitHub App** (recomendado sobre PAT para produção) com as seguintes permissões de repositório:
+Crie um **GitHub App** com as seguintes permissões de repositório:
 
 | Permissão | Nível | Para que serve |
 |---|---|---|
@@ -723,11 +735,7 @@ Crie um **GitHub App** (recomendado sobre PAT para produção) com as seguintes 
 | `Metadata` | Read | Obrigatório pelo GitHub |
 | `Checks` | Read & Write | Criar check runs com resultados de agentes |
 
-> Instale o GitHub App nos repositórios que o pipeline precisa acessar. Armazene o **App ID**, **Installation ID** e **Private Key** no Secrets Manager.
-
 #### JIRA — Permissões da API Token
-
-Use uma conta de serviço dedicada (não uma conta pessoal) com as seguintes permissões no projeto:
 
 | Permissão | Para que serve |
 |---|---|
@@ -738,19 +746,6 @@ Use uma conta de serviço dedicada (não uma conta pessoal) com as seguintes per
 | Add Comments | Postar resultados dos agentes nos cards |
 | View Read-only Workflow | Ler a configuração de colunas do board |
 | Assign Issues | Atribuir cards a membros da equipe |
-
-> Gere o token em **Atlassian Account Settings → Security → API tokens** e armazene no Secrets Manager.
-
-#### Secrets Manager — O que armazenar
-
-Crie um secret por grupo com o prefixo `vertex-control-center/`:
-
-| Secret | Chaves | Descrição |
-|---|---|---|
-| `vertex-control-center/app` | `AUTH_SECRET`, `API_KEY`, `AUTH_PASS` | Credenciais internas da aplicação |
-| `vertex-control-center/jira` | `JIRA_API_TOKEN`, `JIRA_EMAIL`, `JIRA_HOST` | Acesso ao JIRA |
-| `vertex-control-center/github` | `GITHUB_APP_ID`, `GITHUB_INSTALLATION_ID`, `GITHUB_PRIVATE_KEY` | Acesso ao GitHub |
-| `vertex-control-center/llm` | `LLM_API_KEY`, `LLM_BASE_URL` | Acesso ao provedor de LLM |
 
 ---
 
