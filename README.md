@@ -650,7 +650,7 @@ C4Container
 
             Boundary(priv, "Subnet Privada") {
                 Container(ecs, "ECS Fargate Task", "Docker · Next.js 16 · Node 22", "Aplicação principal. Porta 3000.")
-                ContainerDb(rds, "RDS MySQL 8", "AWS RDS", "Banco de dados principal — multi-AZ em produção")
+                ContainerDb(rds, "Aurora MySQL 8", "AWS Aurora MySQL", "Banco de dados principal — multi-AZ, serverless v2 em produção")
                 Container(nat, "NAT Gateway", "AWS NAT Gateway", "Permite saída à internet (JIRA, GitHub, LLM API) sem expor IP privado")
             }
         }
@@ -670,7 +670,7 @@ C4Container
     Rel(agente, alb, "HTTPS REST", "Bearer token")
     Rel(r53, alb, "Resolve DNS", "A record")
     Rel(alb, ecs, "HTTP :3000", "Target Group")
-    Rel(ecs, rds, "MySQL :3306", "VPC privada")
+    Rel(ecs, rds, "MySQL :3306", "VPC privada — Aurora endpoint")
     Rel(ecs, secrets, "GetSecretValue", "IAM + TLS")
     Rel(ecs, cw, "PutLogEvents", "IAM + TLS")
     Rel(ecs, nat, "Saída internet", "TCP")
