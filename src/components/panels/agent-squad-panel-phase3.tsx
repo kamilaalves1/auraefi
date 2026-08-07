@@ -1400,6 +1400,22 @@ function SkillViewer({ name }: { name: string }) {
   )
 }
 
+interface SoulHistoryEntry {
+  id: number
+  soul_content: string
+  edited_by: string
+  edited_at: number
+}
+
+function timeAgoSoul(ts: number): string {
+  const d = Math.floor(Date.now() / 1000) - ts
+  if (d < 60) return 'agora'
+  if (d < 3600) return `${Math.floor(d / 60)}min atrás`
+  if (d < 86400) return `${Math.floor(d / 3600)}h atrás`
+  if (d < 86400 * 30) return `${Math.floor(d / 86400)}d atrás`
+  return new Date(ts * 1000).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })
+}
+
 function InstructionsTab({
   agent,
   onSaved,
@@ -1411,9 +1427,20 @@ function InstructionsTab({
   const [saving, setSaving] = useState(false)
   const [activating, setActivating] = useState(false)
   const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
+  const [history, setHistory] = useState<SoulHistoryEntry[]>([])
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [restoring, setRestoring] = useState<number | null>(null)
+  const [diffEntry, setDiffEntry] = useState<SoulHistoryEntry | null>(null)
 
   const compactActive = content.includes('## Modo de Saída Compacto')
   const skillRefs = parseSkillRefs(content)
+
+  useEffect(() => {
+    fetch(`/api/agents/${agent.id}/soul`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data?.history) setHistory(data.history) })
+      .catch(() => {})
+  }, [agent.id])
 
   const showFeedback = (ok: boolean, text: string) => {
     setFeedback({ ok, text })
@@ -1431,6 +1458,11 @@ function InstructionsTab({
       if (!res.ok) throw new Error((await res.json()).error || 'Erro ao salvar')
       onSaved({ soul_content: valueToSave })
       showFeedback(true, 'Salvo com sucesso')
+      // Reload history after save
+      fetch(`/api/agents/${agent.id}/soul`)
+        .then(r => r.ok ? r.json() : null)
+        .then(data => { if (data?.history) setHistory(data.history) })
+        .catch(() => {})
     } catch (err: any) {
       showFeedback(false, err.message || 'Erro ao salvar')
     } finally {
@@ -1451,6 +1483,32 @@ function InstructionsTab({
       await handleSave(next)
     } finally {
       setActivating(false)
+    }
+  }
+
+  const handleRestore = async (entry: SoulHistoryEntry) => {
+    setRestoring(entry.id)
+    try {
+      const res = await fetch(`/api/agents/${agent.id}/soul`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ history_id: entry.id }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Erro ao restaurar')
+      const data = await res.json()
+      const restored = data.soul_content ?? entry.soul_content
+      setContent(restored)
+      onSaved({ soul_content: restored })
+      setDiffEntry(null)
+      showFeedback(true, 'Versão restaurada com sucesso')
+      fetch(`/api/agents/${agent.id}/soul`)
+        .then(r => r.ok ? r.json() : null)
+        .then(d => { if (d?.history) setHistory(d.history) })
+        .catch(() => {})
+    } catch (err: any) {
+      showFeedback(false, err.message || 'Erro ao restaurar')
+    } finally {
+      setRestoring(null)
     }
   }
 
@@ -1503,9 +1561,75 @@ function InstructionsTab({
         </div>
       )}
 
-      <Button onClick={() => handleSave()} disabled={saving} size="sm">
-        {saving ? 'Salvando...' : 'Salvar'}
-      </Button>
+      <div className="flex items-center gap-3">
+        <Button onClick={() => handleSave()} disabled={saving} size="sm">
+          {saving ? 'Salvando...' : 'Salvar'}
+        </Button>
+        {history.length > 0 && (
+          <button
+            type="button"
+            onClick={() => { setHistoryOpen(h => !h); setDiffEntry(null) }}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+              <circle cx="8" cy="8" r="6" /><path d="M8 5v3.5l2 1.5" />
+            </svg>
+            {history.length} versão{history.length !== 1 ? 'ões' : ''} anterior{history.length !== 1 ? 'es' : ''}
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className={`w-3 h-3 transition-transform ${historyOpen ? 'rotate-180' : ''}`}>
+              <path d="M4 6l4 4 4-4" />
+            </svg>
+          </button>
+        )}
+      </div>
+
+      {historyOpen && history.length > 0 && (
+        <div className="border border-border/50 rounded-lg overflow-hidden">
+          <div className="px-3 py-2 bg-muted/30 border-b border-border/50">
+            <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground">Histórico de versões</p>
+          </div>
+          <div className="divide-y divide-border/30 max-h-72 overflow-y-auto">
+            {history.map(entry => (
+              <div key={entry.id} className="px-3 py-2.5 flex items-start gap-3 hover:bg-muted/20 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] text-muted-foreground/70 font-mono leading-relaxed truncate">
+                    {entry.soul_content.slice(0, 90).replace(/\n/g, ' ')}{entry.soul_content.length > 90 ? '…' : ''}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground/40 mt-0.5">
+                    {timeAgoSoul(entry.edited_at)} · por {entry.edited_by}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setDiffEntry(diffEntry?.id === entry.id ? null : entry)}
+                    className="text-[10px] px-2 py-1 rounded border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors"
+                  >
+                    {diffEntry?.id === entry.id ? 'Ocultar' : 'Ver'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRestore(entry)}
+                    disabled={restoring === entry.id}
+                    className="text-[10px] px-2 py-1 rounded border border-primary/30 text-primary/70 hover:text-primary hover:border-primary/60 transition-colors disabled:opacity-50"
+                  >
+                    {restoring === entry.id ? '…' : 'Restaurar'}
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {diffEntry && (
+            <div className="border-t border-border/50 bg-muted/10 p-3">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-2">
+                Versão de {timeAgoSoul(diffEntry.edited_at)}
+              </p>
+              <pre className="text-xs font-mono text-muted-foreground/80 whitespace-pre-wrap break-words max-h-48 overflow-y-auto leading-relaxed">
+                {diffEntry.soul_content}
+              </pre>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

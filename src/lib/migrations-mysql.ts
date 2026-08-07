@@ -82,4 +82,20 @@ export async function runMigrationsMysql(): Promise<void> {
     await pool.query("INSERT IGNORE INTO schema_migrations (id) VALUES ('003_audit_log_workspace_id')")
     logger.info('Migration 003 applied: audit_log workspace_id column')
   }
+
+  if (!applied.has('004_agent_soul_history')) {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS agent_soul_history (
+        id          INT AUTO_INCREMENT PRIMARY KEY,
+        agent_id    INT NOT NULL,
+        workspace_id INT NOT NULL DEFAULT 1,
+        soul_content MEDIUMTEXT NOT NULL,
+        edited_by   VARCHAR(255) NOT NULL DEFAULT 'unknown',
+        edited_at   INT NOT NULL,
+        INDEX idx_agent_soul_history_agent (agent_id, edited_at DESC)
+      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
+    `)
+    await pool.query("INSERT IGNORE INTO schema_migrations (id) VALUES ('004_agent_soul_history')")
+    logger.info('Migration 004 applied: agent_soul_history table')
+  }
 }
