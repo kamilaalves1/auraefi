@@ -752,5 +752,5 @@ Crie um **GitHub App** com as seguintes permissões de repositório:
 ## Licença
 
 MIT — veja [LICENSE](LICENSE).
-
-Derivado de [builderz-labs/mission-control](https://github.com/builderz-labs/mission-control).
+Derivado de [builderz-labs/mission-control](https://github.com/builderz-labs/mission-control)
+Desenvolvido por Kamila ALVES
