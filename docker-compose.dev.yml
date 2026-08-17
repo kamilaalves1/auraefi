@@ -1,0 +1,65 @@
+# Docker Compose para desenvolvimento com MySQL
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: vertex-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: aura
+      MYSQL_USER: aura
+      MYSQL_PASSWORD: aura123
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    networks:
+      - vcc-net
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  vertex-control-center:
+    build: .
+    container_name: vertex-control-center
+    ports:
+      - "${MC_PORT:-3000}:${PORT:-3000}"
+    environment:
+      - PORT=${PORT:-3000}
+      - NODE_ENV=development
+      - MYSQL_HOST=mysql
+      - MYSQL_PORT=3306
+      - MYSQL_USER=aura
+      - MYSQL_PASSWORD=aura123
+      - MYSQL_DATABASE=aura
+      - MYSQL_SSL=false
+      - AUTH_USER=admin
+      - AUTH_PASS=admin
+      - MC_ALLOWED_HOSTS=localhost,127.0.0.1,localhost:3000,127.0.0.1:3000
+      - MC_ALLOW_ANY_HOST=true
+      - MC_DISABLE_RATE_LIMIT=1
+      - MC_COOKIE_SECURE=false
+      - NEXT_PUBLIC_GATEWAY_OPTIONAL=true
+    env_file:
+      - path: .env.local
+        required: false
+    volumes:
+      - vcc-data:/app/.data
+      - /app/node_modules
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - vcc-net
+    restart: unless-stopped
+
+volumes:
+  mysql-data:
+  vcc-data:
+
+networks:
+  vcc-net:
+    driver: bridge
