@@ -302,6 +302,29 @@ docker compose -f docker-compose.yml -f docker-compose.hardened.yml up -d
 
 ---
 
+## Governança e Layout
+
+### Estrutura de Governança
+
+AURA segue um modelo de governança estruturado com comitês especializados. Veja [GOVERNANCE.md](GOVERNANCE.md) para detalhes completos sobre:
+
+- **Comitês de Decisão** — Arquitetura, Qualidade e Segurança
+- **Processos de RFC** — Para mudanças arquiteturais maiores
+- **Padrões de Código** — TypeScript, React, ESLint e Prettier obrigatórios
+- **Ciclo de Release** — Feature freeze, QA, segurança e deploy
+
+### Novo Layout (v2.0)
+
+A interface foi redesenhada para melhor usabilidade:
+
+- **Sidebar aprimorada** — Navegação mais intuitiva com collapsible sections
+- **Dashboard modular** — Widgets com rearranjo mais fluido via drag-and-drop
+- **Tema adaptativo** — Suporte completo para dark mode com CSS variables
+- **Responsividade mobile** — Layout fluido para tablets e smartphones
+- **Componentes refatorados** — Novo sistema de design baseado em composição
+
+---
+
 ## Stack Técnico
 
 | Camada | Tecnologia | Notas |
