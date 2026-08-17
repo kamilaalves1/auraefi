@@ -42,29 +42,44 @@ interface MenuItem {
   label: string
   icon: string
   description?: string
+  category?: string
 }
 
+interface MenuSection {
+  title: string
+  category: string
+  icon?: string
+}
+
+const menuSections: MenuSection[] = [
+  { title: 'Painel', category: 'dashboard', icon: '📊' },
+  { title: 'Operações', category: 'operations', icon: '⚙️' },
+  { title: 'Monitoramento', category: 'monitoring', icon: '📡' },
+  { title: 'Configuração', category: 'settings', icon: '⚙️' },
+]
+
 const menuItems: MenuItem[] = [
-  { id: 'overview', label: 'Visão Geral', icon: '📊', description: 'Painel do sistema' },
-  { id: 'agents', label: 'Agentes', icon: '🤖', description: 'Gerenciamento e status dos agentes' },
-  { id: 'activity', label: 'Feed de Atividade', icon: '📣', description: 'Fluxo de atividade em tempo real' },
-  { id: 'notifications', label: 'Notificações', icon: '🔔', description: 'Menções e alertas' },
-  { id: 'standup', label: 'Standup Diário', icon: '📈', description: 'Gerar relatórios de standup' },
-  { id: 'spawn', label: 'Criar Agente', icon: '🚀', description: 'Lançar novos sub-agentes' },
-  { id: 'logs', label: 'Logs', icon: '📝', description: 'Visualizador de logs em tempo real' },
-  { id: 'cron', label: 'Tarefas Cron', icon: '⏰', description: 'Tarefas automatizadas' },
-  { id: 'memory', label: 'Memória', icon: '🧠', description: 'Explorador de conhecimento' },
-  { id: 'tokens', label: 'Tokens', icon: '💰', description: 'Rastreamento de uso e custo' },
-  { id: 'channels', label: 'Canais', icon: '📡', description: 'Status das plataformas de mensagem' },
-  { id: 'nodes', label: 'Nós', icon: '🖥', description: 'Instâncias conectadas' },
-  { id: 'exec-approvals', label: 'Aprovações', icon: '✅', description: 'Fila de aprovações de execução' },
-  { id: 'debug', label: 'Debug', icon: '🐛', description: 'Diagnóstico do sistema' },
+  { id: 'overview', label: 'Visão Geral', icon: '📊', description: 'Painel do sistema', category: 'dashboard' },
+  { id: 'agents', label: 'Agentes', icon: '🤖', description: 'Gerenciamento e status dos agentes', category: 'operations' },
+  { id: 'activity', label: 'Feed de Atividade', icon: '📣', description: 'Fluxo de atividade em tempo real', category: 'monitoring' },
+  { id: 'notifications', label: 'Notificações', icon: '🔔', description: 'Menções e alertas', category: 'monitoring' },
+  { id: 'standup', label: 'Standup Diário', icon: '📈', description: 'Gerar relatórios de standup', category: 'operations' },
+  { id: 'spawn', label: 'Criar Agente', icon: '🚀', description: 'Lançar novos sub-agentes', category: 'operations' },
+  { id: 'logs', label: 'Logs', icon: '📝', description: 'Visualizador de logs em tempo real', category: 'monitoring' },
+  { id: 'cron', label: 'Tarefas Cron', icon: '⏰', description: 'Tarefas automatizadas', category: 'operations' },
+  { id: 'memory', label: 'Memória', icon: '🧠', description: 'Explorador de conhecimento', category: 'monitoring' },
+  { id: 'tokens', label: 'Tokens', icon: '💰', description: 'Rastreamento de uso e custo', category: 'monitoring' },
+  { id: 'channels', label: 'Canais', icon: '📡', description: 'Status das plataformas de mensagem', category: 'monitoring' },
+  { id: 'nodes', label: 'Nós', icon: '🖥', description: 'Instâncias conectadas', category: 'monitoring' },
+  { id: 'exec-approvals', label: 'Aprovações', icon: '✅', description: 'Fila de aprovações de execução', category: 'operations' },
+  { id: 'debug', label: 'Debug', icon: '🐛', description: 'Diagnóstico do sistema', category: 'settings' },
 ]
 
 export function Sidebar() {
   const { activeTab, connection, sessions } = useMissionControl()
   const navigateToPanel = useNavigateToPanel()
   const [systemStats, setSystemStats] = useState<SystemStats | null>(null)
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['dashboard', 'operations']))
 
   useEffect(() => {
     let cancelled = false
@@ -100,35 +115,63 @@ export function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 p-4 overflow-y-auto">
-        <ul className="space-y-2">
-          {menuItems.map((item) => (
-            <li key={item.id}>
-              <Button
-                variant={activeTab === item.id ? 'default' : 'ghost'}
-                onClick={() => navigateToPanel(item.id)}
-                className={`w-full flex items-start space-x-3 px-3 py-3 h-auto rounded-lg text-left justify-start group ${
-                  activeTab === item.id
-                    ? 'shadow-sm'
-                    : ''
-                }`}
-                title={item.description}
+      <nav className="flex-1 p-4 overflow-y-auto space-y-2">
+        {menuSections.map((section) => {
+          const isExpanded = expandedSections.has(section.category)
+          const sectionItems = menuItems.filter(item => item.category === section.category)
+
+          return (
+            <div key={section.category} className="space-y-1">
+              <button
+                onClick={() => {
+                  const newExpanded = new Set(expandedSections)
+                  if (isExpanded) {
+                    newExpanded.delete(section.category)
+                  } else {
+                    newExpanded.add(section.category)
+                  }
+                  setExpandedSections(newExpanded)
+                }}
+                className="w-full flex items-center space-x-2 px-3 py-2 text-sm font-semibold text-muted-foreground hover:text-foreground transition-colors"
               >
-                <span className="text-lg mt-0.5">{item.icon}</span>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium">{item.label}</div>
-                  <div className={`text-xs mt-0.5 ${
-                    activeTab === item.id
-                      ? 'text-primary-foreground/80'
-                      : 'text-muted-foreground group-hover:text-foreground/70'
-                  }`}>
-                    {item.description}
-                  </div>
-                </div>
-              </Button>
-            </li>
-          ))}
-        </ul>
+                {section.icon && <span>{section.icon}</span>}
+                <span className="flex-1 text-left">{section.title}</span>
+                <span className={`text-xs transition-transform ${isExpanded ? 'rotate-90' : ''}`}>▶</span>
+              </button>
+
+              {isExpanded && (
+                <ul className="space-y-1 pl-2 border-l border-border/50">
+                  {sectionItems.map((item) => (
+                    <li key={item.id}>
+                      <Button
+                        variant={activeTab === item.id ? 'default' : 'ghost'}
+                        onClick={() => navigateToPanel(item.id)}
+                        className={`w-full flex items-start space-x-3 px-3 py-2.5 h-auto rounded-lg text-left justify-start group text-sm ${
+                          activeTab === item.id
+                            ? 'shadow-sm'
+                            : ''
+                        }`}
+                        title={item.description}
+                      >
+                        <span className="text-base mt-0.5">{item.icon}</span>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium text-xs">{item.label}</div>
+                          <div className={`text-xs mt-0.5 leading-tight ${
+                            activeTab === item.id
+                              ? 'text-primary-foreground/70'
+                              : 'text-muted-foreground group-hover:text-foreground/70'
+                          }`}>
+                            {item.description}
+                          </div>
+                        </div>
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )
+        })}
       </nav>
 
       {/* Status Footer */}
