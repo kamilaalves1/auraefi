@@ -5,7 +5,7 @@
 ✅ `.gitlab-ci.yml` - Pipeline de CI/CD para GitLab que:
 1. **Faz build** da imagem Docker automaticamente
 2. **Faz push** para o registry GitLab
-3. **Faz deploy** quando aprovado (manual trigger)
+3. **Faz deploy** via SSH quando aprovado (manual trigger)
 
 ---
 
@@ -16,23 +16,23 @@
 No repositório do GitLab, vá para:
 **Settings → CI/CD → Variables**
 
-Adicione estas variáveis (escolha uma opção de deploy):
-
-#### Opção A: Deploy via SSH (Recomendado)
+Adicione estas variáveis:
 
 ```
-DEPLOY_HOST = seu-servidor.com ou IP
-DEPLOY_USER = usuario_ssh
-DEPLOY_PATH = /home/usuario/aura
-SSH_PRIVATE_KEY = conteudo-da-chave-privada-ssh
+DEPLOY_HOST = seu-servidor.com (ou IP do servidor)
+DEPLOY_USER = usuario_que_tem_docker
+DEPLOY_PATH = /caminho/onde/roda/aura
+SSH_PRIVATE_KEY = conteudo-da-sua-chave-privada-ssh
 ```
 
-#### Opção B: Deploy com Kubernetes
-
+**Exemplo:**
 ```
-KUBE_URL = https://seu-kubernetes:6443
-KUBE_TOKEN = seu-token-k8s
-KUBE_CA_CERT = seu-certificado-ca
+DEPLOY_HOST = 192.168.1.100
+DEPLOY_USER = devops
+DEPLOY_PATH = /opt/aura
+SSH_PRIVATE_KEY = -----BEGIN OPENSSH PRIVATE KEY-----
+...
+-----END OPENSSH PRIVATE KEY-----
 ```
 
 ### 2️⃣ Configurar Servidor de Deploy (SSH)
@@ -95,39 +95,47 @@ chmod 600 .env
 
 ### 3️⃣ Autenticação no Registry
 
-No servidor, fazer login no registry GitLab:
+No servidor de deploy, fazer login no registry GitLab:
 
 ```bash
 docker login registry.gitlab.interno.testegerencianet.com.br
-# Digite seu username e personal access token
+# Digite seu username do GitLab
+# Senha: use um Personal Access Token (Settings → Access Tokens)
 ```
 
 ---
 
 ## Como Fazer Deploy
 
-### Primeira Vez: Build Manual
+### Primeira Vez: Preparar o Servidor
 
 ```bash
-# No seu computador local
-cd /caminho/do/projeto
+# No servidor de produção
+cd /opt
+mkdir -p aura
+cd aura
 
-# Build da imagem
-docker build -t registry.gitlab.interno.testegerencianet.com.br/desenvolvimento/aura:latest .
-
-# Push para registry
+# Fazer login no registry
 docker login registry.gitlab.interno.testegerencianet.com.br
-docker push registry.gitlab.interno.testegerencianet.com.br/desenvolvimento/aura:latest
+
+# Testar acesso
+docker pull registry.gitlab.interno.testegerencianet.com.br/desenvolvimento/aura:latest
 ```
 
-### Próximas Vezes: Automático via GitLab
+### Deploy via GitLab (Automático)
 
 1. **Fazer merge para master** ✅ (já feito)
 2. **Ir para GitLab**
    - Acesse: https://gitlab.interno.testegerencianet.com.br/desenvolvimento/aura
-   - Vá para **Pipelines**
-   - Clique no pipeline da master
-   - Clique em **Deploy** (manual trigger)
+   - Vá para **Pipelines** → Pipeline da master
+   - Veja o job **build** completar
+   - Clique no botão **Deploy** (manual trigger)
+3. **Pronto!** SSH executará no servidor:
+   ```bash
+   cd /opt/aura
+   docker-compose pull
+   docker-compose up -d
+   ```
 
 ### Monitorar o Deploy
 
@@ -141,6 +149,10 @@ docker-compose ps
 # Parar/iniciar
 docker-compose stop
 docker-compose up -d
+
+# Atualizar imagem
+docker-compose pull
+docker-compose up -d
 ```
 
 ---
@@ -151,8 +163,6 @@ Depois do deploy, acesse:
 
 ```
 http://seu-servidor:3000
-# ou
-https://aura.seu-dominio.com
 ```
 
 Login: admin / admin
@@ -170,7 +180,9 @@ Docker Build & Push
         ↓
 Registry GitLab
         ↓
-Servidor SSH / Kubernetes
+SSH Deploy (seu servidor)
+        ↓
+docker-compose up -d
         ↓
 🚀 Aplicação em Produção
 ```
@@ -180,19 +192,26 @@ Servidor SSH / Kubernetes
 ## Troubleshooting
 
 ### "DEPLOY_HOST not defined"
-- Faltam variáveis no GitLab Settings → CI/CD → Variables
+- ❌ Faltam variáveis no GitLab Settings → CI/CD → Variables
+- ✅ Adicione: DEPLOY_HOST, DEPLOY_USER, DEPLOY_PATH, SSH_PRIVATE_KEY
 
-### "Docker login failed"
-- Verificar credenciais do registry
-- Usar personal access token ao invés de senha
+### "Permission denied (publickey)"
+- ❌ SSH key não está configurada corretamente
+- ✅ Certifique-se que a chave privada está em SSH_PRIVATE_KEY
 
 ### "Connection refused"
-- Verificar se servidor SSH está acessível
-- Verificar SSH key configurada
+- ❌ Servidor não está acessível
+- ✅ Verificar IP/hostname do servidor
+- ✅ Verificar se SSH porta 22 está aberta
 
 ### "Image pull failed"
-- Verificar se imagem foi feita push corretamente
-- Executar `docker pull` manualmente no servidor
+- ❌ Docker registry login falhou
+- ✅ Executar no servidor: `docker login registry.gitlab.interno.testegerencianet.com.br`
+- ✅ Usar personal access token como senha
+
+### "docker-compose: command not found"
+- ❌ Docker Compose não instalado no servidor
+- ✅ Instalar: `sudo apt install docker-compose`
 
 ---
 
@@ -207,4 +226,10 @@ A aplicação será atualizada automaticamente! 🎉
 
 ---
 
-**Pronto para deploy!** Você tem apenas que configurar as variáveis no GitLab.
+**Passo a passo:**
+
+1. ✅ Configurar variáveis no GitLab
+2. ✅ Preparar servidor (Docker + docker-compose)
+3. ✅ Fazer login no registry
+4. ✅ Clicar Deploy no GitLab Pipelines
+5. 🚀 Aplicação rodando!

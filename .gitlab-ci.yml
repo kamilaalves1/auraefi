@@ -5,8 +5,6 @@ stages:
 variables:
   DOCKER_DRIVER: overlay2
   DOCKER_TLS_CERTDIR: "/certs"
-  REGISTRY: "registry.gitlab.interno.testegerencianet.com.br"
-  IMAGE_NAME: "desenvolvimento/aura"
 
 build:
   stage: build
@@ -34,22 +32,7 @@ deploy:
     - chmod 600 ~/.ssh/id_ed25519
     - ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
   script:
-    - ssh -i ~/.ssh/id_ed25519 $DEPLOY_USER@$DEPLOY_HOST "cd $DEPLOY_PATH && docker-compose -f docker-compose.yml pull && docker-compose -f docker-compose.yml up -d"
-  environment:
-    name: production
-    url: "https://aura.interno.testegerencianet.com.br"
-  only:
-    - master
-    - main
-  when: manual
-
-# Alternativa: Deploy com Kubernetes
-deploy_k8s:
-  stage: deploy
-  image: bitnami/kubectl:latest
-  script:
-    - kubectl set image deployment/aura aura=$CI_REGISTRY_IMAGE:$CI_COMMIT_SHA -n production
-    - kubectl rollout status deployment/aura -n production
+    - ssh -i ~/.ssh/id_ed25519 $DEPLOY_USER@$DEPLOY_HOST "cd $DEPLOY_PATH && docker-compose pull && docker-compose up -d"
   environment:
     name: production
     url: "https://aura.interno.testegerencianet.com.br"
