@@ -1,6 +1,5 @@
 stages:
   - build
-  - deploy
 
 variables:
   DOCKER_DRIVER: overlay2
@@ -21,22 +20,7 @@ build:
     - master
     - main
 
-deploy:
-  stage: deploy
-  image: alpine:latest
-  before_script:
-    - apk add --no-cache openssh-client
-    - mkdir -p ~/.ssh
-    - chmod 700 ~/.ssh
-    - echo "$SSH_PRIVATE_KEY" | tr -d '\r' > ~/.ssh/id_ed25519
-    - chmod 600 ~/.ssh/id_ed25519
-    - ssh-keyscan -H $DEPLOY_HOST >> ~/.ssh/known_hosts 2>/dev/null || true
-  script:
-    - ssh -i ~/.ssh/id_ed25519 $DEPLOY_USER@$DEPLOY_HOST "cd $DEPLOY_PATH && docker-compose pull && docker-compose up -d"
-  environment:
-    name: production
-    url: "https://aura.interno.testegerencianet.com.br"
-  only:
-    - master
-    - main
-  when: manual
+# Deploy manual: executar no seu servidor
+# docker login registry.gitlab.interno.testegerencianet.com.br
+# docker pull registry.gitlab.interno.testegerencianet.com.br/desenvolvimento/aura:latest
+# docker-compose up -d
