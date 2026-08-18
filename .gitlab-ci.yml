@@ -1,26 +1,21 @@
-stages:
-  - build
+# GitLab CI/CD - AURA
+#
+# Deploy manual via docker-compose
+# Sem build automático, sem SSH key
+#
+# Instruções:
+# 1. SSH no servidor
+# 2. docker-compose pull
+# 3. docker-compose up -d
+#
+# Veja DEPLOY_SIMPLES.md para detalhes completos
 
-variables:
-  DOCKER_DRIVER: overlay2
-  DOCKER_TLS_CERTDIR: "/certs"
-
-build:
-  stage: build
-  image: docker:latest
-  services:
-    - docker:dind
+# Este arquivo pode ficar vazio ou com um teste simples
+test:
+  stage: test
+  image: alpine:latest
   script:
-    - docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
-    - docker build -t $CI_REGISTRY_IMAGE:latest .
-    - docker build -t $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA .
-    - docker push $CI_REGISTRY_IMAGE:latest
-    - docker push $CI_REGISTRY_IMAGE:$CI_COMMIT_SHA
+    - echo "AURA CI/CD - Deploy manual com docker-compose"
+    - echo "Veja DEPLOY_SIMPLES.md no repositório"
   only:
     - master
-    - main
-
-# Deploy manual: executar no seu servidor
-# docker login registry.gitlab.interno.testegerencianet.com.br
-# docker pull registry.gitlab.interno.testegerencianet.com.br/desenvolvimento/aura:latest
-# docker-compose up -d
