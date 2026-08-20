@@ -683,7 +683,7 @@ function AgentDetailModalPhase3({
   onDelete: (agentId: number, removeWorkspace: boolean) => Promise<void>
 }) {
   const [agentState, setAgentState] = useState<Agent & { config?: any; working_memory?: string }>(agent as Agent & { config?: any; working_memory?: string })
-  const [activeTab, setActiveTab] = useState<'overview' | 'instructions' | 'activity'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'instructions' | 'persona' | 'activity'>('overview')
   const [editing, setEditing] = useState(false)
   const [formData, setFormData] = useState({
     role: agent.role,
