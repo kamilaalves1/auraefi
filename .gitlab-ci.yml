@@ -1,21 +1,234 @@
-# GitLab CI/CD - AURA
+# Esteira de deploy do Aura (PTI-787) - ambiente de teste
 #
-# Deploy manual via docker-compose
-# Sem build automático, sem SSH key
+# Fluxo: merge em master -> valida -> empacota e publica no S3 -> deploy manual
+# via SSM. Sem container e sem SSH: a instancia GitLab nao tem registry e o SG
+# do host so aceita os dois /32 dos conectores ZPA.
 #
-# Instruções:
-# 1. SSH no servidor
-# 2. docker-compose pull
-# 3. docker-compose up -d
+# A imagem e bullseye (glibc 2.31) de proposito: o host alvo tem glibc 2.34, e
+# binario nativo compilado numa glibc mais nova nao roda numa mais antiga.
 #
-# Veja DEPLOY_SIMPLES.md para detalhes completos
+# Variaveis a cadastrar em Settings > CI/CD > Variables, MASKED e PROTECTED:
+#   AWS_ACCESS_KEY_ID       chave do usuario efi-aura-ci
+#   AWS_SECRET_ACCESS_KEY   idem
+# O master precisa estar PROTEGIDO, senao variavel protected chega vazia - foi
+# exatamente o que derrubou os 4 pipelines anteriores, com $CI_REGISTRY vazio.
 
-# Este arquivo pode ficar vazio ou com um teste simples
-test:
-  stage: test
-  image: alpine:latest
+stages:
+  - validate
+  - release
+  - deploy
+
+variables:
+  AWS_DEFAULT_REGION: us-east-1
+  S3_BUCKET: efi-aura-releases-823196744369
+  S3_PREFIX: releases
+  SSM_DOCUMENT: efi-aura-deploy
+  SSM_DOC_VERSION: "4"          # versao fixada: sem pin, uma edicao muda o que implanta
+  TARGET_INSTANCE: i-0c7c2bb068ed75adf
+  BUILD_SECRET: aura/prod/build
+  RELEASE_NAME: ${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}
+  # o passo do documento SSM tem timeout de 2400s; o teto de espera aqui tem de
+  # ser MAIOR, senao o job fica vermelho afirmando falha enquanto o deploy ainda
+  # esta rodando
+  DEPLOY_WAIT_SECONDS: "2700"
+
+.node:
+  image: node:22-bullseye-slim
+  tags: [docker]
+  before_script:
+    - corepack enable
+    - corepack prepare pnpm@11.15.1 --activate
+    - pnpm --version
+
+.node_aws:
+  image: node:22-bullseye-slim
+  tags: [docker]
+  before_script:
+    - corepack enable
+    - corepack prepare pnpm@11.15.1 --activate
+    - apt-get update -qq && apt-get install -y -qq curl unzip jq tar gzip >/dev/null
+    - curl -sS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
+    - unzip -q /tmp/awscli.zip -d /tmp && /tmp/aws/install >/dev/null
+    - aws --version
+
+.aws:
+  # entrypoint vazio e obrigatorio: a imagem amazon/aws-cli tem
+  # ENTRYPOINT ["/usr/local/bin/aws"], entao sem isso o runner roda
+  # 'aws sh -c ...' e falha com "invalid choice: sh"
+  image:
+    name: amazon/aws-cli:latest
+    entrypoint: [""]
+  tags: [docker]
+  before_script:
+    - yum install -y jq >/dev/null 2>&1 || true
+    - aws --version
+
+# ---------------------------------------------------------------- validate
+validate:
+  extends: .node
+  stage: validate
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master" && $CI_PIPELINE_SOURCE == "push"'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
   script:
-    - echo "AURA CI/CD - Deploy manual com docker-compose"
-    - echo "Veja DEPLOY_SIMPLES.md no repositório"
-  only:
-    - master
+    - pnpm install --frozen-lockfile
+    - pnpm typecheck
+    - pnpm build
+  cache:
+    key:
+      files: [pnpm-lock.yaml]
+    paths: [.pnpm-store]
+
+# ----------------------------------------------------------------- release
+release:
+  extends: .node_aws
+  stage: release
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master" && $CI_PIPELINE_SOURCE == "push"'
+  script:
+    - aws sts get-caller-identity --query Arn --output text
+
+    # as NEXT_PUBLIC_* sao build-time: o Next as embute no bundle do cliente.
+    # exportadas no shell, NUNCA gravadas em arquivo - um .env aqui entraria no
+    # artefato, porque o trace do Next copia a arvore inteira do projeto.
+    - |
+      SEG=$(aws secretsmanager get-secret-value --secret-id "$BUILD_SECRET" --query SecretString --output text)
+      N=$(printf '%s' "$SEG" | jq -r 'keys|length')
+      echo "segredo de build: $N variaveis"
+      [ "$N" -ge 5 ] || { echo "ERRO: segredo de build com apenas $N chaves"; exit 1; }
+      while IFS='=' read -r k v; do export "$k=$v"; done < <(printf '%s' "$SEG" | jq -r 'to_entries[]|"\(.key)=\(.value)"')
+      unset SEG
+      env | grep -c '^NEXT_PUBLIC_' | xargs echo "NEXT_PUBLIC_ exportadas:"
+
+    - pnpm install --frozen-lockfile
+    - pnpm build
+
+    # layout que o standalone exige: static e public tem de ir para dentro dele
+    - cp -r .next/static .next/standalone/.next/static
+    - cp -r public .next/standalone/public
+    # o schema e lido em runtime por join(process.cwd(),'src','lib',...).
+    # hoje entra por acidente do trace; garantir explicitamente.
+    - mkdir -p .next/standalone/src/lib
+    - cp src/lib/schema-mysql.sql .next/standalone/src/lib/schema-mysql.sql
+    - test -f .next/standalone/server.js
+
+    # empacotar SEM o lixo que o trace arrasta: .git, docs e os DEPLOY_*.md
+    # (que tem senha em texto claro), compose, Vagrantfile, testes
+    - |
+      tar czf artefato.tgz -C .next/standalone \
+        --exclude='./.git' --exclude='./.git/*' \
+        --exclude='./tests' --exclude='./docs' --exclude='./e2e*' \
+        --exclude='./playwright*' --exclude='./*.md' \
+        --exclude='./docker*' --exclude='./Vagrantfile' \
+        --exclude='./.env' --exclude='./.env.*' \
+        .
+      ls -l artefato.tgz
+      tar tzf artefato.tgz | wc -l | xargs echo "entradas no pacote:"
+      tar tzf artefato.tgz > /tmp/pacote.txt
+      # match EXATO: com grep sem -F o ponto de '.git' casaria '.gitignore'
+      for proibido in .git DEPLOY_SIMPLES.md DEPLOY_GUIA.md docker-compose.yml Vagrantfile .env; do
+        if grep -qxF "./$proibido" /tmp/pacote.txt || grep -qF "./$proibido/" /tmp/pacote.txt; then
+          echo "ERRO: $proibido entrou no artefato"; exit 1
+        fi
+      done
+      # e o que TEM de estar presente
+      for exigido in ./server.js ./src/lib/schema-mysql.sql; do
+        grep -qxF "$exigido" /tmp/pacote.txt || { echo "ERRO: $exigido ausente do artefato"; exit 1; }
+      done
+      grep -qF './.next/static/' /tmp/pacote.txt || { echo "ERRO: .next/static ausente"; exit 1; }
+      grep -qF './public/' /tmp/pacote.txt || { echo "ERRO: public ausente"; exit 1; }
+      echo "conferido: nada proibido, e o essencial esta presente"
+
+    - SHA=$(sha256sum artefato.tgz | awk '{print $1}')
+    - echo "$SHA" > artefato.sha256
+    - echo "release=$RELEASE_NAME sha256=$SHA"
+    - aws s3 cp artefato.tgz "s3://$S3_BUCKET/$S3_PREFIX/$RELEASE_NAME.tar.gz" --only-show-errors
+    - aws s3 cp artefato.sha256 "s3://$S3_BUCKET/$S3_PREFIX/$RELEASE_NAME.sha256" --only-show-errors
+    - echo "publicado em s3://$S3_BUCKET/$S3_PREFIX/$RELEASE_NAME.tar.gz"
+  artifacts:
+    paths: [artefato.sha256]
+    expire_in: 30 days
+  cache:
+    key:
+      files: [pnpm-lock.yaml]
+    paths: [.pnpm-store]
+    policy: pull
+
+# ------------------------------------------------------------------ deploy
+deploy:
+  extends: .aws
+  stage: deploy
+  when: manual
+  resource_group: deploy-aura        # impede dois deploys simultaneos
+  timeout: 55m                       # acima do DEPLOY_WAIT_SECONDS
+  needs: [release]
+  environment:
+    name: teste
+    url: https://aura.interno.testesejaefi.com.br
+  rules:
+    - if: '$CI_COMMIT_BRANCH == "master" && $CI_PIPELINE_SOURCE == "push"'
+  script:
+    - SHA=$(cat artefato.sha256)
+    - echo "implantando $RELEASE_NAME (sha256 $SHA)"
+    - |
+      CID=$(aws ssm send-command \
+        --instance-ids "$TARGET_INSTANCE" \
+        --document-name "$SSM_DOCUMENT" \
+        --document-version "$SSM_DOC_VERSION" \
+        --parameters "Version=$RELEASE_NAME,Sha256=$SHA" \
+        --timeout-seconds "$DEPLOY_WAIT_SECONDS" \
+        --query 'Command.CommandId' --output text)
+      echo "CommandId: $CID"
+      FIM=$(( $(date +%s) + DEPLOY_WAIT_SECONDS ))
+      ST=Pending
+      while [ "$(date +%s)" -lt "$FIM" ]; do
+        sleep 10
+        ST=$(aws ssm get-command-invocation --command-id "$CID" --instance-id "$TARGET_INSTANCE" --query Status --output text 2>/dev/null || echo Pending)
+        case "$ST" in Success|Failed|Cancelled|TimedOut) break;; esac
+        echo "  ... $ST"
+      done
+      echo "--------- saida do deploy ---------"
+      aws ssm get-command-invocation --command-id "$CID" --instance-id "$TARGET_INSTANCE" --query StandardOutputContent --output text || true
+      echo "----------------------------------"
+      if [ "$ST" != "Success" ]; then
+        echo "DEPLOY NAO CONCLUIDO. status=$ST"
+        [ "$ST" = "Failed" ] && echo "o documento reverte sozinho; confira a saida acima para saber se o rollback deu certo"
+        case "$ST" in Pending|InProgress|Delayed) echo "ATENCAO: estado INDETERMINADO, o comando pode ainda estar rodando. CommandId=$CID";; esac
+        exit 1
+      fi
+      echo "deploy concluido: $RELEASE_NAME"
+
+# ---------------------------------------------------------------- rollback
+rollback:
+  extends: .aws
+  stage: deploy
+  when: manual
+  resource_group: deploy-aura
+  timeout: 55m
+  needs: []                          # sem isso o rollback fica atras do validate,
+                                     # e com o master vermelho o botao nunca aparece
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web" && $ROLLBACK_VERSION'
+  script:
+    - test -n "$ROLLBACK_VERSION" || { echo "informe ROLLBACK_VERSION ao rodar o pipeline"; exit 1; }
+    - echo "revertendo para $ROLLBACK_VERSION"
+    - |
+      SHA=$(aws s3 cp "s3://$S3_BUCKET/$S3_PREFIX/$ROLLBACK_VERSION.sha256" - 2>/dev/null | tr -d '[:space:]')
+      [ -n "$SHA" ] || { echo "ERRO: nao achei o sha256 de $ROLLBACK_VERSION no bucket"; exit 1; }
+      CID=$(aws ssm send-command \
+        --instance-ids "$TARGET_INSTANCE" \
+        --document-name "$SSM_DOCUMENT" --document-version "$SSM_DOC_VERSION" \
+        --parameters "Version=$ROLLBACK_VERSION,Sha256=$SHA" \
+        --timeout-seconds "$DEPLOY_WAIT_SECONDS" \
+        --query 'Command.CommandId' --output text)
+      echo "CommandId: $CID"
+      FIM=$(( $(date +%s) + DEPLOY_WAIT_SECONDS ))
+      ST=Pending
+      while [ "$(date +%s)" -lt "$FIM" ]; do
+        sleep 10
+        ST=$(aws ssm get-command-invocation --command-id "$CID" --instance-id "$TARGET_INSTANCE" --query Status --output text 2>/dev/null || echo Pending)
+        case "$ST" in Success|Failed|Cancelled|TimedOut) break;; esac
+      done
+      aws ssm get-command-invocation --command-id "$CID" --instance-id "$TARGET_INSTANCE" --query StandardOutputContent --output text || true
+      [ "$ST" = "Success" ] || { echo "rollback nao concluido: $ST"; exit 1; }
+      echo "rollback concluido: $ROLLBACK_VERSION"
