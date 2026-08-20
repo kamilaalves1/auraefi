@@ -26,11 +26,9 @@ export async function runMigrationsMysql(): Promise<void> {
     // `tasks`, o CREATE INDEX seguinte falhava com ER_NO_SUCH_TABLE (1146),
     // a migracao 001 nunca era registrada e o boot quebrava sempre.
     const statements = schema
-      .split('
-')
+      .split('\n')
       .filter((linha) => !linha.trim().startsWith('--'))
-      .join('
-')
+      .join('\n')
       .split(';')
       .map((s) => s.trim())
       .filter((s) => s.length > 0)
