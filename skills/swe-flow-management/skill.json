@@ -1,0 +1,8 @@
+{
+    "name": "swe-flow-management",
+    "version": "1.0.0",
+    "description": "Gestão de WIP, aging, bloqueios, dependências, throughput e previsibilidade",
+    "author": "AURA",
+    "license": "Proprietary",
+    "tags": ["flow", "agile", "wip", "aging", "jira"]
+  }

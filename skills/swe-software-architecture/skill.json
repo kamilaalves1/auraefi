@@ -1,0 +1,8 @@
+{
+    "name": "swe-software-architecture",
+    "version": "1.0.0",
+    "description": "Arquitetura de software, contratos, NFRs, integrações, compatibilidade, rollout e rollback",
+    "author": "AURA",
+    "license": "Proprietary",
+    "tags": ["architecture", "nfr", "contracts", "integration", "rollback"]
+  }

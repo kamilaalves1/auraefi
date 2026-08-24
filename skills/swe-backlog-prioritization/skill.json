@@ -1,0 +1,8 @@
+{
+    "name": "swe-backlog-prioritization",
+    "version": "1.0.0",
+    "description": "Priorização e recorte de backlog por valor, urgência, risco, dependências e capacidade",
+    "author": "AURA",
+    "license": "Proprietary",
+    "tags": ["product-owner", "prioritization", "backlog", "capacity", "jira"]
+  }

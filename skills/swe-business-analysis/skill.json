@@ -1,0 +1,8 @@
+{
+    "name": "swe-business-analysis",
+    "version": "1.0.0",
+    "description": "Refinamento funcional, regras, cenários, integrações, dados, permissões e critérios de aceite",
+    "author": "AURA",
+    "license": "Proprietary",
+    "tags": ["business-analysis", "requirements", "jira", "acceptance"]
+  }

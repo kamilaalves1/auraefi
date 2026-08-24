@@ -1,8 +1,4 @@
-﻿{
-  "name": "swe-architecture-and-data",
-  "version": "1.0.0",
-  "description": "Technical architecture and data engineering guidance",
-  "author": "AURA",
-  "license": "MIT",
-  "tags": ["architecture", "data", "nfr", "swe-squad"]
-}
+﻿{"name":"aura-engineer-data-change","version":"2.0.0","description":"Projeta e implementa schemas, pipelines, migrações, backfills e qualidade de dados","author":"AURA","license":"Proprietary","tags":["data","schema","migration","quality"]}
+
+
+a

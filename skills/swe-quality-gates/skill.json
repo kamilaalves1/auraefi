@@ -1,8 +1,8 @@
 ﻿{
   "name": "swe-quality-gates",
-  "version": "1.0.0",
-  "description": "QA: acceptance testing, evidence, and release readiness",
+  "version": "3.0.0",
+  "description": "Validação independente de critérios, regressão, erros, contratos e acessibilidade",
   "author": "AURA",
-  "license": "MIT",
-  "tags": ["qa", "testing", "release", "swe-squad"]
+  "license": "Proprietary",
+  "tags": ["qa", "testing", "acceptance", "quality-gate", "jira"]
 }

@@ -1,0 +1,8 @@
+{
+    "name": "swe-data-engineering",
+    "version": "1.0.0",
+    "description": "Schemas, pipelines, migrações, backfills, replays, qualidade, lineage e observabilidade de dados",
+    "author": "AURA",
+    "license": "Proprietary",
+    "tags": ["data", "schema", "migration", "backfill", "quality"]
+  }

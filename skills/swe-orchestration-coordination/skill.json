@@ -1,8 +1,16 @@
 ﻿{
   "name": "swe-orchestration-coordination",
-  "version": "1.0.0",
-  "description": "Multi-agent orchestration: decomposition, handoffs, and conflict resolution for software delivery",
+  "version": "3.0.0",
+  "description": "Coordenação completa da squad de agentes entre Jira, GitLab, gates, handoffs, bloqueios e interações humanas",
   "author": "AURA",
-  "license": "MIT",
-  "tags": ["orchestration", "agents", "workflow", "swe-squad"]
+  "license": "Proprietary",
+  "tags": [
+    "orchestration",
+    "jira",
+    "gitlab",
+    "agents",
+    "delivery",
+    "handoff",
+    "governance"
+  ]
 }

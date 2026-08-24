@@ -1,8 +1,8 @@
 ﻿{
   "name": "swe-security-review",
-  "version": "1.0.0",
-  "description": "Security review: threat framing and safe verification",
+  "version": "3.0.0",
+  "description": "Revisão de segurança de aplicações, ameaças, controles, dados e dependências",
   "author": "AURA",
-  "license": "MIT",
-  "tags": ["security", "review", "swe-squad"]
+  "license": "Proprietary",
+  "tags": ["security", "appsec", "threat-model", "gate", "jira"]
 }

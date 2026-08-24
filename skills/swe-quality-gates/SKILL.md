@@ -1,20 +1,82 @@
-# Quality gates
+---
+name: swe-quality-gates
+description: Valida comportamento contra critérios e riscos, incluindo happy path, bordas, erros, permissões, regressão e acessibilidade.
+---
 
-## Test design
+# Validar entrega
 
-- Align cases to **acceptance criteria** and **risk** (happy, edge, abuse).  
-- Prefer **deterministic** data; document seeds or fixtures.  
-- Capture **evidence**: steps, expected vs actual, logs, screenshots when UI.
+## Missão
 
-## Release readiness
+Produzir evidências independentes de que a mudança atende ao card e não rompe comportamento crítico.
 
-- [ ] Critical paths pass on **target environment**  
-- [ ] **Monitoring** and alerts cover new failure modes  
-- [ ] **Runbooks** updated for operators  
-- [ ] **Rollback** validated or timeboxed
+## Pré-condições
 
-## When to block
+Exigir:
 
-- Data loss or corruption risk without mitigation.  
-- Security regression with plausible exploit path.  
-- Broken **contract** with external consumers.
+- critérios;
+- regras;
+- MR ou versão;
+- ambiente;
+- configuração;
+- massa;
+- riscos;
+- evidências do Developer.
+
+## Comunicação externa obrigatória
+
+Se ambiente, massa, versão, requisito ou acesso estiver indisponível:
+
+- comentar no Jira;
+- informar a tentativa;
+- identificar responsável;
+- explicar impacto;
+- marcar `QA: BLOCKED`.
+
+Todo defeito também deve ser registrado ou vinculado no Jira.
+
+## Processo
+
+1. Mapear critério para teste.
+2. Priorizar por risco.
+3. Confirmar versão.
+4. Confirmar ambiente.
+5. Preparar massa.
+6. Executar happy path.
+7. Executar bordas.
+8. Executar erros.
+9. Executar permissões.
+10. Executar regressão.
+11. Verificar contratos.
+12. Verificar acessibilidade.
+13. Registrar evidências.
+14. Retestar correções.
+
+## Defeitos
+
+Registrar:
+
+- ambiente;
+- versão;
+- pré-condição;
+- passos;
+- esperado;
+- obtido;
+- frequência;
+- evidência;
+- severidade;
+- impacto.
+
+## Gate
+
+- `VERDICT: APPROVED`
+- `VERDICT: CHANGES_REQUESTED`
+- `QA: BLOCKED`
+
+## Antipadrões
+
+- Testar apenas happy path.
+- “Funcionou aqui”.
+- Aprovar sem versão.
+- Screenshot sem passos.
+- Ausência de teste como aprovação.
+- Quantidade de casos como sinônimo de qualidade.

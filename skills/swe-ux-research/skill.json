@@ -1,8 +1,8 @@
 ﻿{
   "name": "swe-ux-research",
-  "version": "1.0.0",
-  "description": "UX discovery: tasks, accessibility, and lightweight validation",
+  "version": "3.0.0",
+  "description": "Jornada, interação, estados, conteúdo, responsividade, acessibilidade e validação de experiência",
   "author": "AURA",
-  "license": "MIT",
-  "tags": ["ux", "accessibility", "research", "swe-squad"]
+  "license": "Proprietary",
+  "tags": ["ux", "journey", "accessibility", "design-system", "jira"]
 }

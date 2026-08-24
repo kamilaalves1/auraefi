@@ -1,0 +1,8 @@
+{
+    "name": "swe-product-management",
+    "version": "1.0.0",
+    "description": "Definição de problemas, outcomes, jornadas, métricas, hipóteses e recortes de MVP",
+    "author": "AURA",
+    "license": "Proprietary",
+    "tags": ["product", "outcome", "metrics", "jira", "discovery"]
+  }

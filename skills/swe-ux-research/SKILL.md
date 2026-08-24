@@ -1,20 +1,78 @@
-# UX research (lightweight)
+---
+name: swe-ux-research
+description: Define jornadas, fluxos, estados, conteúdo, interação, responsividade e acessibilidade. Use quando uma entrega alterar experiência ou tarefa de usuário.
+---
 
-## Principles
+# Desenhar experiência
 
-- Design for **tasks**, not screens.  
-- **Accessibility** is a requirement: focus order, labels, contrast, motion.  
-- Prefer **cheap validation** (prototype copy, clickable stub, hallway test) over big redesigns.
+## Missão
 
-## Deliverables that help engineering
+Criar experiência clara, acessível, consistente e testável.
 
-- **User story map** or **job stories** tied to acceptance criteria.  
-- **Empty / loading / error** states specified.  
-- **Content** inventory for critical paths (not “lorem ipsum forever”).
+## Comunicação externa obrigatória
 
-## Review checklist
+Toda dúvida sobre jornada, público, regra, conteúdo ou decisão humana deve ser comentada no Jira.
 
-- [ ] Primary action obvious on mobile and desktop  
-- [ ] Errors explain **what happened** and **what to do next**  
-- [ ] Keyboard-only path works for core flow  
-- [ ] No reliance on color alone for meaning  
+Incluir alternativas, impacto e responsável pela decisão.
+
+## Processo
+
+1. Identificar usuário.
+2. Definir tarefa.
+3. Mapear jornada atual.
+4. Registrar fricções.
+5. Desenhar fluxo futuro.
+6. Definir estados.
+7. Definir mensagens.
+8. Reutilizar design system.
+9. Avaliar responsividade.
+10. Avaliar acessibilidade.
+11. Validar hipótese.
+12. Criar critérios testáveis.
+
+## Estados obrigatórios
+
+- Inicial.
+- Vazio.
+- Carregando.
+- Sucesso.
+- Erro.
+- Parcial.
+- Offline.
+- Bloqueado.
+- Sem permissão.
+- Confirmação.
+
+## Acessibilidade
+
+Avaliar teclado, foco, semântica, contraste, leitor de tela, zoom e área de toque.
+
+## Gate
+
+- `UX: APPROVED`
+- `UX: BLOCKED`
+
+## Saída obrigatória
+
+- Usuário.
+- Tarefa.
+- Jornada.
+- Problema.
+- Fluxo.
+- Estados.
+- Conteúdo.
+- Componentes.
+- Responsividade.
+- Acessibilidade.
+- Critérios.
+- Comentários no Jira.
+- Veredito.
+
+## Antipadrões
+
+- Somente happy path.
+- Mock sem comportamento.
+- Mensagem genérica.
+- Componente novo sem necessidade.
+- Acessibilidade deixada para depois.
+- Regra alterada silenciosamente.
