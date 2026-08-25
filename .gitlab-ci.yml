@@ -110,12 +110,21 @@ release:
     # hoje entra por acidente do trace; garantir explicitamente.
     - mkdir -p .next/standalone/src/lib
     - cp src/lib/schema-mysql.sql .next/standalone/src/lib/schema-mysql.sql
+    # as skills sao lidas em runtime por join(process.cwd(),'skills',<nome>,'SKILL.md')
+    # em src/app/api/project-skills/route.ts. Vinham so pelo trace, que arrasta o
+    # diretorio por acidente daquela rota; se ela mudar, sumiriam em silencio.
+    - mkdir -p .next/standalone/skills
+    - cp -r skills/. .next/standalone/skills/
     - test -f .next/standalone/server.js
 
     # empacotar SEM o lixo que o trace arrasta: .git, docs e os DEPLOY_*.md
     # (que tem senha em texto claro), compose, Vagrantfile, testes
     - |
+      # --no-wildcards-match-slash: sem ele o curinga do GNU tar atravessa '/', e
+      # './*.md' apaga tambem skills/<nome>/SKILL.md e todo .md aninhado. Com ele,
+      # './*.md' volta a significar o que o comentario acima diz: os .md da raiz.
       tar czf artefato.tgz -C .next/standalone \
+        --no-wildcards-match-slash \
         --exclude='./.git' --exclude='./.git/*' \
         --exclude='./tests' --exclude='./docs' --exclude='./e2e*' \
         --exclude='./playwright*' --exclude='./*.md' \
@@ -137,6 +146,12 @@ release:
       done
       grep -qF './.next/static/' /tmp/pacote.txt || { echo "ERRO: .next/static ausente"; exit 1; }
       grep -qF './public/' /tmp/pacote.txt || { echo "ERRO: public ausente"; exit 1; }
+      # o que o time edita com mais frequencia sao as skills, e elas sao so arquivo
+      # de dado: nenhuma quebra de build acusa a falta delas. Sem esta assercao,
+      # perde-las produz pipeline verde com a aplicacao inalterada.
+      N_SKILL=$(grep -c '/SKILL\.md$' /tmp/pacote.txt || true)
+      [ "${N_SKILL:-0}" -ge 1 ] || { echo "ERRO: nenhum SKILL.md no artefato"; exit 1; }
+      echo "SKILL.md no pacote: $N_SKILL"
       echo "conferido: nada proibido, e o essencial esta presente"
 
     - SHA=$(sha256sum artefato.tgz | awk '{print $1}')
