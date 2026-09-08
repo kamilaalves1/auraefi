@@ -62,6 +62,24 @@ const SECRET_PATTERNS: SecretPattern[] = [
   // OpenAI API keys
   { type: 'openai_api_key', severity: 'critical', regex: /sk-[A-Za-z0-9]{20}T3BlbkFJ[A-Za-z0-9]{20}/g },
 
+  // Chaves de PROJETO e de SERVICE ACCOUNT da OpenAI. O padrao classico acima NAO
+  // casa estas: sk-proj-... nao tem o bloco T3BlbkFJ na mesma posicao.
+  // Incidente 2026-09-08: uma chave sk-proj-... foi gravada no campo de API Token do
+  // JIRA de um fluxo, e ESTE scanner nao a reconheceria.
+  { type: 'openai_api_key_project', severity: 'critical', regex: /sk-proj-[A-Za-z0-9_\-]{20,}/g },
+  { type: 'openai_api_key_service', severity: 'critical', regex: /sk-(?:svcacct|admin)-[A-Za-z0-9_\-]{20,}/g },
+
+  // Tokens do GitLab -- estavam AUSENTES, e a casa usa GitLab internamente.
+  // glpat (pessoal), glft (feature/projeto), gldt (deploy), glrt (runner),
+  // glsoat (service account), glcbt (build de CI).
+  { type: 'gitlab_token', severity: 'critical', regex: /gl(?:pat|ft|dt|rt|soat|cbt)-[A-Za-z0-9_\-]{20,}/g },
+
+  // Tokens de API da Atlassian (JIRA/Confluence) -- tambem ausentes.
+  { type: 'atlassian_api_token', severity: 'critical', regex: /AT(?:ATT|CTT)3x[A-Za-z0-9_\-=]{20,}/g },
+
+  // Chaves de API do Google
+  { type: 'google_api_key', severity: 'critical', regex: /AIza[0-9A-Za-z_\-]{35}/g },
+
   // Anthropic API keys
   { type: 'anthropic_api_key', severity: 'critical', regex: /sk-ant-api[A-Za-z0-9\-_]{20,}/g },
 
