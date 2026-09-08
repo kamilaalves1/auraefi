@@ -2066,11 +2066,22 @@ async function processInboundComments(
   cfg: WorkPipelineConfigJson,
   secrets: WorkPipelineSecrets,
 ): Promise<void> {
-  const afterMs = run.last_comment_ts > 0 ? run.last_comment_ts : run.created_at * 1000
+  // `last_comment_ts` e coluna INT e guarda SEGUNDOS -- mesma unidade de
+  // created_at/updated_at nesta tabela. Gravar epoch em MILISSEGUNDOS estourava o
+  // INT e o MySQL, com sql_mode vazio, clampava em 2147483647 sem recusar. Lido de
+  // volta, isso valia 25/01/1970: a janela nunca avancava e o motor relia todos os
+  // comentarios do cartao a cada tick. Medido em 2026-09-08: 4.364 linhas
+  // `card_to_agent` para apenas 5 comentarios distintos.
+  const afterMs = run.last_comment_ts > 0 ? run.last_comment_ts * 1000 : run.created_at * 1000
   const newComments = await fetchNewCardComments(run.provider, cfg, secrets, run.card_key, afterMs)
   if (!newComments.length) return
 
-  let latestMs = run.last_comment_ts
+  let latestMs = run.last_comment_ts * 1000
+
+  // Persistencia em segundos. O piso pode devolver ate 1s a menos, o que no pior
+  // caso relê o comentario da fronteira UMA vez -- e o filtro por id logo abaixo
+  // absorve isso. Arredondar para cima, ao contrario, PULARIA um comentario.
+  const emSegundos = (ms: number) => Math.floor(ms / 1000)
   for (const comment of newComments) {
     if (comment.createdMs > latestMs) latestMs = comment.createdMs
 
@@ -2113,7 +2124,7 @@ async function processInboundComments(
 
     // ── Comandos (com ou sem @menção) ─────────────────────────────────────────
     if (isCancelCmd) {
-      await updateRun(run.id, { status: 'cancelled', last_comment_ts: latestMs })
+      await updateRun(run.id, { status: 'cancelled', last_comment_ts: emSegundos(latestMs) })
       await postCardComment(run.provider, cfg, secrets, run.card_key, '🛑 Esteira cancelada a pedido do usuário.')
       return
     }
@@ -2121,13 +2132,13 @@ async function processInboundComments(
     if (isAdvanceCmd) {
       if (run.status === 'waiting_input' || hasMention) {
         await advanceToNextColumn(run, column, cfg, secrets, '')
-        await updateRun(run.id, { last_comment_ts: latestMs })
+        await updateRun(run.id, { last_comment_ts: emSegundos(latestMs) })
         return
       }
     }
 
     if (isReprocessCmd) {
-      await updateRun(run.id, { status: 'running', task_id: null, last_comment_ts: latestMs })
+      await updateRun(run.id, { status: 'running', task_id: null, last_comment_ts: emSegundos(latestMs) })
       await postCardComment(run.provider, cfg, secrets, run.card_key, `🔄 **Reprocessando etapa "${column.column_name}"** a pedido do usuário.`)
       await startColumn({ ...run, status: 'running', task_id: null }, column, cfg, secrets)
       return
@@ -2136,7 +2147,7 @@ async function processInboundComments(
     if (isReprocessAll) {
       const allCols = await dbGetAll<PipelineColumn>('SELECT * FROM pipeline_columns WHERE pipeline_id = ? ORDER BY column_order ASC', [column.pipeline_id])
       const firstCol = allCols.find(c => hasAgents(c)) ?? column
-      await updateRun(run.id, { status: 'running', task_id: null, current_stage_id: String(firstCol.id), last_comment_ts: latestMs })
+      await updateRun(run.id, { status: 'running', task_id: null, current_stage_id: String(firstCol.id), last_comment_ts: emSegundos(latestMs) })
       await postCardComment(run.provider, cfg, secrets, run.card_key, `🔄 **Reiniciando esteira completa** a partir de "${firstCol.column_name}".`)
       await startColumn({ ...run, status: 'running', task_id: null, current_stage_id: String(firstCol.id) }, firstCol, cfg, secrets)
       return
@@ -2145,7 +2156,7 @@ async function processInboundComments(
     // ── @menção com instrução livre → executa LLM com contexto do usuário ─────
     if (hasMention && instruction.length > 0) {
       await executeMentionInstruction(run, column, cfg, secrets, instruction)
-      await updateRun(run.id, { last_comment_ts: latestMs })
+      await updateRun(run.id, { last_comment_ts: emSegundos(latestMs) })
       return
     }
 
@@ -2162,7 +2173,7 @@ async function processInboundComments(
     }
   }
 
-  await updateRun(run.id, { last_comment_ts: latestMs })
+  await updateRun(run.id, { last_comment_ts: emSegundos(latestMs) })
 }
 
 // ─── Discover new cards ───────────────────────────────────────────────────────
