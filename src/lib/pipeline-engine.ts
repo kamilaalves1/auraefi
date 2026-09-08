@@ -108,30 +108,51 @@ async function upsertRun(
   stageId: string
 ): Promise<PipelineCardRun | null> {
   const now = Math.floor(Date.now() / 1000)
-  try {
-    const result = await dbRun(`INSERT INTO pipeline_card_runs
-         (workspace_id, provider, card_key, card_title, card_description, card_url, current_stage_id, status, task_id, last_comment_ts, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'running', NULL, 0, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         card_title = VALUES(card_title),
-         card_description = VALUES(card_description),
-         current_stage_id = VALUES(current_stage_id),
-         status = 'running',
-         task_id = NULL,
-         last_comment_ts = 0,
-         run_count = COALESCE(pipeline_card_runs.run_count, 1) + 1,
-         updated_at = VALUES(updated_at)
-       WHERE pipeline_card_runs.status IN ('done', 'failed', 'cancelled', 'waiting_input')`, [workspaceId, provider, cardKey, cardTitle, cardDescription.slice(0, 4000), cardUrl, stageId, now, now])
+  const descricao = cardDescription.slice(0, 4000)
+  const ESTADOS_TERMINAIS = ['done', 'failed', 'cancelled', 'waiting_input']
 
-    // If an existing run was reset (changes > 0 means the ON CONFLICT UPDATE fired),
-    // clear all prior messages so agents run fresh instead of being skipped as "already completed"
-    if (result.affectedRows > 0) {
-      const run = await dbGet<{ id: number }>('SELECT id FROM pipeline_card_runs WHERE workspace_id = ? AND provider = ? AND card_key = ?', [workspaceId, provider, cardKey])
-      if (run) {
-        await dbRun('DELETE FROM pipeline_card_messages WHERE run_id = ?', [run.id])
-      }
+  // Tres caminhos explicitos, em vez de INSERT ... ON DUPLICATE KEY UPDATE ... WHERE.
+  //
+  // Incidente 2026-09-08: o statement anterior levava um `WHERE` depois do
+  // ON DUPLICATE KEY UPDATE. Isso e sintaxe do PostgreSQL (ON CONFLICT ... DO UPDATE
+  // ... WHERE); o MySQL NAO aceita e devolve erro de parse. Como o catch era vazio,
+  // upsertRun devolvia null, quem chamava fazia `continue` sem log, e o motor achou o
+  // cartao a cada 10s por dias sem criar UMA execucao e sem UMA linha de erro.
+  // Provado no banco: a instrucao com WHERE da rc=1 (parse error); sem WHERE, insere.
+  //
+  // Corrida: entre o SELECT e o INSERT outro tick poderia inserir. A chave unica
+  // uq_pipeline_card_runs (workspace_id, provider, card_key) impede duplicata -- o
+  // INSERT falha por duplicidade, cai no catch, e o cartao entra no tick seguinte.
+  try {
+    const atual = await dbGet<{ id: number; status: string }>(
+      'SELECT id, status FROM pipeline_card_runs WHERE workspace_id = ? AND provider = ? AND card_key = ?',
+      [workspaceId, provider, cardKey]
+    )
+
+    if (!atual) {
+      // 1. nao existe -> cria
+      await dbRun(`INSERT INTO pipeline_card_runs
+           (workspace_id, provider, card_key, card_title, card_description, card_url, current_stage_id, status, task_id, last_comment_ts, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'running', NULL, 0, ?, ?)`,
+        [workspaceId, provider, cardKey, cardTitle, descricao, cardUrl, stageId, now, now])
+    } else if (ESTADOS_TERMINAIS.includes(atual.status)) {
+      // 2. existe e ja terminou -> reinicia (UPDATE com WHERE na chave primaria)
+      await dbRun(`UPDATE pipeline_card_runs SET
+           card_title = ?, card_description = ?, current_stage_id = ?,
+           status = 'running', task_id = NULL, last_comment_ts = 0,
+           run_count = COALESCE(run_count, 1) + 1, updated_at = ?
+         WHERE id = ?`,
+        [cardTitle, descricao, stageId, now, atual.id])
+      // limpa as mensagens anteriores para os agentes rodarem de novo em vez de
+      // serem pulados como "ja concluido"
+      await dbRun('DELETE FROM pipeline_card_messages WHERE run_id = ?', [atual.id])
     }
-  } catch {
+    // 3. existe e NAO terminou -> nao mexe. Quem chama ja filtrou execucao ativa.
+  } catch (err) {
+    logger.error(
+      { err: err instanceof Error ? err.message : String(err), card_key: cardKey, provider },
+      'pipeline-engine: upsertRun falhou -- execucao do cartao NAO foi criada'
+    )
     return null
   }
   return (await dbGet<PipelineCardRun>('SELECT * FROM pipeline_card_runs WHERE workspace_id = ? AND provider = ? AND card_key = ?', [workspaceId, provider, cardKey])) ?? null
@@ -2049,7 +2070,14 @@ async function discoverNewCards(pipeline: ActivePipelineEntry): Promise<void> {
     }
 
     const run = await upsertRun(workspaceId, provider, card.externalId, card.title, card.description, card.url, String(triggerColumn.id))
-    if (!run || run.status !== 'running') continue
+    if (!run || run.status !== 'running') {
+      // era um `continue` sem log: o cartao era descartado em silencio a cada tick
+      logger.warn(
+        { card_key: card.externalId, run_status: run ? run.status : '(sem run)' },
+        'pipeline-engine: cartao detectado mas a execucao nao foi criada -- pulando este tick'
+      )
+      continue
+    }
 
     // Trigger column may have no agents (pure discovery column) — skip to first worker column
     let startCol: PipelineColumn = triggerColumn
