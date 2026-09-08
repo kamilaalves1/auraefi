@@ -115,7 +115,23 @@ variables:
   before_script:
     - corepack enable
     - corepack prepare pnpm@11.15.1 --activate
-    - apt-get update -qq && apt-get install -y -qq curl unzip jq tar gzip >/dev/null
+    - |
+      set -e
+      # Acquire::Check-Valid-Until=false: os metadados do bullseye-security expiram e o
+      # apt-get update passa a falhar. Incidente 2026-09-08 13:57: o update falhou
+      # ("Release file ... is expired (invalid since 16h 44min)"), o && curto-circuitou,
+      # curl nao instalou, e o job morreu na linha SEGUINTE com "curl: command not found"
+      # (exit 127) -- erro que aponta para o lugar errado e custa tempo de quem investiga.
+      #
+      # NAO trocar bullseye por bookworm para resolver isto: a imagem e bullseye
+      # (glibc 2.31) de proposito, porque o host alvo tem glibc 2.34 e binario nativo
+      # compilado em glibc mais nova nao roda em mais antiga (ver cabecalho).
+      apt-get -o Acquire::Check-Valid-Until=false update -qq
+      apt-get install -y -qq curl unzip jq tar gzip >/dev/null
+      # gate: sem isto, a ausencia de curl so aparece na linha seguinte, como 127
+      command -v curl  >/dev/null || { echo "ERRO: curl ausente apos apt-get install";  exit 1; }
+      command -v unzip >/dev/null || { echo "ERRO: unzip ausente apos apt-get install"; exit 1; }
+      command -v jq    >/dev/null || { echo "ERRO: jq ausente apos apt-get install";    exit 1; }
     - curl -sS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
     - unzip -q /tmp/awscli.zip -d /tmp && /tmp/aws/install >/dev/null
     - aws --version
