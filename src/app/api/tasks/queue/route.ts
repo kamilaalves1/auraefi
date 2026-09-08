@@ -104,20 +104,40 @@ export async function GET(request: NextRequest) {
       })
     }
 
-    // Atomic claim: single UPDATE with subquery to eliminate SELECT-UPDATE race condition.
-    const claimed = await dbGet(`
-      UPDATE tasks
-      SET status = 'in_progress', assigned_to = ?, updated_at = ?
-      WHERE id = (
+    // Claim por compare-and-swap. A versao anterior era um UNICO UPDATE com
+    // RETURNING, e tinha TRES defeitos, todos provados contra o banco em 2026-09-08:
+    //   1. `NULLS LAST` nao existe no MySQL              -> ERROR 1064
+    //   2. `RETURNING *` nao existe no MySQL             -> ERROR 1064
+    //   3. subquery sobre a MESMA tabela do UPDATE       -> ERROR 1093
+    //      ("You can't specify target table 'tasks' for update in FROM clause")
+    // Ou seja a rota de reivindicar tarefa NUNCA funcionou neste banco.
+    //
+    // Aqui: escolhe o candidato, e o UPDATE com `AND status IN (...)` e o
+    // compare-and-swap -- em corrida, so UM agente recebe affectedRows === 1; os
+    // outros recebem 0 e tentam o proximo candidato. Sem coluna nova de claim.
+    // `NULLS LAST` e emulado por `(due_date IS NULL) ASC`, que ordena 0 antes de 1.
+    let claimed: any | undefined
+    for (let tentativa = 0; tentativa < 3 && !claimed; tentativa++) {
+      const candidato = await dbGet<{ id: number }>(`
         SELECT id FROM tasks
         WHERE workspace_id = ?
           AND status IN ('assigned', 'inbox')
           AND (assigned_to IS NULL OR assigned_to = ?)
-        ORDER BY ${priorityRankSql()} ASC, due_date ASC NULLS LAST, created_at ASC
+        ORDER BY ${priorityRankSql()} ASC, (due_date IS NULL) ASC, due_date ASC, created_at ASC
         LIMIT 1
-      )
-      RETURNING *
-    `, [agent, now, workspaceId, agent]) as any | undefined
+      `, [workspaceId, agent])
+      if (!candidato) break
+
+      const upd = await dbRun(`
+        UPDATE tasks
+        SET status = 'in_progress', assigned_to = ?, updated_at = ?
+        WHERE id = ? AND status IN ('assigned', 'inbox')
+      `, [agent, now, candidato.id])
+
+      if (upd.affectedRows === 1) {
+        claimed = await dbGet(`SELECT * FROM tasks WHERE id = ?`, [candidato.id]) as any | undefined
+      }
+    }
 
     if (claimed) {
       return NextResponse.json({

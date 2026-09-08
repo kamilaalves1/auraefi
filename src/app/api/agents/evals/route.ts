@@ -143,8 +143,7 @@ export async function POST(request: NextRequest) {
       await dbRun(`
         INSERT INTO eval_golden_sets (name, entries, created_by, workspace_id)
         VALUES (?, ?, ?, ?)
-        ON CONFLICT(name, workspace_id)
-        DO UPDATE SET entries = VALUES(entries), updated_at = UNIX_TIMESTAMP()
+        ON DUPLICATE KEY UPDATE entries = VALUES(entries), updated_at = UNIX_TIMESTAMP()
       `, [name, JSON.stringify(entries || []), auth.user.username, workspaceId])
 
       return NextResponse.json({ success: true, name })
