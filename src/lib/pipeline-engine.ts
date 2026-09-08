@@ -496,6 +496,106 @@ function toConventionalPRTitle(cardKey: string, cardTitle: string): string {
   return `feat(${cardKey.toLowerCase()}): ${cardTitle.charAt(0).toLowerCase()}${cardTitle.slice(1)}`
 }
 
+// Publicador de GitLab. A funcao abaixo (pushCodeToGitHub) entende SOMENTE
+// github.com: casa a URL do repositorio contra /github\.com\/.../ e conversa com
+// api.github.com. O repositorio ligado ao fluxo AURA e GitLab
+// (git_repositories.provider = 'gitlab', repo_url em gitlab.interno.*), entao ela
+// devolvia "URL do repositorio invalida" ANTES de qualquer chamada de rede -- e o
+// motivo nao aparecia em log de erro porque e um `return`, nao um `throw`.
+//
+// Contrato conferido na documentacao oficial do GitLab (2026-09-08):
+//   GET  /projects/:id/repository/branches/:branch   -- a branch existe?
+//   POST /projects/:id/repository/branches           -- branch + ref
+//   POST /projects/:id/repository/commits            -- branch, commit_message, actions[]
+//   actions[].action in create|update|delete|move|chmod; encoding in text|base64
+//   autenticacao pelo header PRIVATE-TOKEN (token de ESCRITA e `glpat-`)
+// O `:id` aceita id numerico OU o caminho do projeto codificado por URL.
+async function pushCodeToGitLab(
+  repo: { repo_url: string; branch: string; access_token: string | null; base_url?: string | null },
+  branchName: string,
+  commitMsg: string,
+  files: ExtractedFile[],
+): Promise<{ ok: boolean; branch?: string; files?: string[]; message: string }> {
+  const token = repo.access_token
+  if (!token) return { ok: false, message: 'Repositorio sem token de acesso configurado' }
+
+  let origin: string
+  let projectPath: string
+  try {
+    const u = new URL(repo.repo_url)
+    origin = (repo.base_url || u.origin).replace(/\/+$/, '')
+    projectPath = u.pathname.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.git$/, '')
+  } catch {
+    return { ok: false, message: `URL do repositorio invalida: ${repo.repo_url}` }
+  }
+  if (!projectPath) return { ok: false, message: `URL sem caminho de projeto: ${repo.repo_url}` }
+
+  const api = `${origin}/api/v4/projects/${encodeURIComponent(projectPath)}`
+  const headers: Record<string, string> = { 'PRIVATE-TOKEN': token, 'Content-Type': 'application/json' }
+  const enc = (s: string) => encodeURIComponent(s)
+
+  // Branch base: a configurada e, se ela nao existir, a default do projeto.
+  // Medido em 2026-09-08: o fluxo AURA tinha `main` configurada num repositorio
+  // cuja unica branch e `master` -- a criacao da branch de trabalho reprovaria.
+  let baseBranch = (repo.branch || '').trim()
+  let baseNota = ''
+  const baseResp = baseBranch
+    ? await fetch(`${api}/repository/branches/${enc(baseBranch)}`, { headers })
+    : null
+  if (!baseResp || !baseResp.ok) {
+    const projResp = await fetch(api, { headers })
+    if (!projResp.ok) {
+      return { ok: false, message: `GitLab ${projResp.status} ao ler o projeto ${projectPath}: ${(await projResp.text()).slice(0, 200)}` }
+    }
+    const proj = await projResp.json() as { default_branch?: string | null }
+    if (!proj.default_branch) {
+      return { ok: false, message: `Projeto ${projectPath} sem branch default (repositorio vazio?)` }
+    }
+    baseNota = baseBranch
+      ? ` (branch base "${baseBranch}" nao existe; usei a default "${proj.default_branch}")`
+      : ''
+    baseBranch = proj.default_branch
+  }
+
+  const headResp = await fetch(`${api}/repository/branches/${enc(branchName)}`, { headers })
+  if (headResp.status === 404) {
+    const criada = await fetch(
+      `${api}/repository/branches?branch=${enc(branchName)}&ref=${enc(baseBranch)}`,
+      { method: 'POST', headers },
+    )
+    if (!criada.ok) {
+      return { ok: false, message: `Erro ao criar branch ${branchName} a partir de ${baseBranch}: ${(await criada.text()).slice(0, 200)}` }
+    }
+  } else if (!headResp.ok) {
+    return { ok: false, message: `GitLab ${headResp.status} ao consultar a branch ${branchName}: ${(await headResp.text()).slice(0, 200)}` }
+  }
+
+  // `create` x `update` por arquivo. A doc NAO declara o que `create` faz sobre
+  // arquivo que ja existe, entao decido pela existencia em vez de depender de
+  // comportamento nao documentado.
+  const actions: Array<Record<string, string>> = []
+  for (const file of files) {
+    const existe = await fetch(`${api}/repository/files/${enc(file.path)}?ref=${enc(branchName)}`, { headers })
+    actions.push({
+      action: existe.ok ? 'update' : 'create',
+      file_path: file.path,
+      content: Buffer.from(file.content).toString('base64'),
+      encoding: 'base64',
+    })
+  }
+
+  const commitResp = await fetch(`${api}/repository/commits`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ branch: branchName, commit_message: commitMsg, actions }),
+  })
+  if (!commitResp.ok) {
+    return { ok: false, message: `Erro ao commitar ${actions.length} arquivo(s) em ${branchName}: ${(await commitResp.text()).slice(0, 200)}` }
+  }
+
+  return { ok: true, branch: branchName, files: files.map((f) => f.path), message: `${commitMsg}${baseNota}` }
+}
+
 async function pushCodeToGitHub(
   repoId: number,
   cardKey: string,
@@ -503,7 +603,7 @@ async function pushCodeToGitHub(
   llmOutput: string,
 ): Promise<{ ok: boolean; branch?: string; files?: string[]; message: string }> {
   const repo = await dbGet('SELECT * FROM git_repositories WHERE id = ?', [repoId]) as
-    | { repo_url: string; branch: string; access_token: string | null }
+    | { repo_url: string; branch: string; access_token: string | null; provider?: string | null; base_url?: string | null }
     | undefined
 
   if (!repo?.access_token) return { ok: false, message: 'Repositório sem token de acesso configurado' }
@@ -515,6 +615,13 @@ async function pushCodeToGitHub(
 
   const commitMsg = extractCommitMessage(llmOutput, cardKey)
   const branchName = toBranchSlug(cardKey, cardTitle)
+
+  // Desvio por provider ANTES do casamento com github.com. Sem isto, repositorio
+  // GitLab morre em "URL do repositorio invalida" sem tocar a rede.
+  if (!/github\.com\//.test(repo.repo_url)) {
+    return pushCodeToGitLab(repo, branchName, commitMsg, files)
+  }
+
   const urlMatch = repo.repo_url.match(/github\.com\/([^/]+)\/([^/.]+)/)
   if (!urlMatch) return { ok: false, message: `URL do repositório inválida: ${repo.repo_url}` }
 
@@ -1603,21 +1710,38 @@ async function startColumn(
         }
       }
 
-      // If this is a developer agent with a linked repo, push generated code to GitHub
-      if (assignment.role === 'developer' && assignment.repo_id) {
+      // Publica o codigo de QUALQUER papel com repositorio ligado que tenha
+      // emitido bloco de arquivo. Antes o push era exclusivo de `developer`, e
+      // medido em 2026-09-08 nos cartoes AURA-1 e AURA-2: quem emitiu blocos
+      // `### FILE:` foi o devops engineer (8 e 7 arquivos), enquanto o developer
+      // escreveu texto sem bloco. Ou seja o unico papel autorizado a publicar
+      // nao gerava arquivo, e quem gerava nao podia publicar.
+      // `software architect` fica fora porque o bloco imediatamente acima ja
+      // trata o push dele antes do merge -- entrar aqui publicaria duas vezes.
+      if (assignment.repo_id
+        && assignment.role !== 'software architect'
+        && /###\s*(?:FILE|ARQUIVO):/i.test(llmResult.text)) {
         try {
           const pushResult = await pushCodeToGitHub(assignment.repo_id, run.card_key, run.card_title, llmResult.text)
           let pushMsg: string
           if (pushResult.ok) {
             const repoRow = await dbGet<{ repo_url: string }>('SELECT repo_url FROM git_repositories WHERE id = ?', [assignment.repo_id])
-            const repoSlug = repoRow?.repo_url.match(/github\.com\/([^/]+\/[^/.]+)/)?.[1] ?? ''
+            // Link da arvore por provider: GitHub usa /tree/<branch> e GitLab usa
+            // /-/tree/<branch>. Antes o link so era montado quando a URL casava
+            // com github.com, entao repositorio GitLab ficava sem link nenhum.
+            const repoUrlRaw = (repoRow?.repo_url ?? '').replace(/\.git$/, '').replace(/\/+$/, '')
+            const linkArvore = repoUrlRaw
+              ? (/github\.com\//.test(repoUrlRaw)
+                  ? `${repoUrlRaw}/tree/${pushResult.branch}`
+                  : `${repoUrlRaw}/-/tree/${pushResult.branch}`)
+              : ''
             pushMsg = [
-              `✅ **Código commitado no GitHub**`,
+              `✅ **Código commitado no repositório**`,
               ``,
               `🌿 Branch: \`${pushResult.branch}\``,
               `📝 Commit: ${pushResult.message}`,
               `📁 Arquivos: ${pushResult.files?.join(', ')}`,
-              repoSlug ? `🔗 https://github.com/${repoSlug}/tree/${pushResult.branch}` : '',
+              linkArvore ? `🔗 ${linkArvore}` : '',
             ].filter(Boolean).join('\n')
           } else {
             pushMsg = [
@@ -1951,8 +2075,20 @@ async function processInboundComments(
     if (comment.createdMs > latestMs) latestMs = comment.createdMs
 
     // Skip bot-generated comments to avoid feedback loops
-    const BOT_PREFIXES = ['🤖', '✅', '❌', '🚀', '⏸️', '🛑', '🔄', '⏳']
+    const BOT_PREFIXES = ['\u26A0\uFE0F', '\uD83D\uDD27', '🤖', '✅', '❌', '🚀', '⏸️', '🛑', '🔄', '⏳']
     if (BOT_PREFIXES.some(p => comment.body.startsWith(p))) continue
+
+    // Filtro por id, que nao depende de prefixo: comentario postado por NOS esta
+    // gravado em pipeline_card_messages com o id que o provedor devolveu. Medido
+    // em 2026-09-08: a mensagem de falha de push comeca com um emoji que NAO
+    // estava em BOT_PREFIXES, e o motor releu o proprio comentario 504 vezes como
+    // `card_to_agent`, cada releitura alimentando outro ciclo pago.
+    const ecoProprio = await dbGet(
+      `SELECT 1 AS existe FROM pipeline_card_messages
+        WHERE external_comment_id = ? AND direction = 'agent_to_card' LIMIT 1`,
+      [comment.id],
+    ) as { existe: number } | undefined
+    if (ecoProprio) continue
 
     await logMessage(run.id, 'card_to_agent', String(column.id), comment.body, comment.id)
 
