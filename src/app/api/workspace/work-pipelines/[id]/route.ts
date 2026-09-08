@@ -65,11 +65,31 @@ export async function PUT(request: NextRequest, { params }: Params) {
     const provider = VALID_PROVIDERS.includes(body.provider) ? body.provider : existing.provider
     const enabled = typeof body.enabled === 'boolean' ? (body.enabled ? 1 : 0) : existing.enabled
     const clientId = body.client_id === null ? null : typeof body.client_id === 'number' ? body.client_id : existing.client_id
-    // Merge new config with existing — prevents losing JIRA/Azure connection details when only updating LLM settings
+    // Merge new config with existing ÔÇö prevents losing JIRA/Azure connection details when only updating LLM settings
     const existingConfig = safeParseJson(existing.config_json)
     const config = typeof body.config === 'object' && body.config
       ? { ...existingConfig, ...body.config }
       : existingConfig
+
+    // Gate de formato nas credenciais recebidas.
+    // Motivo (incidente 2026-09-07): uma chave da OpenAI (sk-proj-...) foi gravada no campo
+    // jiraApiToken. O JIRA nao recusa credencial que nao reconhece -- responde 200 com lista
+    // VAZIA, como visitante anonimo. Resultado: o motor pesquisou a coluna do gatilho ~8.200
+    // vezes por dia devolvendo "0 cartoes", sem UM erro no log, por dias.
+    // O gate e de FORMATO e nao de conectividade de proposito: validar chamando o JIRA faria o
+    // save depender da disponibilidade dele, e ele ficou fora do ar em 27/08 e 03/09.
+    const CHAVES_DE_OUTROS_SERVICOS = /^(sk-|sk-ant-|AIza|glpat-|ghp_|github_pat_)/
+    if (body.credentials && typeof body.credentials === 'object') {
+      for (const campo of ['jiraApiToken', 'azurePat'] as const) {
+        const v = (body.credentials as Record<string, unknown>)[campo]
+        if (typeof v === 'string' && CHAVES_DE_OUTROS_SERVICOS.test(v.trim())) {
+          return NextResponse.json(
+            { error: `O valor enviado em ${campo} tem formato de chave de outro servico (OpenAI, Anthropic, Google, GitLab ou GitHub). Credencial de provedor de backlog nao tem esse formato.` },
+            { status: 400 }
+          )
+        }
+      }
+    }
 
     // Merge credentials: new credentials replace old; null clears
     let secretBlob: string | null = existing.secret_blob
