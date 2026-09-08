@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ÔöÇÔöÇ Types ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 interface Pipeline {
   id: number
@@ -29,55 +29,55 @@ interface PipelineColumn {
 
 interface Agent { id: number; name: string; role: string }
 
-// ── Constants ─────────────────────────────────────────────────────────────────
+// ÔöÇÔöÇ Constants ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 const PROVIDERS = {
-  jira:         { label: 'Jira',         icon: '🎯', color: 'text-blue-400', bg: 'bg-blue-500/10' },
-  azure_devops: { label: 'Azure DevOps', icon: '🔷', color: 'text-sky-400',  bg: 'bg-sky-500/10' },
+  jira:         { label: 'Jira',         icon: '­ƒÄ»', color: 'text-blue-400', bg: 'bg-blue-500/10' },
+  azure_devops: { label: 'Azure DevOps', icon: '­ƒöÀ', color: 'text-sky-400',  bg: 'bg-sky-500/10' },
 }
 
-// Models known per provider — only shown when that provider is connected
+// Models known per provider ÔÇö only shown when that provider is connected
 const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
   anthropic: [
-    { value: 'anthropic:claude-haiku-4-5-20251001', label: 'Haiku 4.5 — rápido e barato' },
-    { value: 'anthropic:claude-sonnet-4-6',         label: 'Sonnet 4.6 — balanceado' },
-    { value: 'anthropic:claude-sonnet-5',           label: 'Sonnet 5 — avançado' },
-    { value: 'anthropic:claude-opus-4-8',           label: 'Opus 4.8 — máximo' },
+    { value: 'anthropic:claude-haiku-4-5-20251001', label: 'Haiku 4.5 ÔÇö r├ípido e barato' },
+    { value: 'anthropic:claude-sonnet-4-6',         label: 'Sonnet 4.6 ÔÇö balanceado' },
+    { value: 'anthropic:claude-sonnet-5',           label: 'Sonnet 5 ÔÇö avan├ºado' },
+    { value: 'anthropic:claude-opus-4-8',           label: 'Opus 4.8 ÔÇö m├íximo' },
   ],
   gemini: [
-    { value: 'gemini:gemini-2.0-flash',         label: 'Gemini 2.0 Flash — rápido' },
-    { value: 'gemini:gemini-2.0-flash-thinking', label: 'Gemini 2.0 Flash Thinking — raciocínio' },
-    { value: 'gemini:gemini-1.5-pro',            label: 'Gemini 1.5 Pro — avançado' },
-    { value: 'gemini:gemini-1.5-flash',          label: 'Gemini 1.5 Flash — barato' },
+    { value: 'gemini:gemini-2.0-flash',         label: 'Gemini 2.0 Flash ÔÇö r├ípido' },
+    { value: 'gemini:gemini-2.0-flash-thinking', label: 'Gemini 2.0 Flash Thinking ÔÇö racioc├¡nio' },
+    { value: 'gemini:gemini-1.5-pro',            label: 'Gemini 1.5 Pro ÔÇö avan├ºado' },
+    { value: 'gemini:gemini-1.5-flash',          label: 'Gemini 1.5 Flash ÔÇö barato' },
   ],
   openai: [
-    { value: 'openai:gpt-4o-mini', label: 'GPT-4o mini — rápido' },
-    { value: 'openai:gpt-4o',      label: 'GPT-4o — padrão' },
-    { value: 'openai:o1',          label: 'o1 — raciocínio' },
+    { value: 'openai:gpt-4o-mini', label: 'GPT-4o mini ÔÇö r├ípido' },
+    { value: 'openai:gpt-4o',      label: 'GPT-4o ÔÇö padr├úo' },
+    { value: 'openai:o1',          label: 'o1 ÔÇö racioc├¡nio' },
   ],
   openrouter: [
-    { value: 'openrouter:openai/gpt-4o',                     label: 'GPT-4o (OpenAI) — topo de linha' },
-    { value: 'openrouter:openai/gpt-4o-mini',                label: 'GPT-4o mini (OpenAI) — rápido e barato' },
-    { value: 'openrouter:anthropic/claude-3.5-sonnet',       label: 'Claude 3.5 Sonnet (Anthropic) — avançado' },
-    { value: 'openrouter:anthropic/claude-3-haiku',          label: 'Claude 3 Haiku (Anthropic) — econômico' },
-    { value: 'openrouter:meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B (Meta) — open source' },
-    { value: 'openrouter:mistralai/mistral-large-2402',      label: 'Mistral Large (Mistral) — europeu' },
-    { value: 'openrouter:deepseek/deepseek-chat',            label: 'DeepSeek V3 (DeepSeek) — código' },
+    { value: 'openrouter:openai/gpt-4o',                     label: 'GPT-4o (OpenAI) ÔÇö topo de linha' },
+    { value: 'openrouter:openai/gpt-4o-mini',                label: 'GPT-4o mini (OpenAI) ÔÇö r├ípido e barato' },
+    { value: 'openrouter:anthropic/claude-3.5-sonnet',       label: 'Claude 3.5 Sonnet (Anthropic) ÔÇö avan├ºado' },
+    { value: 'openrouter:anthropic/claude-3-haiku',          label: 'Claude 3 Haiku (Anthropic) ÔÇö econ├┤mico' },
+    { value: 'openrouter:meta-llama/llama-3.3-70b-instruct', label: 'Llama 3.3 70B (Meta) ÔÇö open source' },
+    { value: 'openrouter:mistralai/mistral-large-2402',      label: 'Mistral Large (Mistral) ÔÇö europeu' },
+    { value: 'openrouter:deepseek/deepseek-chat',            label: 'DeepSeek V3 (DeepSeek) ÔÇö c├│digo' },
   ],
   ollama:     [{ value: 'ollama',     label: 'Ollama (local)' }],
   venice:     [{ value: 'venice',     label: 'Venice AI' }],
   nvidia:     [{ value: 'nvidia',     label: 'NVIDIA' }],
   moonshot:   [{ value: 'moonshot',   label: 'Moonshot / Kimi' }],
   deepseek: [
-    { value: 'deepseek:deepseek-chat',     label: 'DeepSeek Chat — padrão' },
-    { value: 'deepseek:deepseek-reasoner', label: 'DeepSeek Reasoner — raciocínio' },
-    { value: 'deepseek:deepseek-coder',    label: 'DeepSeek Coder — código' },
+    { value: 'deepseek:deepseek-chat',     label: 'DeepSeek Chat ÔÇö padr├úo' },
+    { value: 'deepseek:deepseek-reasoner', label: 'DeepSeek Reasoner ÔÇö racioc├¡nio' },
+    { value: 'deepseek:deepseek-coder',    label: 'DeepSeek Coder ÔÇö c├│digo' },
   ],
   groq: [
-    { value: 'groq:llama-3.3-70b-versatile', label: 'Llama 3.3 70B — rápido e gratuito' },
-    { value: 'groq:llama-3.1-8b-instant',    label: 'Llama 3.1 8B — ultra rápido' },
-    { value: 'groq:mixtral-8x7b-32768',      label: 'Mixtral 8x7B — balanceado' },
-    { value: 'groq:gemma2-9b-it',            label: 'Gemma 2 9B — compacto' },
+    { value: 'groq:llama-3.3-70b-versatile', label: 'Llama 3.3 70B ÔÇö r├ípido e gratuito' },
+    { value: 'groq:llama-3.1-8b-instant',    label: 'Llama 3.1 8B ÔÇö ultra r├ípido' },
+    { value: 'groq:mixtral-8x7b-32768',      label: 'Mixtral 8x7B ÔÇö balanceado' },
+    { value: 'groq:gemma2-9b-it',            label: 'Gemma 2 9B ÔÇö compacto' },
   ],
 }
 
@@ -122,7 +122,7 @@ function useGitRepos() {
   return repos
 }
 
-// ── Shared styles ──────────────────────────────────────────────────────────────
+// ÔöÇÔöÇ Shared styles ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 const lbl = 'block text-xs font-semibold text-foreground/60 mb-1 uppercase tracking-wide'
 const inp = 'w-full h-9 px-3 rounded-lg bg-secondary/40 border border-border text-sm text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/60 transition-colors'
@@ -133,7 +133,7 @@ async function parseJson(res: Response) {
   try { return JSON.parse(text) } catch { return {} }
 }
 
-// ── LLM complexity card ───────────────────────────────────────────────────────
+// ÔöÇÔöÇ LLM complexity card ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 type FallbackMode = 'none' | 'fixed' | 'cascade'
 
@@ -195,7 +195,7 @@ function LLMComplexityCard({
     const [open, setOpen] = useState(false)
     const ref = useRef<HTMLDivElement>(null)
     const selected = llmOptions.find(o => o.value === value)
-    const label = selected ? selected.label : '— Sem regra —'
+    const label = selected ? selected.label : 'ÔÇö Sem regra ÔÇö'
 
     useEffect(() => {
       const handler = (e: MouseEvent) => {
@@ -226,7 +226,7 @@ function LLMComplexityCard({
                 onClick={() => { onChange(''); setOpen(false) }}
                 className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${!value ? 'bg-primary/10 text-primary' : 'text-gray-400 hover:bg-gray-50 hover:text-gray-700'}`}
               >
-                — Sem regra —
+                ÔÇö Sem regra ÔÇö
               </button>
               {Object.entries(grouped).map(([provider, opts]) => (
                 <div key={provider}>
@@ -255,23 +255,23 @@ function LLMComplexityCard({
       <div>
         <h4 className="text-sm font-semibold text-foreground">Modelo por complexidade</h4>
         <p className="text-[11px] text-muted-foreground mt-0.5">
-          Agentes com modelo próprio têm prioridade sobre estas regras.
+          Agentes com modelo pr├│prio t├¬m prioridade sobre estas regras.
         </p>
       </div>
 
       {llmLoading ? (
-        <p className="text-xs text-muted-foreground">Carregando integrações...</p>
+        <p className="text-xs text-muted-foreground">Carregando integra├º├Áes...</p>
       ) : llmOptions.length === 0 ? (
         <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2.5 text-xs text-amber-400">
           Nenhum provider de IA configurado.{' '}
-          <a href="/integrations" className="underline font-medium hover:text-amber-300">Configurar em Integrações →</a>
+          <a href="/integrations" className="underline font-medium hover:text-amber-300">Configurar em Integra├º├Áes ÔåÆ</a>
         </div>
       ) : (
         <div className="space-y-2.5">
           {([
             { label: 'Simples',  hint: 'bugs, textos, ajustes',          value: simple,  set: setSimple  },
-            { label: 'Média',    hint: 'funcionalidades, refatorações',   value: medium,  set: setMedium  },
-            { label: 'Complexa', hint: 'arquitetura, análise',            value: complex, set: setComplex },
+            { label: 'M├®dia',    hint: 'funcionalidades, refatora├º├Áes',   value: medium,  set: setMedium  },
+            { label: 'Complexa', hint: 'arquitetura, an├ílise',            value: complex, set: setComplex },
           ] as const).map(({ label, hint, value, set }) => (
             <div key={label} className="space-y-1">
               <div className="flex items-baseline gap-1.5">
@@ -284,7 +284,7 @@ function LLMComplexityCard({
         </div>
       )}
 
-      {/* ── Fallback section ── */}
+      {/* ÔöÇÔöÇ Fallback section ÔöÇÔöÇ */}
       <div className="pt-3 border-t border-border/40 space-y-3">
         <div>
           <h4 className="text-xs font-semibold text-foreground">Fallback se falhar</h4>
@@ -296,8 +296,8 @@ function LLMComplexityCard({
         <div className="space-y-1.5">
           {([
             { id: 'none',    label: 'Nenhum',         desc: 'Falha imediatamente' },
-            { id: 'fixed',   label: 'Modelo fixo',    desc: 'Tenta um modelo alternativo específico' },
-            { id: 'cascade', label: 'Cascata',         desc: 'Testa todos os modelos configurados em sequência' },
+            { id: 'fixed',   label: 'Modelo fixo',    desc: 'Tenta um modelo alternativo espec├¡fico' },
+            { id: 'cascade', label: 'Cascata',         desc: 'Testa todos os modelos configurados em sequ├¬ncia' },
           ] as const).map(opt => (
             <label key={opt.id} className={`flex items-start gap-2.5 p-2 rounded-lg cursor-pointer transition-colors ${
               fallbackMode === opt.id ? 'bg-primary/10 border border-primary/30' : 'border border-transparent hover:bg-secondary/40'
@@ -331,7 +331,7 @@ function LLMComplexityCard({
                 <p className="font-medium text-foreground/70">Ordem da cascata:</p>
                 {[complex, medium, simple].filter(Boolean).map((m, i) => {
                   const label = llmOptions.find(o => o.value === m)?.label ?? m
-                  return <p key={i} className="ml-2">→ {label}</p>
+                  return <p key={i} className="ml-2">ÔåÆ {label}</p>
                 })}
                 {[complex, medium, simple].filter(Boolean).length === 0 && (
                   <p className="italic">Configure os modelos por complexidade acima para definir a ordem.</p>
@@ -339,7 +339,7 @@ function LLMComplexityCard({
               </div>
             )}
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 shrink-0">Máx. tentativas</span>
+              <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/60 shrink-0">M├íx. tentativas</span>
               <input
                 type="number"
                 min={1}
@@ -355,9 +355,9 @@ function LLMComplexityCard({
 
       <div className="pt-3 border-t border-border/40 space-y-2">
         <div>
-          <h4 className="text-xs font-semibold text-foreground">Menção do bot</h4>
+          <h4 className="text-xs font-semibold text-foreground">Men├º├úo do bot</h4>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            Use em comentários do JIRA para instruir o pipeline.
+            Use em coment├írios do JIRA para instruir o pipeline.
           </p>
         </div>
         <input
@@ -372,15 +372,15 @@ function LLMComplexityCard({
       {msg && <p className={`text-xs font-medium ${msg.ok ? 'text-green-400' : 'text-red-400'}`}>{msg.text}</p>}
 
       <Button size="sm" onClick={handleSave} disabled={saving} className="w-full h-8">
-        {saving ? 'Salvando...' : 'Salvar configuração'}
+        {saving ? 'Salvando...' : 'Salvar configura├º├úo'}
       </Button>
     </div>
   )
 }
 
-// ── Linked repos card ─────────────────────────────────────────────────────────
+// ÔöÇÔöÇ Linked repos card ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
-const PROVIDER_ICON: Record<string, string> = { github: '🐙', gitlab: '🦊', bitbucket: '🪣' }
+const PROVIDER_ICON: Record<string, string> = { github: '­ƒÉÖ', gitlab: '­ƒªè', bitbucket: '­ƒ¬ú' }
 
 function LinkedReposCard({
   pipelineId,
@@ -434,7 +434,7 @@ function LinkedReposCard({
     <div className="rounded-xl border border-border/60 bg-card p-4 space-y-3">
       <div className="flex items-center justify-between">
         <div>
-          <h4 className="text-sm font-semibold text-foreground">Repositórios do sistema</h4>
+          <h4 className="text-sm font-semibold text-foreground">Reposit├│rios do sistema</h4>
           <p className="text-[11px] text-muted-foreground mt-0.5">
             Repos que os agentes podem acessar neste pipeline.
           </p>
@@ -448,20 +448,20 @@ function LinkedReposCard({
       </div>
 
       {linked.length === 0 && !adding && (
-        <p className="text-xs text-muted-foreground/60 italic">Nenhum repositório vinculado.</p>
+        <p className="text-xs text-muted-foreground/60 italic">Nenhum reposit├│rio vinculado.</p>
       )}
 
       {linked.length > 0 && (
         <ul className="space-y-1.5">
           {linked.map(r => (
             <li key={r.id} className="flex items-center gap-2 rounded-lg bg-secondary/30 px-2.5 py-1.5">
-              <span className="text-sm shrink-0">{PROVIDER_ICON[r.provider] ?? '📦'}</span>
+              <span className="text-sm shrink-0">{PROVIDER_ICON[r.provider] ?? '­ƒôª'}</span>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-foreground truncate">{r.name}</p>
-                <p className="text-[10px] text-muted-foreground/60 truncate">{r.repo_url} · {r.branch}</p>
+                <p className="text-[10px] text-muted-foreground/60 truncate">{r.repo_url} ┬À {r.branch}</p>
               </div>
               <button onClick={() => remove(r.id)} disabled={saving}
-                className="text-[10px] text-muted-foreground/40 hover:text-red-400 transition-colors shrink-0">✕</button>
+                className="text-[10px] text-muted-foreground/40 hover:text-red-400 transition-colors shrink-0">Ô£ò</button>
             </li>
           ))}
         </ul>
@@ -471,9 +471,9 @@ function LinkedReposCard({
         <div className="flex items-center gap-2">
           <select value={selected} onChange={e => setSelected(e.target.value)}
             className={`${sel} flex-1`}>
-            <option value="">— Selecione —</option>
+            <option value="">ÔÇö Selecione ÔÇö</option>
             {available.map(r => (
-              <option key={r.id} value={r.id}>{PROVIDER_ICON[r.provider] ?? '📦'} {r.name}</option>
+              <option key={r.id} value={r.id}>{PROVIDER_ICON[r.provider] ?? '­ƒôª'} {r.name}</option>
             ))}
           </select>
           <button onClick={add} disabled={!selected || saving}
@@ -482,15 +482,15 @@ function LinkedReposCard({
           </button>
           <button onClick={() => { setAdding(false); setSelected('') }}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors">
-            ✕
+            Ô£ò
           </button>
         </div>
       )}
 
       {allRepos.length === 0 && (
         <p className="text-xs text-amber-400">
-          Nenhum repositório cadastrado.{' '}
-          <a href="/git-repositories" className="underline hover:text-amber-300">Configurar em Repositórios →</a>
+          Nenhum reposit├│rio cadastrado.{' '}
+          <a href="/git-repositories" className="underline hover:text-amber-300">Configurar em Reposit├│rios ÔåÆ</a>
         </p>
       )}
 
@@ -499,12 +499,12 @@ function LinkedReposCard({
   )
 }
 
-// ── Run history section ───────────────────────────────────────────────────────
+// ÔöÇÔöÇ Run history section ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 const STATUS_LABEL: Record<string, { label: string; color: string }> = {
   running:       { label: 'Executando', color: 'text-blue-400' },
   waiting_input: { label: 'Aguardando', color: 'text-amber-400' },
-  done:          { label: 'Concluído',  color: 'text-green-400' },
+  done:          { label: 'Conclu├¡do',  color: 'text-green-400' },
   failed:        { label: 'Falhou',     color: 'text-red-400' },
   cancelled:     { label: 'Cancelado',  color: 'text-zinc-400' },
 }
@@ -520,7 +520,7 @@ interface CardRun {
   updated_at: number
 }
 
-// ── Connected backlog card ────────────────────────────────────────────────────
+// ÔöÇÔöÇ Connected backlog card ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 function ConnectedBacklogCard({
   pipeline,
@@ -583,7 +583,7 @@ function ConnectedBacklogCard({
     try {
       const res = await fetch(`/api/workspace/work-pipelines/${pipeline.id}/runs`, { method: 'POST' })
       const data = await parseJson(res)
-      setCheckMsg(data.message ?? (data.ok ? 'Verificação concluída' : 'Erro'))
+      setCheckMsg(data.message ?? (data.ok ? 'Verifica├º├úo conclu├¡da' : 'Erro'))
       if (showRuns) await loadRuns()
     } catch {
       setCheckMsg('Erro ao verificar')
@@ -629,6 +629,16 @@ function ConnectedBacklogCard({
         ? { jiraHost: jiraHost.trim(), jiraProjectKey: jiraKey.trim(), jiraAccountEmail: jiraEmail.trim() }
         : { azureOrganizationUrl: azureOrg.trim(), azureProject: azureProj.trim() }
       const rawCred = pipeline.provider === 'jira' ? jiraToken.trim() : azurePat.trim()
+      // Guard: este campo e type=password e o navegador pode preenche-lo automaticamente com
+      // credencial salva de OUTRO servico. Ja aconteceu em 2026-09-07: uma chave da OpenAI
+      // (sk-proj-...) foi gravada como token do JIRA. O JIRA responde 200 com lista VAZIA para
+      // credencial que nao reconhece -- entao o fluxo ficou dias devolvendo "0 cartoes", sem
+      // nenhum erro no log, e ninguem viu.
+      if (rawCred && /^(sk-|sk-ant-|AIza|glpat-|ghp_|github_pat_)/.test(rawCred)) {
+        setError('Esse valor parece uma chave de outro servico (OpenAI, Anthropic, Google, GitLab ou GitHub), nao um token do provedor deste fluxo. Limpe o campo e cole o token correto.')
+        setSaving(false)
+        return
+      }
       const credentials = rawCred
         ? (pipeline.provider === 'jira' ? { jiraApiToken: rawCred } : { azurePat: rawCred })
         : undefined
@@ -672,14 +682,14 @@ function ConnectedBacklogCard({
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3">
         <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0 ${prov?.bg ?? 'bg-secondary'}`}>
-          {prov?.icon ?? '🔗'}
+          {prov?.icon ?? '­ƒöù'}
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
             <p className="text-sm font-semibold text-foreground">{pipeline.name}</p>
             {!pipeline.enabled && (
               <span className="text-[10px] px-1.5 py-0.5 rounded font-medium bg-zinc-500/15 text-zinc-400">
-                ⏸ Pausada
+                ÔÅ© Pausada
               </span>
             )}
             <span className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${
@@ -687,11 +697,11 @@ function ConnectedBacklogCard({
                 ? 'bg-green-500/10 text-green-400'
                 : 'bg-amber-500/10 text-amber-400'
             }`}>
-              {pipeline.has_credentials ? '🔑 OK' : '⚠ Sem credencial'}
+              {pipeline.has_credentials ? '­ƒöæ OK' : 'ÔÜá Sem credencial'}
             </span>
           </div>
           <p className="text-[11px] text-muted-foreground">
-            {prov?.label} · {(pipeline.config.jiraHost as string) ?? (pipeline.config.azureOrganizationUrl as string) ?? '—'}
+            {prov?.label} ┬À {(pipeline.config.jiraHost as string) ?? (pipeline.config.azureOrganizationUrl as string) ?? 'ÔÇö'}
           </p>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -706,7 +716,7 @@ function ConnectedBacklogCard({
                 : 'border-green-500/30 text-green-400 hover:bg-green-500/10'
             }`}
           >
-            {toggling ? '...' : pipeline.enabled ? '⏸ Pausar' : '▶ Ativar'}
+            {toggling ? '...' : pipeline.enabled ? 'ÔÅ© Pausar' : 'ÔûÂ Ativar'}
           </button>
           <button onClick={() => { setEditing(e => !e); setError('') }}
             className={`text-xs px-2.5 py-1 rounded-lg border transition-colors ${
@@ -719,7 +729,7 @@ function ConnectedBacklogCard({
           {!confirmDel ? (
             <button onClick={() => setConfirmDel(true)}
               className="w-6 h-6 flex items-center justify-center rounded-lg text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/10 transition-colors text-xs ml-0.5">
-              ✕
+              Ô£ò
             </button>
           ) : (
             <div className="flex items-center gap-1.5 ml-1">
@@ -728,7 +738,7 @@ function ConnectedBacklogCard({
                 className="text-xs px-2 py-0.5 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors">
                 {deleting ? '...' : 'Sim'}
               </button>
-              <button onClick={() => setConfirmDel(false)} className="text-xs text-muted-foreground hover:text-foreground">Não</button>
+              <button onClick={() => setConfirmDel(false)} className="text-xs text-muted-foreground hover:text-foreground">N├úo</button>
             </div>
           )}
         </div>
@@ -738,11 +748,11 @@ function ConnectedBacklogCard({
       {editing && (
         <div className="px-4 pb-4 pt-3 border-t border-border/30 space-y-4 bg-secondary/10">
           {error && (
-            <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">⚠ {error}</div>
+            <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">ÔÜá {error}</div>
           )}
 
           <div>
-            <label className={lbl}>Nome da integração</label>
+            <label className={lbl}>Nome da integra├º├úo</label>
             <input value={name} onChange={e => setName(e.target.value)} className={inp} />
           </div>
 
@@ -784,9 +794,10 @@ function ConnectedBacklogCard({
                 </label>
                 <input
                   type="password"
+                  autoComplete="new-password"
                   value={jiraToken}
                   onChange={e => setJiraToken(e.target.value)}
-                  placeholder="••••••••••••••"
+                  placeholder="ÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇó"
                   className={`${inp} font-mono`}
                 />
               </div>
@@ -796,7 +807,7 @@ function ConnectedBacklogCard({
           {pipeline.provider === 'azure_devops' && (
             <div className="space-y-3">
               <div>
-                <label className={lbl}>URL da organização</label>
+                <label className={lbl}>URL da organiza├º├úo</label>
                 <input
                   value={azureOrg}
                   onChange={e => setAzureOrg(e.target.value)}
@@ -821,9 +832,10 @@ function ConnectedBacklogCard({
                   </label>
                   <input
                     type="password"
+                    autoComplete="new-password"
                     value={azurePat}
                     onChange={e => setAzurePat(e.target.value)}
-                    placeholder="••••••••••"
+                    placeholder="ÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇó"
                     className={`${inp} font-mono`}
                   />
                 </div>
@@ -855,8 +867,8 @@ function ConnectedBacklogCard({
             onClick={handleShowRuns}
             className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
           >
-            <span className={`transition-transform ${showRuns ? 'rotate-90' : ''}`}>▶</span>
-            Execuções recentes
+            <span className={`transition-transform ${showRuns ? 'rotate-90' : ''}`}>ÔûÂ</span>
+            Execu├º├Áes recentes
           </button>
           <div className="flex-1" />
           {checkMsg && (
@@ -865,10 +877,10 @@ function ConnectedBacklogCard({
           <button
             onClick={handleForceCheck}
             disabled={checking}
-            title="Forçar verificação agora (sem esperar os 30s)"
+            title="For├ºar verifica├º├úo agora (sem esperar os 30s)"
             className="text-xs px-2.5 py-1 rounded-lg border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-50"
           >
-            {checking ? '...' : '⟳ Verificar agora'}
+            {checking ? '...' : 'Ôƒ│ Verificar agora'}
           </button>
         </div>
 
@@ -877,12 +889,12 @@ function ConnectedBacklogCard({
             {runsLoading ? (
               <p className="text-xs text-muted-foreground py-1">Carregando...</p>
             ) : runs.length === 0 ? (
-              <p className="text-xs text-muted-foreground py-1">Nenhuma execução registrada ainda.</p>
+              <p className="text-xs text-muted-foreground py-1">Nenhuma execu├º├úo registrada ainda.</p>
             ) : (
               runs.map(run => {
                 const s = STATUS_LABEL[run.status] ?? { label: run.status, color: 'text-muted-foreground' }
                 const ago = Math.floor((Date.now() / 1000) - run.updated_at)
-                const agoStr = ago < 60 ? `${ago}s atrás` : ago < 3600 ? `${Math.floor(ago/60)}m atrás` : `${Math.floor(ago/3600)}h atrás`
+                const agoStr = ago < 60 ? `${ago}s atr├ís` : ago < 3600 ? `${Math.floor(ago/60)}m atr├ís` : `${Math.floor(ago/3600)}h atr├ís`
                 return (
                   <div key={run.id} className="flex items-center gap-2 py-1.5 border-b border-border/20 last:border-0">
                     <a href={run.card_url} target="_blank" rel="noopener noreferrer"
@@ -901,7 +913,7 @@ function ConnectedBacklogCard({
                         title="Reprocessar esta etapa agora"
                         className="text-[11px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors shrink-0 disabled:opacity-50"
                       >
-                        {reprocessingId === run.id ? '...' : '↺ Reprocessar'}
+                        {reprocessingId === run.id ? '...' : 'Ôå║ Reprocessar'}
                       </button>
                     )}
                     {run.status === 'failed' && (
@@ -910,7 +922,7 @@ function ConnectedBacklogCard({
                         title="Mover card de volta ao gatilho e tentar novamente"
                         className="text-[11px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors shrink-0"
                       >
-                        ↺ Reiniciar
+                        Ôå║ Reiniciar
                       </button>
                     )}
                   </div>
@@ -924,7 +936,7 @@ function ConnectedBacklogCard({
   )
 }
 
-// ── Create form ───────────────────────────────────────────────────────────────
+// ÔöÇÔöÇ Create form ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 function IntegrationForm({ onSuccess, onCancel }: {
   onSuccess: (pipeline: Pipeline, columns: string[]) => void
@@ -991,14 +1003,14 @@ function IntegrationForm({ onSuccess, onCancel }: {
       <div className="px-4 py-3 border-b border-border/40 bg-secondary/20 flex items-center justify-between">
         <div>
           <h3 className="text-sm font-semibold text-foreground">Conectar backlog</h3>
-          <p className="text-xs text-muted-foreground mt-0.5">As colunas do board são importadas automaticamente.</p>
+          <p className="text-xs text-muted-foreground mt-0.5">As colunas do board s├úo importadas automaticamente.</p>
         </div>
         <button onClick={onCancel} disabled={saving}
-          className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground text-xs">✕</button>
+          className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground text-xs">Ô£ò</button>
       </div>
       <div className="p-4 space-y-4">
         {error && (
-          <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">⚠ {error}</div>
+          <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">ÔÜá {error}</div>
         )}
 
         {/* Provider selector */}
@@ -1053,10 +1065,10 @@ function IntegrationForm({ onSuccess, onCancel }: {
                 <label className={lbl}>API Token</label>
                 <a href="https://id.atlassian.com/manage-profile/security/api-tokens"
                   target="_blank" rel="noopener noreferrer"
-                  className="text-xs text-primary/70 hover:text-primary">↗ gerar token</a>
+                  className="text-xs text-primary/70 hover:text-primary">Ôåù gerar token</a>
               </div>
-              <input type="password" value={jiraToken} onChange={e => setJiraToken(e.target.value)}
-                placeholder="••••••••••••" className={`${inp} font-mono`} />
+              <input type="password" autoComplete="new-password" value={jiraToken} onChange={e => setJiraToken(e.target.value)}
+                placeholder="ÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇó" className={`${inp} font-mono`} />
             </div>
           </div>
         )}
@@ -1065,7 +1077,7 @@ function IntegrationForm({ onSuccess, onCancel }: {
           <div className="space-y-3 rounded-lg border border-border/50 bg-secondary/20 p-3">
             <p className="text-xs font-semibold text-foreground/60 uppercase tracking-wide">Credenciais Azure DevOps</p>
             <div>
-              <label className={lbl}>URL da organização</label>
+              <label className={lbl}>URL da organiza├º├úo</label>
               <input value={azureOrg} onChange={e => setAzureOrg(e.target.value)}
                 placeholder="https://dev.azure.com/suaorg" className={`${inp} font-mono`} />
             </div>
@@ -1077,8 +1089,8 @@ function IntegrationForm({ onSuccess, onCancel }: {
               </div>
               <div>
                 <label className={lbl}>Personal Access Token</label>
-                <input type="password" value={azurePat} onChange={e => setAzurePat(e.target.value)}
-                  placeholder="••••••••••" className={`${inp} font-mono`} />
+                <input type="password" autoComplete="new-password" value={azurePat} onChange={e => setAzurePat(e.target.value)}
+                  placeholder="ÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇóÔÇó" className={`${inp} font-mono`} />
               </div>
             </div>
           </div>
@@ -1091,14 +1103,14 @@ function IntegrationForm({ onSuccess, onCancel }: {
           </div>
         )}
         <Button onClick={handleSubmit} disabled={saving || !canSubmit} className="w-full h-9">
-          {saving ? 'Aguarde...' : 'Validar e importar colunas →'}
+          {saving ? 'Aguarde...' : 'Validar e importar colunas ÔåÆ'}
         </Button>
       </div>
     </div>
   )
 }
 
-// ── Column configurator ────────────────────────────────────────────────────────
+// ÔöÇÔöÇ Column configurator ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 function ColumnConfigurator({
   pipelineId,
@@ -1167,7 +1179,7 @@ function ColumnConfigurator({
       })
       const data = await parseJson(res)
       if (!res.ok) throw new Error(data.error)
-      flash(true, 'Configuração salva')
+      flash(true, 'Configura├º├úo salva')
     } catch (e: any) { flash(false, e.message ?? 'Erro') } finally { setSaving(false) }
   }
 
@@ -1194,7 +1206,7 @@ function ColumnConfigurator({
   if (columns.length === 0) return (
     <div className="flex flex-col items-center justify-center py-16 gap-3 rounded-xl border border-dashed border-border/50">
       <p className="text-sm text-muted-foreground">Nenhuma coluna importada.</p>
-      <Button size="sm" onClick={handleReimport} disabled={discovering}>⟳ Importar colunas do board</Button>
+      <Button size="sm" onClick={handleReimport} disabled={discovering}>Ôƒ│ Importar colunas do board</Button>
     </div>
   )
 
@@ -1203,7 +1215,7 @@ function ColumnConfigurator({
   return (
     <div className="flex flex-col gap-4">
 
-      {/* ── Toolbar ── */}
+      {/* ÔöÇÔöÇ Toolbar ÔöÇÔöÇ */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-2.5">
           {msg ? (
@@ -1214,20 +1226,20 @@ function ColumnConfigurator({
             }`}>{msg.text}</span>
           ) : triggerCol ? (
             <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-              <span className="text-primary">⚡</span>
+              <span className="text-primary">ÔÜí</span>
               Gatilho:{' '}
               <span className="font-semibold text-foreground">{triggerCol.column_name}</span>
             </span>
           ) : (
             <span className="inline-flex items-center gap-1.5 text-xs text-amber-400 font-medium">
-              ⚡ Nenhum gatilho — clique em ⚡ para definir
+              ÔÜí Nenhum gatilho ÔÇö clique em ÔÜí para definir
             </span>
           )}
         </div>
         <div className="flex items-center gap-2">
           <button onClick={handleReimport} disabled={discovering}
             className="inline-flex items-center gap-1 text-xs px-2.5 py-1.5 rounded-lg border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-40">
-            <span className={discovering ? 'animate-spin inline-block' : ''}>⟳</span>
+            <span className={discovering ? 'animate-spin inline-block' : ''}>Ôƒ│</span>
             {discovering ? 'Importando...' : 'Re-importar'}
           </button>
           <Button size="sm" onClick={handleSave} disabled={saving} className="h-8 px-4">
@@ -1236,7 +1248,7 @@ function ColumnConfigurator({
         </div>
       </div>
 
-      {/* ── Flow visualization ── */}
+      {/* ÔöÇÔöÇ Flow visualization ÔöÇÔöÇ */}
       <div className="rounded-xl border border-border/50 bg-secondary/20 px-4 py-3 overflow-x-auto">
         <p className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/50 mb-2.5">
           Fluxo do board
@@ -1247,7 +1259,7 @@ function ColumnConfigurator({
               <button
                 type="button"
                 onClick={() => updateCol(i, { is_trigger: !col.is_trigger })}
-                title={col.is_trigger ? 'Gatilho ativo — clique para remover' : 'Definir como gatilho desta esteira'}
+                title={col.is_trigger ? 'Gatilho ativo ÔÇö clique para remover' : 'Definir como gatilho desta esteira'}
                 className={`group relative flex flex-col items-start gap-0.5 px-3 py-2 rounded-xl border text-left transition-all hover:shadow-sm ${
                   col.is_trigger
                     ? 'border-primary bg-primary/10 shadow-[0_0_0_1px_var(--color-primary,theme(colors.violet.500))/20]'
@@ -1255,7 +1267,7 @@ function ColumnConfigurator({
                 }`}
               >
                 <div className="flex items-center gap-1.5">
-                  <span className={`text-sm transition-opacity ${col.is_trigger ? 'opacity-100' : 'opacity-20 group-hover:opacity-50'}`}>⚡</span>
+                  <span className={`text-sm transition-opacity ${col.is_trigger ? 'opacity-100' : 'opacity-20 group-hover:opacity-50'}`}>ÔÜí</span>
                   <span className={`text-xs font-semibold whitespace-nowrap ${col.is_trigger ? 'text-primary' : 'text-foreground'}`}>
                     {col.column_name}
                   </span>
@@ -1271,7 +1283,7 @@ function ColumnConfigurator({
               {i < columns.length - 1 && (
                 <div className="flex items-center px-1.5 shrink-0">
                   <div className="w-4 h-px bg-border/50" />
-                  <span className="text-muted-foreground/40 text-[10px] -ml-0.5">›</span>
+                  <span className="text-muted-foreground/40 text-[10px] -ml-0.5">ÔÇ║</span>
                 </div>
               )}
             </div>
@@ -1279,7 +1291,7 @@ function ColumnConfigurator({
         </div>
       </div>
 
-      {/* ── Column list ── */}
+      {/* ÔöÇÔöÇ Column list ÔöÇÔöÇ */}
       <div className="space-y-2">
         {columns.map((col, colIdx) => {
           const isOpen = expanded.has(colIdx)
@@ -1296,13 +1308,13 @@ function ColumnConfigurator({
                 <button
                   type="button"
                   onClick={() => updateCol(colIdx, { is_trigger: !col.is_trigger })}
-                  title={col.is_trigger ? 'Gatilho ativo — clique para remover' : 'Definir como gatilho'}
+                  title={col.is_trigger ? 'Gatilho ativo ÔÇö clique para remover' : 'Definir como gatilho'}
                   className={`w-7 h-7 rounded-lg border transition-all flex items-center justify-center text-sm shrink-0 ${
                     col.is_trigger
                       ? 'border-primary bg-primary text-primary-foreground shadow-sm'
                       : 'border-border/40 text-muted-foreground/25 hover:border-primary/50 hover:text-primary/60 hover:bg-primary/5'
                   }`}>
-                  ⚡
+                  ÔÜí
                 </button>
 
                 {/* Name + badges */}
@@ -1319,7 +1331,7 @@ function ColumnConfigurator({
                     </span>
                   )}
                   {col.instructions && (
-                    <span className="text-[10px] text-amber-400/70 shrink-0" title="Tem instruções">📝</span>
+                    <span className="text-[10px] text-amber-400/70 shrink-0" title="Tem instru├º├Áes">­ƒôØ</span>
                   )}
                 </div>
 
@@ -1331,7 +1343,7 @@ function ColumnConfigurator({
                       ? 'border-border bg-secondary text-foreground'
                       : 'border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
                   }`}>
-                  {isOpen ? '▲ Fechar' : col.assignments.length ? '▼ Editar' : '▼ + Agentes'}
+                  {isOpen ? 'Ôû▓ Fechar' : col.assignments.length ? 'Ôû╝ Editar' : 'Ôû╝ + Agentes'}
                 </button>
               </div>
 
@@ -1342,12 +1354,12 @@ function ColumnConfigurator({
                   {/* Instructions */}
                   <div>
                     <label className="block text-xs font-semibold text-foreground/60 uppercase tracking-wide mb-1.5">
-                      Instruções para o agente
+                      Instru├º├Áes para o agente
                     </label>
                     <textarea
                       value={col.instructions ?? ''}
                       onChange={e => updateCol(colIdx, { instructions: e.target.value || null })}
-                      placeholder="Ex: Quando um card chegar, analise os requisitos e crie um plano de implementação detalhado..."
+                      placeholder="Ex: Quando um card chegar, analise os requisitos e crie um plano de implementa├º├úo detalhado..."
                       rows={2}
                       className="w-full px-3 py-2.5 rounded-lg bg-background border border-border text-xs text-foreground placeholder:text-muted-foreground/35 focus:outline-none focus:border-primary/50 resize-none leading-relaxed"
                     />
@@ -1357,7 +1369,7 @@ function ColumnConfigurator({
                   {col.assignments.length > 0 && (
                     <div className="space-y-2">
                       <label className="block text-xs font-semibold text-foreground/60 uppercase tracking-wide">
-                        Agentes atribuídos
+                        Agentes atribu├¡dos
                       </label>
                       {col.assignments.map((a, aIdx) => {
                         const filteredAgents = a.role ? agents.filter(ag => ag.role === a.role) : agents
@@ -1366,13 +1378,13 @@ function ColumnConfigurator({
                             <select value={a.role}
                               onChange={e => updateAssign(colIdx, aIdx, { role: e.target.value, agent_id: null })}
                               className={`${sel} flex-1 min-w-0`}>
-                              <option value="">— Função —</option>
+                              <option value="">ÔÇö Fun├º├úo ÔÇö</option>
                               {uniqueRoles.map(r => <option key={r} value={r}>{r}</option>)}
                             </select>
                             <select value={a.agent_id != null ? String(a.agent_id) : ''}
                               onChange={e => updateAssign(colIdx, aIdx, { agent_id: e.target.value ? Number(e.target.value) : null })}
                               className={`${sel} flex-1 min-w-0`}>
-                              <option value="">— Agente —</option>
+                              <option value="">ÔÇö Agente ÔÇö</option>
                               {filteredAgents.map(ag => <option key={ag.id} value={String(ag.id)}>{ag.name}</option>)}
                             </select>
                             {repos.length > 0 && (
@@ -1380,10 +1392,10 @@ function ColumnConfigurator({
                                 value={a.repo_id != null ? String(a.repo_id) : ''}
                                 onChange={e => updateAssign(colIdx, aIdx, { repo_id: e.target.value ? Number(e.target.value) : null })}
                                 className={`${sel} w-32`}
-                                title="Repositório para este agente">
-                                <option value="">— Repo —</option>
+                                title="Reposit├│rio para este agente">
+                                <option value="">ÔÇö Repo ÔÇö</option>
                                 {repos.map(r => (
-                                  <option key={r.id} value={String(r.id)}>{PROVIDER_ICON[r.provider] ?? '📦'} {r.name}</option>
+                                  <option key={r.id} value={String(r.id)}>{PROVIDER_ICON[r.provider] ?? '­ƒôª'} {r.name}</option>
                                 ))}
                               </select>
                             )}
@@ -1393,14 +1405,14 @@ function ColumnConfigurator({
                                 onChange={e => updateAssign(colIdx, aIdx, { llm_model: e.target.value })}
                                 className={`${sel} w-32`}
                                 title="Modelo de IA para este agente">
-                                <option value="">— Modelo —</option>
+                                <option value="">ÔÇö Modelo ÔÇö</option>
                                 {llmOptions.map(o => (
                                   <option key={o.value} value={o.value}>{o.provider !== o.label ? `${o.provider} / ${o.label}` : o.label}</option>
                                 ))}
                               </select>
                             )}
                             <button onClick={() => removeAssign(colIdx, aIdx)}
-                              className="w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/10 transition-colors text-xs shrink-0">✕</button>
+                              className="w-6 h-6 flex items-center justify-center rounded-md text-muted-foreground/40 hover:text-red-400 hover:bg-red-500/10 transition-colors text-xs shrink-0">Ô£ò</button>
                           </div>
                         )
                       })}
@@ -1421,7 +1433,7 @@ function ColumnConfigurator({
   )
 }
 
-// ── Main panel ────────────────────────────────────────────────────────────────
+// ÔöÇÔöÇ Main panel ÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇÔöÇ
 
 export function ClientPipelinesPanel() {
   const [loading,   setLoading]   = useState(true)
@@ -1460,14 +1472,14 @@ export function ClientPipelinesPanel() {
     )
   }
 
-  /* ── Form full-screen mode ── */
+  /* ÔöÇÔöÇ Form full-screen mode ÔöÇÔöÇ */
   if (creating) {
     return (
       <div className="p-5 space-y-5">
         <div className="flex items-center gap-3">
           <button onClick={() => setCreating(false)}
             className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-1">
-            ← Voltar
+            ÔåÉ Voltar
           </button>
           <h2 className="text-base font-semibold text-foreground">Conectar backlog</h2>
         </div>
@@ -1486,7 +1498,7 @@ export function ClientPipelinesPanel() {
   return (
     <div className="flex flex-col min-h-full">
 
-      {/* ── Page header ── */}
+      {/* ÔöÇÔöÇ Page header ÔöÇÔöÇ */}
       <div className="px-6 py-4 border-b border-border/50 flex items-center justify-between gap-4 shrink-0">
         <div>
           <h2 className="text-base font-semibold text-foreground">Fluxo de desenvolvimento</h2>
@@ -1501,18 +1513,18 @@ export function ClientPipelinesPanel() {
         )}
       </div>
 
-      {/* ── Empty state ── */}
+      {/* ÔöÇÔöÇ Empty state ÔöÇÔöÇ */}
       {!pipeline && (
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="rounded-2xl border border-dashed border-border/60 bg-card/50 px-8 py-16 flex flex-col items-center gap-4 text-center max-w-sm w-full">
             <div className="flex items-center gap-4 text-3xl">
-              <span>🎯</span>
+              <span>­ƒÄ»</span>
               <span className="text-muted-foreground/20 text-lg">ou</span>
-              <span>🔷</span>
+              <span>­ƒöÀ</span>
             </div>
             <div>
               <p className="text-sm font-semibold text-foreground">Nenhum backlog conectado</p>
-              <p className="text-xs text-muted-foreground mt-1">Conecte ao Jira ou Azure DevOps para começar.</p>
+              <p className="text-xs text-muted-foreground mt-1">Conecte ao Jira ou Azure DevOps para come├ºar.</p>
             </div>
             <Button size="sm" onClick={() => setCreating(true)} className="h-9 px-6 mt-1">
               + Conectar backlog
@@ -1521,11 +1533,11 @@ export function ClientPipelinesPanel() {
         </div>
       )}
 
-      {/* ── Two-column body ── */}
+      {/* ÔöÇÔöÇ Two-column body ÔöÇÔöÇ */}
       {pipeline && (
         <div className="flex flex-col lg:flex-row flex-1 min-h-0 overflow-hidden">
 
-          {/* LEFT: settings sidebar — scrolls independently */}
+          {/* LEFT: settings sidebar ÔÇö scrolls independently */}
           <div className="lg:w-[420px] shrink-0 border-b lg:border-b-0 lg:border-r border-border/50 overflow-y-auto">
             <div className="p-4 space-y-3">
 
@@ -1553,9 +1565,9 @@ export function ClientPipelinesPanel() {
               <div className="rounded-xl border border-border/40 bg-secondary/20 px-3 py-3 space-y-1.5 text-xs">
                 <p className="font-semibold text-foreground text-xs">Prioridade do modelo</p>
                 {[
-                  'Modelo definido no agente (coluna → atribuição)',
+                  'Modelo definido no agente (coluna ÔåÆ atribui├º├úo)',
                   'Regra por complexidade da tarefa',
-                  'Padrão do provider em Integrações',
+                  'Padr├úo do provider em Integra├º├Áes',
                 ].map((text, i) => (
                   <div key={i} className="flex items-start gap-2 text-muted-foreground">
                     <span className="text-primary font-semibold shrink-0 w-3 text-center">{i + 1}</span>
@@ -1566,7 +1578,7 @@ export function ClientPipelinesPanel() {
             </div>
           </div>
 
-          {/* RIGHT: column configurator — main workspace */}
+          {/* RIGHT: column configurator ÔÇö main workspace */}
           <div className="flex-1 overflow-y-auto">
             <div className="p-5">
               <ColumnConfigurator
