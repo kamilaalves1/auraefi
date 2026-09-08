@@ -5,6 +5,40 @@ import { describe, it, expect } from 'vitest'
 import { scanForSecrets, redactSecrets } from '@/lib/secret-scanner'
 
 describe('scanForSecrets', () => {
+  it('detects OpenAI project keys (sk-proj-)', () => {
+    const token = 'sk-proj-' + 'A'.repeat(40)
+    const hits = scanForSecrets(`chave: ${token}`)
+    expect(hits.some(h => h.type === 'openai_api_key_project')).toBe(true)
+  })
+
+  it('detects OpenAI service-account keys (sk-svcacct-)', () => {
+    const token = 'sk-svcacct-' + 'B'.repeat(40)
+    expect(scanForSecrets(token).some(h => h.type === 'openai_api_key_service')).toBe(true)
+  })
+
+  it('detects GitLab tokens (glpat- e glft-)', () => {
+    for (const p of ['glpat-', 'glft-', 'gldt-', 'glrt-']) {
+      const token = p + 'C'.repeat(24)
+      expect(scanForSecrets(token).some(h => h.type === 'gitlab_token')).toBe(true)
+    }
+  })
+
+  it('detects Atlassian API tokens (ATATT3x)', () => {
+    const token = 'ATATT3x' + 'D'.repeat(40)
+    expect(scanForSecrets(token).some(h => h.type === 'atlassian_api_token')).toBe(true)
+  })
+
+  it('detects Google API keys (AIza)', () => {
+    const token = 'AIza' + 'E'.repeat(35)
+    expect(scanForSecrets(token).some(h => h.type === 'google_api_key')).toBe(true)
+  })
+
+  it('nao acusa texto comum como credencial', () => {
+    for (const inocente of ['sk-proj', 'glpat', 'ATATT', 'AIza', 'skate-park', 'global-config']) {
+      expect(scanForSecrets(inocente).length).toBe(0)
+    }
+  })
+
   it('detects AWS access key IDs', () => {
     const hits = scanForSecrets('My key is AKIAIOSFODNN7EXAMPLE')
     expect(hits.length).toBeGreaterThanOrEqual(1)
