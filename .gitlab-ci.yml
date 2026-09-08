@@ -205,8 +205,15 @@ release:
     - pnpm build
 
     # layout que o standalone exige: static e public tem de ir para dentro dele
-    - cp -r .next/static .next/standalone/.next/static
-    - cp -r public .next/standalone/public
+    # `cp -r origem destino` copia PARA DENTRO quando o destino ja existe como
+    # diretorio. O deploy de 2026-09-08 abortou no gate de estrutura com
+    # "aninhamento em public/public": o Next passou a criar .next/standalone/public,
+    # e a copia entrou dentro dele. A linha do .next/static tinha o MESMO defeito
+    # latente -- nao disparou so porque aquele destino ainda nao existia.
+    # `cp -a origem/. destino/` copia o CONTEUDO, com o destino existindo ou nao.
+    - mkdir -p .next/standalone/public .next/standalone/.next/static
+    - cp -a .next/static/. .next/standalone/.next/static/
+    - cp -a public/. .next/standalone/public/
     # o schema e lido em runtime por join(process.cwd(),'src','lib',...).
     # hoje entra por acidente do trace; garantir explicitamente.
     - mkdir -p .next/standalone/src/lib
