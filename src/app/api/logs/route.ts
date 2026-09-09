@@ -2,122 +2,12 @@
 import { readFile, readdir, stat } from 'fs/promises'
 import { join } from 'path'
 import { config } from '@/lib/config'
+import { tailLines, redigirLinha, parseLogLine, type LogEntry } from '@/lib/log-tail'
 import { requireRole } from '@/lib/auth'
 import { readLimiter, mutationLimiter } from '@/lib/rate-limit'
 import { logger } from '@/lib/logger'
 
 const LOGS_PATH = config.logsDir
-
-interface LogEntry {
-  id: string
-  timestamp: number
-  level: 'info' | 'warn' | 'error' | 'debug'
-  source: string
-  session?: string
-  message: string
-  data?: any
-}
-
-/**
- * Parse a log line from various log formats:
- * - Pipe-delimited: "2026-02-09T17:00:01+01:00|MONITOR|Consistency check completed"
- * - Simple text: "done report=/path/to/workspace-<agent>/reports/..."
- * - JSON structured: { timestamp, level, message, ... }
- * - Gateway journal: "2026-02-09T18:05:49+01:00 host gateway[1737454]: ..."
- */
-function parseLogLine(line: string, source: string): LogEntry | null {
-  if (!line.trim()) return null
-
-  try {
-    // Try JSON first
-    if (line.startsWith('{')) {
-      const parsed = JSON.parse(line)
-      return {
-        id: `${source}-${parsed.timestamp || Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        timestamp: parsed.timestamp || Date.now(),
-        level: parsed.level || 'info',
-        source: parsed.source || source,
-        session: parsed.session,
-        message: parsed.message || line,
-        data: parsed.data,
-      }
-    }
-
-    // Pipe-delimited format: "TIMESTAMP|LEVEL|MESSAGE"
-    const pipeMatch = line.match(/^(\d{4}-\d{2}-\d{2}T[\d:]+[^\|]*)\|([^\|]+)\|(.+)$/)
-    if (pipeMatch) {
-      const ts = new Date(pipeMatch[1]).getTime()
-      const levelRaw = pipeMatch[2].trim().toLowerCase()
-      let level: LogEntry['level'] = 'info'
-      if (levelRaw === 'error' || levelRaw === 'err') level = 'error'
-      else if (levelRaw === 'warn' || levelRaw === 'warning') level = 'warn'
-      else if (levelRaw === 'debug') level = 'debug'
-      else if (levelRaw === 'ok' || levelRaw === 'monitor' || levelRaw === 'info') level = 'info'
-
-      return {
-        id: `${source}-${ts}-${Math.random().toString(36).slice(2, 8)}`,
-        timestamp: isNaN(ts) ? Date.now() : ts,
-        level,
-        source,
-        message: pipeMatch[3].trim(),
-      }
-    }
-
-    // Gateway journal format: "TIMESTAMP HOSTNAME gateway[PID]: MESSAGE"
-    const journalMatch = line.match(/^(\d{4}-\d{2}-\d{2}T[\d:]+[^\s]*)\s+\S+\s+\S+:\s+(.+)$/)
-    if (journalMatch) {
-      const ts = new Date(journalMatch[1]).getTime()
-      const msg = journalMatch[2]
-      let level: LogEntry['level'] = 'info'
-      if (msg.includes('error') || msg.includes('Error') || msg.includes('ERR')) level = 'error'
-      else if (msg.includes('warn') || msg.includes('WARN')) level = 'warn'
-      else if (msg.includes('debug') || msg.includes('DEBUG')) level = 'debug'
-
-      return {
-        id: `${source}-${ts}-${Math.random().toString(36).slice(2, 8)}`,
-        timestamp: isNaN(ts) ? Date.now() : ts,
-        level,
-        source,
-        message: msg,
-      }
-    }
-
-    // ISO timestamp prefix: "2026-02-09T... [LEVEL] message"
-    const isoMatch = line.match(/^(\d{4}-\d{2}-\d{2}[\sT]\d{2}:\d{2}:\d{2}(?:\.\d{3})?(?:Z|[+-]\d{2}:?\d{2})?)/)
-    const levelMatch = line.match(/\[(ERROR|WARN|INFO|DEBUG)\]/i) || line.match(/(ERROR|WARN|INFO|DEBUG):/i)
-
-    let timestamp = Date.now()
-    if (isoMatch) {
-      const t = new Date(isoMatch[1]).getTime()
-      if (!isNaN(t)) timestamp = t
-    }
-
-    let level: LogEntry['level'] = 'info'
-    if (levelMatch) {
-      level = levelMatch[1].toLowerCase() as LogEntry['level']
-    } else if (line.toLowerCase().includes('error')) {
-      level = 'error'
-    } else if (line.toLowerCase().includes('warn')) {
-      level = 'warn'
-    }
-
-    return {
-      id: `${source}-${timestamp}-${Math.random().toString(36).slice(2, 8)}`,
-      timestamp,
-      level,
-      source,
-      message: line.trim(),
-    }
-  } catch {
-    return {
-      id: `${source}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      timestamp: Date.now(),
-      level: 'info',
-      source,
-      message: line.trim(),
-    }
-  }
-}
 
 /**
  * Discover all log files in the logs directory.
@@ -130,10 +20,15 @@ async function discoverLogFiles(): Promise<Array<{ path: string; source: string 
   try {
     const entries = await readdir(LOGS_PATH, { withFileTypes: true })
     for (const entry of entries) {
-      if (entry.isFile() && entry.name.endsWith('.log')) {
+      // Aceita tambem os rotacionados `nome.log.1`, `nome.log.2`... Sem isto a
+      // tela mostrava so o dia corrente: apos a rotacao diaria (instalada em
+      // 2026-09-08) o log de ontem -- que e o que se olha depois de um incidente
+      // noturno -- ficava invisivel.
+      // `.gz` fica de fora de proposito: exigiria descompactar por requisicao.
+      if (entry.isFile() && /\.log(\.\d+)?$/.test(entry.name)) {
         files.push({
           path: join(LOGS_PATH, entry.name),
-          source: entry.name.replace('.log', ''),
+          source: entry.name.replace(/\.log(\.\d+)?$/, (m) => (m === '.log' ? '' : ' (rotacao' + m.slice(4) + ')')),
         })
       } else if (entry.isDirectory()) {
         // Scan subdirectories (e.g., automation/)
@@ -161,12 +56,15 @@ async function discoverLogFiles(): Promise<Array<{ path: string; source: string 
 
 async function readLogFile(filePath: string, source: string, maxLines: number): Promise<LogEntry[]> {
   try {
-    const content = await readFile(filePath, 'utf-8')
-    const lines = content.split('\n').slice(-maxLines)
+    // Le apenas a CAUDA. A versao anterior fazia `readFile` do arquivo inteiro e
+    // so entao descartava tudo menos as ultimas linhas -- com o log de producao
+    // em 25,3 MB (medido 2026-09-08), isso acontecia por arquivo descoberto a
+    // cada poll da tela, numa instancia de 2 vCPUs.
+    const { lines } = await tailLines(filePath, maxLines)
     const entries: LogEntry[] = []
 
-    for (const line of lines) {
-      const entry = parseLogLine(line, source)
+    for (const linha of lines) {
+      const entry = parseLogLine(redigirLinha(linha), source)
       if (entry) entries.push(entry)
     }
 
@@ -215,9 +113,15 @@ export async function GET(request: NextRequest) {
       }
       if (search) {
         const searchLower = search.toLowerCase()
+        // Busca tambem no contexto (`data`). Antes da normalizacao do parser, a
+        // mensagem de uma linha do pino era o JSON INTEIRO, entao procurar por
+        // nome de agente ou por `taskId` funcionava por acidente. Com `message`
+        // passando a ser so o `msg`, isso regrediu: procurar "Felipe" devolvia
+        // 0. Medido em 2026-09-08.
         logs = logs.filter(log =>
           log.message.toLowerCase().includes(searchLower) ||
-          log.source.toLowerCase().includes(searchLower)
+          log.source.toLowerCase().includes(searchLower) ||
+          (log.data !== undefined && JSON.stringify(log.data).toLowerCase().includes(searchLower))
         )
       }
 
