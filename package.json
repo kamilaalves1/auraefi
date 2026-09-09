@@ -7,7 +7,7 @@
     "api:parity": "node scripts/check-api-contract-parity.mjs --root . --openapi openapi.json --ignore-file scripts/api-contract-parity.ignore",
     "api:parity:json": "node scripts/check-api-contract-parity.mjs --root . --openapi openapi.json --ignore-file scripts/api-contract-parity.ignore --json",
     "mc": "node scripts/mc-cli.cjs",
-    "dev": "npm run verify:node && next dev --hostname 127.0.0.1 --port 3000",
+    "dev": "npm run verify:node && next dev --hostname 0.0.0.0 --port 3000",
     "build": "npm run verify:node && next build",
     "start": "npm run verify:node && next start --hostname 0.0.0.0 --port 3000",
     "start:standalone": "npm run verify:node && bash scripts/start-standalone.sh",

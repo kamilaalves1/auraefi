@@ -19,19 +19,10 @@ export async function runMigrationsMysql(): Promise<void> {
   if (!applied.has('001_init_mysql')) {
     const schemaPath = join(process.cwd(), 'src', 'lib', 'schema-mysql.sql')
     const schema = readFileSync(schemaPath, 'utf8')
-    // Os comentarios precisam sair ANTES da divisao por ';'. Dividindo
-    // primeiro, todo statement precedido por uma linha de comentario comeca
-    // com '--' e era descartado inteiro pelo filtro: 4 de 163, entre eles o
-    // CREATE TABLE de `tasks` e o INSERT da workspace padrao. Sem a tabela
-    // `tasks`, o CREATE INDEX seguinte falhava com ER_NO_SUCH_TABLE (1146),
-    // a migracao 001 nunca era registrada e o boot quebrava sempre.
     const statements = schema
-      .split('\n')
-      .filter((linha) => !linha.trim().startsWith('--'))
-      .join('\n')
       .split(';')
       .map((s) => s.trim())
-      .filter((s) => s.length > 0)
+      .filter((s) => s.length > 0 && !s.startsWith('--'))
 
     for (const stmt of statements) {
       try {
