@@ -65,7 +65,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     const provider = VALID_PROVIDERS.includes(body.provider) ? body.provider : existing.provider
     const enabled = typeof body.enabled === 'boolean' ? (body.enabled ? 1 : 0) : existing.enabled
     const clientId = body.client_id === null ? null : typeof body.client_id === 'number' ? body.client_id : existing.client_id
-    // Merge new config with existing ÔÇö prevents losing JIRA/Azure connection details when only updating LLM settings
+    // Merge new config with existing — prevents losing JIRA/Azure connection details when only updating LLM settings
     const existingConfig = safeParseJson(existing.config_json)
     const config = typeof body.config === 'object' && body.config
       ? { ...existingConfig, ...body.config }
