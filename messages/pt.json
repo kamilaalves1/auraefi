@@ -2282,5 +2282,36 @@
       "audit": "Trilha de auditoria",
       "auditDesc": "Quem alterou o quê."
     }
+  },
+  "logViewer": {
+    "title": "Logs",
+    "description": "Registros do processo da aplicacao, lidos direto do servidor",
+    "filterLevel": "Nivel",
+    "filterSource": "Origem",
+    "filterSession": "Sessao",
+    "filterSearch": "Buscar",
+    "allLevels": "Todos os niveis",
+    "allSources": "Todas as origens",
+    "levelDebug": "Depuracao",
+    "levelInfo": "Informacao",
+    "levelWarning": "Aviso",
+    "levelError": "Erro",
+    "searchPlaceholder": "Filtrar por texto...",
+    "sessionPlaceholder": "Filtrar por sessao...",
+    "autoScroll": "Rolagem automatica",
+    "on": "ligada",
+    "off": "desligada",
+    "auto": "automatico",
+    "manual": "manual",
+    "bottom": "Ir para o fim",
+    "clear": "Limpar",
+    "exportJson": "Exportar JSON",
+    "exportLog": "Exportar .log",
+    "noLogs": "Nenhum registro para os filtros atuais",
+    "lastUpdated": "Atualizado em",
+    "never": "nunca",
+    "showing": "Exibindo {filtered} de {total}",
+    "bufferFull": "Buffer cheio: mantendo as {max} entradas mais recentes",
+    "additionalData": "Dados adicionais"
   }
 }
