@@ -43,7 +43,6 @@ const navGroups: NavGroup[] = [
       { id: 'exec-approvals', label: 'Approvals', icon: <ApprovalsIcon />, priority: false },
       { id: 'office', label: 'Office', icon: <OfficeIcon />, priority: false },
       { id: 'monitor', label: 'Monitor', icon: <MonitorIcon />, priority: false },
-      { id: 'erros', label: 'Erros', icon: <ErrosIcon />, priority: false },
     ],
   },
   {
@@ -1504,12 +1503,3 @@ function MonitorIcon() {
   )
 }
 
-function ErrosIcon() {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M8 2L14 13H2L8 2z" />
-      <path d="M8 6v3.5" />
-      <circle cx="8" cy="11.5" r="0.5" fill="currentColor" stroke="none" />
-    </svg>
-  )
-}

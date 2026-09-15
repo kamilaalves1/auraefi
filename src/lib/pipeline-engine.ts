@@ -10,7 +10,6 @@ import { db_helpers } from '@/lib/db'
 import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { getWorkPipelineRow, decryptPipelineSecrets } from '@/lib/work-pipeline-config'
 import type { WorkPipelineConfigJson, WorkPipelineSecrets } from '@/lib/work-pipeline-types'
-import { logError } from '@/lib/error-logger'
 import { calculateTokenCost } from '@/lib/token-pricing'
 import { fetchJiraIssuesByStatus, postJiraComment, getJiraCommentsSince, transitionJiraIssue } from '@/lib/work-pipeline-jira'
 import { fetchAzureWorkItemsByState, postAzureComment, getAzureCommentsSince, moveAzureWorkItem } from '@/lib/work-pipeline-azure'
@@ -585,6 +584,52 @@ function toConventionalPRTitle(cardKey: string, cardTitle: string): string {
 //   actions[].action in create|update|delete|move|chmod; encoding in text|base64
 //   autenticacao pelo header PRIVATE-TOKEN (token de ESCRITA e `glpat-`)
 // O `:id` aceita id numerico OU o caminho do projeto codificado por URL.
+async function pushCodeToBitbucket(
+  repo: { repo_url: string; branch: string; access_token: string | null; base_url?: string | null },
+  branchName: string,
+  commitMsg: string,
+  files: ExtractedFile[],
+): Promise<{ ok: boolean; branch?: string; files?: string[]; message: string }> {
+  const token = repo.access_token
+  if (!token) return { ok: false, message: 'Repositório sem token de acesso configurado' }
+
+  const match = repo.repo_url.match(/bitbucket\.org\/([^/]+)\/([^/.]+)/)
+  if (!match) return { ok: false, message: `URL do repositório inválida: ${repo.repo_url}` }
+  const [, workspace, slug] = match
+
+  const authHeader = token.includes(':')
+    ? `Basic ${Buffer.from(token).toString('base64')}`
+    : `Bearer ${token}`
+  const headers: Record<string, string> = { Authorization: authHeader }
+
+  const apiBase = `https://api.bitbucket.org/2.0/repositories/${workspace}/${slug}`
+  const baseBranch = (repo.branch || '').trim() || 'main'
+
+  // Bitbucket commits via multipart form POST to /src
+  // Each file is a field, branch/message are metadata fields
+  const form = new FormData()
+  form.append('message', commitMsg)
+  form.append('branch', branchName)
+  form.append('parents', baseBranch)  // base branch as parent commit
+
+  for (const file of files) {
+    form.append(file.path, new Blob([file.content], { type: 'text/plain' }), file.path)
+  }
+
+  const commitResp = await fetch(`${apiBase}/src`, {
+    method: 'POST',
+    headers,
+    body: form,
+  })
+
+  if (!commitResp.ok) {
+    const errText = await commitResp.text().catch(() => '')
+    return { ok: false, message: `Bitbucket commit error ${commitResp.status}: ${errText.slice(0, 200)}` }
+  }
+
+  return { ok: true, branch: branchName, files: files.map(f => f.path), message: commitMsg }
+}
+
 async function pushCodeToGitLab(
   repo: { repo_url: string; branch: string; access_token: string | null; base_url?: string | null },
   branchName: string,
@@ -691,8 +736,10 @@ async function pushCodeToGitHub(
   const commitMsg = extractCommitMessage(llmOutput, cardKey)
   const branchName = toBranchSlug(cardKey, cardTitle)
 
-  // Desvio por provider ANTES do casamento com github.com. Sem isto, repositorio
-  // GitLab morre em "URL do repositorio invalida" sem tocar a rede.
+  // Route by provider before URL matching
+  if (/bitbucket\.org\//.test(repo.repo_url)) {
+    return pushCodeToBitbucket(repo, branchName, commitMsg, files)
+  }
   if (!/github\.com\//.test(repo.repo_url)) {
     return pushCodeToGitLab(repo, branchName, commitMsg, files)
   }
@@ -1284,11 +1331,118 @@ const MAX_TOTAL_CHARS = 160_000  // ~40K tokens — enough for most repos, leave
 const MAX_FILE_CHARS  =  30_000  // truncate very large individual files
 
 async function fetchRepoContext(repoId: number): Promise<string> {
-  const repo = await dbGet('SELECT repo_url, access_token, branch FROM git_repositories WHERE id = ?', [repoId]) as
-    | { repo_url: string; access_token: string | null; branch: string }
+  const repo = await dbGet('SELECT repo_url, access_token, branch, provider, base_url FROM git_repositories WHERE id = ?', [repoId]) as
+    | { repo_url: string; access_token: string | null; branch: string; provider: string | null; base_url: string | null }
     | undefined
   if (!repo?.access_token) return ''
 
+  // Route to the correct provider API based on the configured URL
+  const isGitHub = /github\.com\//.test(repo.repo_url)
+  const isBitbucket = /bitbucket\.org\//.test(repo.repo_url)
+  if (isGitHub) {
+    return fetchRepoContextGitHub(repo)
+  } else if (isBitbucket) {
+    return fetchRepoContextBitbucket(repo)
+  } else {
+    return fetchRepoContextGitLab(repo)
+  }
+}
+
+async function fetchRepoContextGitLab(
+  repo: { repo_url: string; access_token: string; branch: string; base_url?: string | null }
+): Promise<string> {
+  try {
+    const u = new URL(repo.repo_url)
+    const origin = (repo.base_url || u.origin).replace(/\/+$/, '')
+    const projectPath = u.pathname.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.git$/, '')
+    if (!projectPath) return ''
+
+    const api = `${origin}/api/v4/projects/${encodeURIComponent(projectPath)}`
+    const headers: Record<string, string> = { 'PRIVATE-TOKEN': repo.access_token }
+    const ref = (repo.branch || '').trim() || 'main'
+
+    // Get default branch if configured one doesn't exist
+    let baseBranch = ref
+    const branchCheck = await fetch(`${api}/repository/branches/${encodeURIComponent(baseBranch)}`, { headers, signal: AbortSignal.timeout(10_000) })
+    if (!branchCheck.ok) {
+      const proj = await fetch(api, { headers, signal: AbortSignal.timeout(10_000) })
+      if (!proj.ok) return ''
+      const projData = await proj.json() as { default_branch?: string }
+      baseBranch = projData.default_branch || 'main'
+    }
+
+    // Get file tree via GitLab API
+    const treeResp = await fetch(`${api}/repository/tree?recursive=true&ref=${encodeURIComponent(baseBranch)}&per_page=500`, { headers, signal: AbortSignal.timeout(30_000) })
+    if (!treeResp.ok) return ''
+    const treeData = await treeResp.json() as Array<{ path: string; type: string; name: string }>
+
+    const readFile = async (path: string): Promise<string | null> => {
+      try {
+        const res = await fetch(`${api}/repository/files/${encodeURIComponent(path)}/raw?ref=${encodeURIComponent(baseBranch)}`, { headers, signal: AbortSignal.timeout(10_000) })
+        if (!res.ok) return null
+        return await res.text()
+      } catch { return null }
+    }
+
+    return buildRepoContextFromTree(
+      treeData.map(i => ({ path: i.path, type: i.type === 'tree' ? 'tree' : 'blob' as 'blob' | 'tree' })),
+      readFile,
+      repo.repo_url,
+      baseBranch,
+    )
+  } catch { return '' }
+}
+
+async function fetchRepoContextBitbucket(
+  repo: { repo_url: string; access_token: string; branch: string }
+): Promise<string> {
+  try {
+    // URL format: https://bitbucket.org/{workspace}/{slug}
+    const match = repo.repo_url.match(/bitbucket\.org\/([^/]+)\/([^/.]+)/)
+    if (!match) return ''
+    const [, workspace, slug] = match
+    const ref = (repo.branch || 'main').trim()
+    const apiBase = `https://api.bitbucket.org/2.0/repositories/${workspace}/${slug}`
+
+    // Bitbucket uses Basic auth: "username:app_password" or Bearer token
+    const authHeader = repo.access_token.includes(':')
+      ? `Basic ${Buffer.from(repo.access_token).toString('base64')}`
+      : `Bearer ${repo.access_token}`
+    const headers: Record<string, string> = { Authorization: authHeader }
+
+    const readFile = async (path: string): Promise<string | null> => {
+      try {
+        const res = await fetch(`${apiBase}/src/${encodeURIComponent(ref)}/${path}`, { headers, signal: AbortSignal.timeout(10_000) })
+        if (!res.ok) return null
+        return await res.text()
+      } catch { return null }
+    }
+
+    // Bitbucket src API with format=meta returns file tree entries
+    // Use pagination to get up to 500 entries
+    const treeItems: Array<{ path: string; type: 'blob' | 'tree' }> = []
+    let nextUrl: string | null = `${apiBase}/src/${encodeURIComponent(ref)}/?format=meta&pagelen=100&fields=values.path,values.type,next`
+    let pages = 0
+    while (nextUrl && pages < 5) {
+      try {
+        const res = await fetch(nextUrl, { headers, signal: AbortSignal.timeout(15_000) })
+        if (!res.ok) break
+        const data = await res.json() as { values: Array<{ path: string; type: string }>; next?: string }
+        for (const item of data.values ?? []) {
+          treeItems.push({ path: item.path, type: item.type === 'commit_directory' ? 'tree' : 'blob' })
+        }
+        nextUrl = data.next ?? null
+        pages++
+      } catch { break }
+    }
+
+    return buildRepoContextFromTree(treeItems, readFile, repo.repo_url, ref)
+  } catch { return '' }
+}
+
+async function fetchRepoContextGitHub(
+  repo: { repo_url: string; access_token: string; branch: string }
+): Promise<string> {
   const urlMatch = repo.repo_url.match(/github\.com\/([^/]+)\/([^/.]+)/)
   if (!urlMatch) return ''
   const [, owner, repoName] = urlMatch
@@ -1300,9 +1454,7 @@ async function fetchRepoContext(repoId: number): Promise<string> {
     'X-GitHub-Api-Version': '2022-11-28',
   }
 
-  // ── Helpers ───────────────────────────────────────────────────────────────────
-
-  async function readFile(path: string): Promise<string | null> {
+  const readFile = async (path: string): Promise<string | null> => {
     try {
       const res = await fetch(`${apiBase}/contents/${path}?ref=${ref}`, { headers, signal: AbortSignal.timeout(10_000) })
       if (!res.ok) return null
@@ -1312,17 +1464,15 @@ async function fetchRepoContext(repoId: number): Promise<string> {
     } catch { return null }
   }
 
-  // Single API call to get the entire repo file tree
+  // Get full tree via GitHub API
   async function getFullTree(): Promise<Array<{ path: string; type: 'blob' | 'tree'; size?: number }>> {
     try {
       const refResp = await fetch(`${apiBase}/git/ref/heads/${ref}`, { headers, signal: AbortSignal.timeout(10_000) })
       if (!refResp.ok) return []
       const refData = await refResp.json() as { object: { sha: string } }
-
       const commitResp = await fetch(`${apiBase}/git/commits/${refData.object.sha}`, { headers, signal: AbortSignal.timeout(10_000) })
       if (!commitResp.ok) return []
       const commitData = await commitResp.json() as { tree: { sha: string } }
-
       const treeResp = await fetch(`${apiBase}/git/trees/${commitData.tree.sha}?recursive=1`, { headers, signal: AbortSignal.timeout(30_000) })
       if (!treeResp.ok) return []
       const treeData = await treeResp.json() as { tree: Array<{ path: string; type: string; size?: number }> }
@@ -1330,9 +1480,16 @@ async function fetchRepoContext(repoId: number): Promise<string> {
     } catch { return [] }
   }
 
-  // ── Get full file tree ────────────────────────────────────────────────────────
-
   const rawTree = await getFullTree()
+  return buildRepoContextFromTree(rawTree, readFile, repo.repo_url, ref)
+}
+
+async function buildRepoContextFromTree(
+  rawTree: Array<{ path: string; type: 'blob' | 'tree'; size?: number }>,
+  readFile: (path: string) => Promise<string | null>,
+  repoUrl: string,
+  ref: string,
+): Promise<string> {
   if (rawTree.length === 0) return ''
 
   // Filter out ignored dirs
@@ -1422,8 +1579,9 @@ async function fetchRepoContext(repoId: number): Promise<string> {
   let totalChars = 0
 
   const langs = [...detectedLangs].join(', ') || 'desconhecida'
+  const repoLabel = repoUrl.replace(/\.git$/, '').split('/').slice(-2).join('/')
   parts.push([
-    `## ⚠️ CONTEXTO OBRIGATÓRIO DO REPOSITÓRIO \`${owner}/${repoName}\` — leia TUDO antes de gerar qualquer código`,
+    `## ⚠️ CONTEXTO OBRIGATÓRIO DO REPOSITÓRIO \`${repoLabel}\` — leia TUDO antes de gerar qualquer código`,
     ``,
     `> Linguagem(s) detectada(s): **${langs}**`,
     `> Você DEVE seguir EXATAMENTE a arquitetura, módulos, classes e padrões abaixo.`,
@@ -1718,13 +1876,13 @@ async function startColumn(
 
   // Fetch repo context once for the whole stage — use the first repo_id found across any assignment,
   // Resolve the repo for this stage with three levels of fallback:
-  // 1. repo_id explicitly set on any assignment in this column
-  // 2. repo_id on the pipeline-level config
-  // 3. First active repository in the workspace (the "default" repo configured in Repositórios)
+  // 1. repo_id explicitly set on any assignment in this column (dropdown por agente)
+  // 2. first repo in linkedRepoIds from pipeline config (Repositórios do sistema)
+  // 3. First active repository in the workspace (safety net)
   const stageRepoId: number | null = assignments.find(a => a.repo_id)?.repo_id
     ?? (() => {
-      const pipeCfg = cfg as unknown as { repo_id?: number }
-      return pipeCfg?.repo_id ?? null
+      const ids = Array.isArray((cfg as any).linkedRepoIds) ? (cfg as any).linkedRepoIds as number[] : []
+      return ids.length > 0 ? ids[0] : null
     })()
     ?? await (async () => {
       const row = await dbGet<{ id: number }>(
@@ -1820,7 +1978,6 @@ async function startColumn(
             } else {
               const archErrMsg = `⚠️ **Push do arquiteto falhou**: ${archFixResult.message}`
               logger.error({ run_id: run.id, agent: agent.name, result: archFixResult }, 'pipeline-engine: architect push failed')
-              logError('pipeline:push', archFixResult.message, { run_id: run.id, agent: agent.name, card_key: run.card_key, repo_id: effectiveRepoId }, run.workspace_id).catch(() => {})
               const archErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, archErrMsg)
               await logMessage(run.id, 'agent_to_card', stageId, archErrMsg, archErrId ?? undefined)
             }
@@ -1830,13 +1987,11 @@ async function startColumn(
             ? [`✅ **Merge realizado na main**`, ``, mergeResult.message].join('\n')
             : `⚠️ **Merge não realizado**: ${mergeResult.message}`
           if (!mergeResult.ok) logger.error({ run_id: run.id, agent: agent.name, result: mergeResult }, 'pipeline-engine: merge to main failed')
-          if (!mergeResult.ok) logError('pipeline:merge', mergeResult.message, { run_id: run.id, agent: agent.name, card_key: run.card_key, repo_id: effectiveRepoId }, run.workspace_id).catch(() => {})
           const mergeCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, mergeMsg)
           await logMessage(run.id, 'agent_to_card', stageId, mergeMsg, mergeCommentId ?? undefined)
         } catch (mergeErr: any) {
           const mergeErrMsg = `❌ **Erro no merge**: ${mergeErr?.message ?? String(mergeErr)}`
           logger.error({ mergeErr, run_id: run.id, agent: agent.name }, 'pipeline-engine: merge to main exception')
-          logError('pipeline:merge', mergeErr?.message ?? String(mergeErr), { run_id: run.id, agent: agent.name, card_key: run.card_key }, run.workspace_id).catch(() => {})
           const mergeErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, mergeErrMsg).catch(() => null)
           if (mergeErrId) await logMessage(run.id, 'agent_to_card', stageId, mergeErrMsg, mergeErrId)
         }
@@ -1870,7 +2025,6 @@ async function startColumn(
             ].filter(Boolean).join('\n')
           } else {
             logger.error({ run_id: run.id, agent: agent.name, repo_id: effectiveRepoId, result: pushResult }, 'pipeline-engine: code push failed')
-            logError('pipeline:push', pushResult.message, { run_id: run.id, agent: agent.name, card_key: run.card_key, repo_id: effectiveRepoId }, run.workspace_id).catch(() => {})
             pushMsg = [
               `❌ **Push não realizado**: ${pushResult.message}`,
               ``,
@@ -1889,7 +2043,6 @@ async function startColumn(
         } catch (pushErr: any) {
           const pushErrMsg = `❌ **Erro ao commitar código**: ${pushErr?.message ?? String(pushErr)}`
           logger.error({ pushErr, run_id: run.id, agent: agent.name, repo_id: effectiveRepoId }, 'pipeline-engine: code push exception')
-          logError('pipeline:push', pushErr?.message ?? String(pushErr), { run_id: run.id, agent: agent.name, card_key: run.card_key, repo_id: effectiveRepoId }, run.workspace_id).catch(() => {})
           const pushErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, pushErrMsg).catch(() => null)
           if (pushErrId) await logMessage(run.id, 'agent_to_card', stageId, pushErrMsg, pushErrId)
         }
@@ -1900,7 +2053,6 @@ async function startColumn(
       const nowFail = Math.floor(Date.now() / 1000)
       await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowFail, agent.id])
       logger.error({ err, run_id: run.id, column_id: column.id, agent_id: agent.id }, 'pipeline-engine: LLM call failed')
-      logError('pipeline:llm', err instanceof Error ? err.message : String(err), { run_id: run.id, agent: agent.name, card_key: run.card_key, stage: column.column_name }, run.workspace_id).catch(() => {})
       await updateRun(run.id, { status: 'failed' })
       const errMsg = err instanceof Error ? err.message : String(err)
       await postCardComment(run.provider, cfg, secrets, run.card_key, `❌ Falha no agente "${agent.name}" — estágio "${column.column_name}": ${errMsg}`)
