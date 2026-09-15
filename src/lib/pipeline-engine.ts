@@ -331,30 +331,26 @@ function agentSystemPrompt(agent: AgentFullRow & { _skills?: string }): string {
   return parts.join('\n')
 }
 
-async function loadAgentSkills(agentName: string, workspaceId: number): Promise<string> {
+async function loadAgentSkills(workspaceId: number): Promise<string> {
   try {
-    // Skills can be linked directly to the agent (by name) or workspace-wide
-    const rows = await dbGetAll<{ name: string; path: string; description: string | null }>(
-      `SELECT s.name, s.path, s.description
-       FROM skills s
-       LEFT JOIN agent_skills ags ON ags.skill_id = s.id
-       LEFT JOIN agents a ON a.id = ags.agent_id AND a.workspace_id = ?
-       WHERE a.name = ?
-         AND s.path IS NOT NULL
-       ORDER BY s.name ASC`,
-      [workspaceId, agentName]
+    // Skills are synced from disk to the skills table by skill-sync.ts.
+    // The `path` column points to the skill directory; SKILL.md is inside it.
+    const rows = await dbGetAll<{ name: string; path: string }>(
+      `SELECT name, path FROM skills WHERE path IS NOT NULL ORDER BY name ASC`,
+      []
     )
     if (!rows.length) return ''
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { readFileSync, existsSync } = require('fs') as typeof import('fs')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { join } = require('path') as typeof import('path')
     const parts: string[] = []
     for (const row of rows) {
       try {
-        if (row.path && existsSync(row.path)) {
-          const content = readFileSync(row.path, 'utf-8')
-          parts.push(`### Skill: ${row.name}\n${content.trim()}`)
-        } else if (row.description) {
-          parts.push(`### Skill: ${row.name}\n${row.description}`)
+        const skillDoc = join(row.path, 'SKILL.md')
+        if (existsSync(skillDoc)) {
+          const content = readFileSync(skillDoc, 'utf-8').trim()
+          if (content) parts.push(`### Skill: ${row.name}\n${content}`)
         }
       } catch { /* skip unreadable skill */ }
     }
@@ -362,6 +358,7 @@ async function loadAgentSkills(agentName: string, workspaceId: number): Promise<
   } catch {
     return ''
   }
+  void workspaceId // reserved for future per-workspace skill filtering
 }
 
 async function callAnthropicLLM(agent: AgentFullRow, prompt: string, apiKey: string, cfgModel: string | null): Promise<LLMResult> {
@@ -1694,7 +1691,7 @@ async function startColumn(
 
     const previousMessages = await getLastAgentMessages(run.id)
     const contextSoFar = outputParts.length ? `## Outputs anteriores nesta etapa\n${outputParts.join('\n---\n')}\n\n` : ''
-    const agentSkills = await loadAgentSkills(agent.name, run.workspace_id)
+    const agentSkills = await loadAgentSkills(run.workspace_id)
     const hasRepo = !!(assignment.repo_id ?? stageRepoId)
     const prompt = contextSoFar + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepoContext, hasRepo)
     const taskId = await createAgentTask(run, column, agent, prompt, false, assignment.llm_model)
