@@ -121,6 +121,24 @@ export async function DELETE(request: NextRequest, { params }: Params) {
     // Unlink any delivery flows using this repo before deleting
     await dbRun('UPDATE delivery_flows SET git_repository_id = NULL WHERE git_repository_id = ? AND workspace_id = ?', [Number(id), workspaceId])
 
+    // Remove the deleted repo from linkedRepoIds in all pipeline configs of this workspace
+    const pipelines = await dbGetAll(
+      'SELECT id, config_json FROM work_pipelines WHERE workspace_id = ?',
+      [workspaceId]
+    ) as Array<{ id: number; config_json: string }>
+    for (const pipeline of pipelines) {
+      try {
+        const cfg = JSON.parse(pipeline.config_json ?? '{}')
+        if (Array.isArray(cfg.linkedRepoIds) && cfg.linkedRepoIds.includes(Number(id))) {
+          cfg.linkedRepoIds = cfg.linkedRepoIds.filter((rid: number) => rid !== Number(id))
+          await dbRun(
+            'UPDATE work_pipelines SET config_json = ? WHERE id = ?',
+            [JSON.stringify(cfg), pipeline.id]
+          )
+        }
+      } catch { /* non-fatal */ }
+    }
+
     const result = await dbRun('DELETE FROM git_repositories WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId])
 
     if (result.affectedRows === 0) return NextResponse.json({ error: 'Repository not found' }, { status: 404 })

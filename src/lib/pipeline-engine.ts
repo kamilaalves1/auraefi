@@ -530,22 +530,91 @@ async function callOllamaLLM(agent: AgentFullRow, prompt: string, cfg: WorkPipel
   return { text: data.message?.content || '', inputTokens: data.prompt_eval_count ?? 0, outputTokens: data.eval_count ?? 0, costUsd: 0, model }
 }
 
-// ─── GitHub API integration ───────────────────────────────────────────────────
+// ─── Multi-repo push helper ───────────────────────────────────────────────────
+// Parses FILE blocks from LLM output, routes each file to the correct repo
+// by matching the [repo-name]: prefix against the list of known repos.
+// Falls back to effectiveRepoId for files without a prefix.
+async function pushFilesToRepos(
+  llmOutput: string,
+  cardKey: string,
+  cardTitle: string,
+  knownRepos: Array<{ id: number; name: string }>,
+  fallbackRepoId: number | null,
+): Promise<Array<{ repoId: number; repoName: string; ok: boolean; branch?: string; files?: string[]; message: string }>> {
+  const allFiles = extractFilesFromLLMOutput(llmOutput)
+  if (allFiles.length === 0) return []
+
+  // Group files by repo
+  const byRepo = new Map<number, { repoName: string; files: ExtractedFile[] }>()
+
+  for (const file of allFiles) {
+    let repoId: number | null = null
+    let repoName = 'repositório'
+
+    if (file.repoName) {
+      // Match [repo-name]: prefix against known repos (case-insensitive, partial match)
+      const match = knownRepos.find(r =>
+        r.name.toLowerCase() === file.repoName!.toLowerCase() ||
+        r.name.toLowerCase().includes(file.repoName!.toLowerCase()) ||
+        file.repoName!.toLowerCase().includes(r.name.toLowerCase())
+      )
+      if (match) { repoId = match.id; repoName = match.name }
+    }
+
+    // Fallback to effectiveRepoId
+    if (!repoId) {
+      repoId = fallbackRepoId
+      repoName = knownRepos.find(r => r.id === fallbackRepoId)?.name ?? 'repositório'
+    }
+
+    if (!repoId) continue
+
+    if (!byRepo.has(repoId)) byRepo.set(repoId, { repoName, files: [] })
+    byRepo.get(repoId)!.files.push({ ...file })
+  }
+
+  // Push to each repo
+  const results: Array<{ repoId: number; repoName: string; ok: boolean; branch?: string; files?: string[]; message: string }> = []
+
+  for (const [repoId, { repoName, files }] of byRepo) {
+    // Reconstruct LLM output containing only this repo's files for pushCodeToGitHub
+    const fakeOutput = files.map(f =>
+      `### FILE: ${f.path}\n\`\`\`\n${f.content}\`\`\``
+    ).join('\n') + `\nCOMMIT: feat(${cardKey.toLowerCase()}): implement feature`
+
+    const result = await pushCodeToGitHub(repoId, cardKey, cardTitle, fakeOutput)
+    results.push({ repoId, repoName, ...result })
+  }
+
+  return results
+}
 
 interface ExtractedFile {
   path: string
   content: string
+  repoName?: string  // optional repo prefix from [repo-name]: syntax
 }
 
 function extractFilesFromLLMOutput(text: string): ExtractedFile[] {
   const files: ExtractedFile[] = []
-  // Supports: ### FILE: path  or  ### ARQUIVO: path  followed by a fenced code block
+  // Supports:
+  //   ### FILE: [repo-name]: path/to/file.ext   (multi-repo)
+  //   ### FILE: path/to/file.ext                (single-repo, legacy)
+  //   ### ARQUIVO: ...                          (Portuguese alias)
   const pattern = /###\s*(?:FILE|ARQUIVO):\s*([^\n]+)\n```[^\n]*\n([\s\S]*?)```/gi
   let match: RegExpExecArray | null
   while ((match = pattern.exec(text)) !== null) {
-    const path = match[1].trim()
+    const raw = match[1].trim()
     const content = match[2]
-    if (path && content !== undefined) files.push({ path, content })
+    if (!raw || content === undefined) continue
+
+    // Check for [repo-name]: prefix
+    const repoMatch = raw.match(/^\[([^\]]+)\]:\s*(.+)$/)
+    if (repoMatch) {
+      files.push({ path: repoMatch[2].trim(), content, repoName: repoMatch[1].trim() })
+    } else {
+      files.push({ path: raw, content })
+    }
   }
   return files
 }
@@ -1642,35 +1711,70 @@ function buildPrompt(
   previousMessages: string,
   agentName?: string,
   agentRole?: string,
-  repoContext?: string,
+  repoContexts?: Array<{ name: string; context: string }> | string,  // multi-repo or legacy single string
   hasRepo?: boolean
 ): string {
   const hasInstructions = !!column.instructions?.trim()
+
+  // Normalise repoContexts to array format
+  const repos: Array<{ name: string; context: string }> =
+    Array.isArray(repoContexts)
+      ? repoContexts
+      : repoContexts
+        ? [{ name: 'repositório', context: repoContexts }]
+        : []
+
+  const multiRepo = repos.length > 1
+
+  const repoContextBlock = repos.length > 0
+    ? repos.map(r => r.context ? `${r.context}` : '').filter(Boolean).join('\n\n')
+    : ''
 
   const commitInstructions = hasRepo ? [
     '',
     '## Formato de entrega de código',
     '',
-    'Quando produzir ou modificar arquivos, use OBRIGATORIAMENTE este formato para cada arquivo:',
-    '',
-    '```',
-    '### FILE: caminho/relativo/do/arquivo.ext',
-    '```linguagem',
-    '// conteúdo completo do arquivo aqui',
-    '```',
-    'COMMIT: tipo(escopo): descrição curta do que foi feito',
-    '```',
-    '',
-    'Exemplo:',
-    '```',
-    '### FILE: src/services/UserService.java',
-    '```java',
-    'public class UserService { ... }',
-    '```',
-    'COMMIT: feat(user): implement user service',
-    '```',
-    '',
-    'Inclua o conteúdo COMPLETO de cada arquivo, não trechos parciais.',
+    multiRepo
+      ? [
+          'Este card envolve **múltiplos repositórios**. Ao gerar ou modificar arquivos, indique OBRIGATORIAMENTE o repositório de destino usando o prefixo entre colchetes:',
+          '',
+          '```',
+          `### FILE: [nome-do-repositorio]: caminho/relativo/do/arquivo.ext`,
+          '```linguagem',
+          '// conteúdo completo do arquivo aqui',
+          '```',
+          'COMMIT: tipo(escopo): descrição curta do que foi feito',
+          '```',
+          '',
+          'Repositórios disponíveis neste card:',
+          ...repos.map(r => `- **[${r.name}]**`),
+          '',
+          'Exemplo:',
+          '```',
+          `### FILE: [${repos[0].name}]: src/services/UserService.java`,
+          '```java',
+          'public class UserService { ... }',
+          '```',
+          `### FILE: [${repos[1]?.name ?? repos[0].name}]: src/components/Login.tsx`,
+          '```tsx',
+          'export function Login() { ... }',
+          '```',
+          'COMMIT: feat(auth): implement login feature',
+          '```',
+        ].join('\n')
+      : [
+          'Quando produzir ou modificar arquivos, use OBRIGATORIAMENTE este formato para cada arquivo:',
+          '',
+          '```',
+          '### FILE: caminho/relativo/do/arquivo.ext',
+          '```linguagem',
+          '// conteúdo completo do arquivo aqui',
+          '```',
+          'COMMIT: tipo(escopo): descrição curta do que foi feito',
+          '```',
+          '',
+          'Inclua o conteúdo COMPLETO de cada arquivo, não trechos parciais.',
+        ].join('\n'),
   ].join('\n') : ''
 
   const parts = [
@@ -1683,7 +1787,7 @@ function buildPrompt(
     agentName ? `Você é **${agentName}**${agentRole ? `, ${agentRole}` : ''}.` : '',
     '',
     previousMessages ? `## Contexto dos agentes anteriores nesta mesma etapa\n${previousMessages}\n` : '',
-    repoContext ? repoContext : '',
+    repoContextBlock,
     commitInstructions,
     hasInstructions
       ? `## Suas instruções\n\nSiga EXATAMENTE as instruções abaixo. Elas têm prioridade absoluta sobre qualquer outra orientação.\n\n${column.instructions}`
@@ -1880,12 +1984,19 @@ async function startColumn(
   // Fetch repo context once for the whole stage — use the first repo_id found across any assignment,
   // Resolve the repo for this stage with three levels of fallback:
   // 1. repo_id explicitly set on any assignment in this column (dropdown por agente)
-  // 2. first repo in linkedRepoIds from pipeline config (Repositórios do sistema)
+  // 2. first valid repo in linkedRepoIds from pipeline config (Repositórios do sistema)
   // 3. First active repository in the workspace (safety net)
   const stageRepoId: number | null = assignments.find(a => a.repo_id)?.repo_id
-    ?? (() => {
+    ?? await (async () => {
       const ids = Array.isArray((cfg as any).linkedRepoIds) ? (cfg as any).linkedRepoIds as number[] : []
-      return ids.length > 0 ? ids[0] : null
+      for (const rid of ids) {
+        const row = await dbGet<{ id: number }>(
+          'SELECT id FROM git_repositories WHERE id = ? AND workspace_id = ? AND is_active = 1',
+          [rid, run.workspace_id]
+        )
+        if (row?.id) return row.id
+      }
+      return null
     })()
     ?? await (async () => {
       const row = await dbGet<{ id: number }>(
@@ -1894,7 +2005,33 @@ async function startColumn(
       )
       return row?.id ?? null
     })()
-  const stageRepoContext = stageRepoId ? await fetchRepoContext(stageRepoId) : ''
+  // Load context for ALL linked repos so the agent understands the full codebase
+  const linkedRepoIds: number[] = Array.isArray((cfg as any).linkedRepoIds)
+    ? (cfg as any).linkedRepoIds as number[]
+    : stageRepoId ? [stageRepoId] : []
+
+  // Validate IDs exist and build repo info list
+  const stageRepos: Array<{ id: number; name: string; context: string }> = []
+  for (const rid of linkedRepoIds.length > 0 ? linkedRepoIds : (stageRepoId ? [stageRepoId] : [])) {
+    const repoRow = await dbGet<{ id: number; name: string; repo_url: string; access_token: string | null }>(
+      'SELECT id, name, repo_url, access_token FROM git_repositories WHERE id = ? AND workspace_id = ? AND is_active = 1',
+      [rid, run.workspace_id]
+    )
+    if (!repoRow) continue
+    const ctx = await fetchRepoContext(repoRow.id)
+    stageRepos.push({ id: repoRow.id, name: repoRow.name, context: ctx })
+  }
+
+  // Fallback: if no linked repos resolved, try workspace default
+  if (stageRepos.length === 0 && stageRepoId) {
+    const ctx = await fetchRepoContext(stageRepoId)
+    const repoRow = await dbGet<{ name: string }>(
+      'SELECT name FROM git_repositories WHERE id = ?', [stageRepoId]
+    )
+    stageRepos.push({ id: stageRepoId, name: repoRow?.name ?? 'repositório', context: ctx })
+  }
+
+  const hasRepo = stageRepos.length > 0
 
   for (const assignment of assignments) {
     const agent = agentMap.get(assignment.agent_id)
@@ -1910,8 +2047,7 @@ async function startColumn(
     const agentSkills = await loadAgentSkills(run.workspace_id)
     // Use the agent's own repo_id, or fall back to the stage-level repo (pipeline default)
     const effectiveRepoId = assignment.repo_id ?? stageRepoId ?? null
-    const hasRepo = !!effectiveRepoId
-    const prompt = contextSoFar + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepoContext, hasRepo)
+    const prompt = contextSoFar + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepos, hasRepo)
     const taskId = await createAgentTask(run, column, agent, prompt, false, assignment.llm_model)
     await updateRun(run.id, { task_id: taskId ?? undefined })
 
@@ -1967,22 +2103,18 @@ async function startColumn(
         try {
           // If the architect generated FILE/ARQUIVO blocks (corrections), push them before merging
           if (/###\s*(?:FILE|ARQUIVO):/i.test(llmResult.text)) {
-            const archFixResult = await pushCodeToGitHub(effectiveRepoId, run.card_key, run.card_title, llmResult.text)
-            if (archFixResult.ok) {
-              const archFixMsg = [
-                `🔧 **${agent.name} aplicou correções no código**`,
-                ``,
-                `🌿 Branch: \`${archFixResult.branch}\``,
-                `📁 Arquivos: ${archFixResult.files?.join(', ')}`,
-                `📝 Commit: ${archFixResult.message}`,
-              ].join('\n')
-              const archFixId = await postCardComment(run.provider, cfg, secrets, run.card_key, archFixMsg)
-              await logMessage(run.id, 'agent_to_card', stageId, archFixMsg, archFixId ?? undefined)
-            } else {
-              const archErrMsg = `⚠️ **Push do arquiteto falhou**: ${archFixResult.message}`
-              logger.error({ run_id: run.id, agent: agent.name, result: archFixResult }, 'pipeline-engine: architect push failed')
-              const archErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, archErrMsg)
-              await logMessage(run.id, 'agent_to_card', stageId, archErrMsg, archErrId ?? undefined)
+            const pushResults = await pushFilesToRepos(llmResult.text, run.card_key, run.card_title, stageRepos, effectiveRepoId)
+            for (const pr of pushResults) {
+              if (pr.ok) {
+                const archFixMsg = [`🔧 **${agent.name} aplicou correções** → \`${pr.repoName}\``, ``, `🌿 Branch: \`${pr.branch}\``, `📁 Arquivos: ${pr.files?.join(', ')}`, `📝 Commit: ${pr.message}`].join('\n')
+                const archFixId = await postCardComment(run.provider, cfg, secrets, run.card_key, archFixMsg)
+                await logMessage(run.id, 'agent_to_card', stageId, archFixMsg, archFixId ?? undefined)
+              } else {
+                const archErrMsg = `⚠️ **Push do arquiteto falhou** [${pr.repoName}]: ${pr.message}`
+                logger.error({ run_id: run.id, agent: agent.name, result: pr }, 'pipeline-engine: architect push failed')
+                const archErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, archErrMsg)
+                await logMessage(run.id, 'agent_to_card', stageId, archErrMsg, archErrId ?? undefined)
+              }
             }
           }
           const mergeResult = await mergeToMain(effectiveRepoId, run.card_key, run.card_title)
@@ -2000,52 +2132,41 @@ async function startColumn(
         }
       }
 
-      // Publica o codigo de QUALQUER papel com repositorio ligado que tenha
-      // emitido bloco de arquivo.
-      // `software architect` fica fora porque o bloco acima ja trata o push
-      // dele antes do merge — entrar aqui publicaria duas vezes.
+      // Push code for any role with a repo when FILE/ARQUIVO blocks are present
+      // (software architect handled above — skip to avoid double push)
       if (effectiveRepoId
         && assignment.role !== 'software architect'
         && /###\s*(?:FILE|ARQUIVO):/i.test(llmResult.text)) {
         try {
-          const pushResult = await pushCodeToGitHub(effectiveRepoId, run.card_key, run.card_title, llmResult.text)
-          let pushMsg: string
-          if (pushResult.ok) {
-            const repoRow = await dbGet<{ repo_url: string }>('SELECT repo_url FROM git_repositories WHERE id = ?', [effectiveRepoId])
-            const repoUrlRaw = (repoRow?.repo_url ?? '').replace(/\.git$/, '').replace(/\/+$/, '')
-            const linkArvore = repoUrlRaw
-              ? (/github\.com\//.test(repoUrlRaw)
-                  ? `${repoUrlRaw}/tree/${pushResult.branch}`
-                  : `${repoUrlRaw}/-/tree/${pushResult.branch}`)
-              : ''
-            pushMsg = [
-              `✅ **Código commitado no repositório**`,
-              ``,
-              `🌿 Branch: \`${pushResult.branch}\``,
-              `📝 Commit: ${pushResult.message}`,
-              `📁 Arquivos: ${pushResult.files?.join(', ')}`,
-              linkArvore ? `🔗 ${linkArvore}` : '',
-            ].filter(Boolean).join('\n')
-          } else {
-            logger.error({ run_id: run.id, agent: agent.name, repo_id: effectiveRepoId, result: pushResult }, 'pipeline-engine: code push failed')
-            pushMsg = [
-              `❌ **Push não realizado**: ${pushResult.message}`,
-              ``,
-              `Dica: gere código usando o formato:`,
-              `\`\`\``,
-              `### FILE: src/caminho/Arquivo.ext`,
-              `\`\`\`linguagem`,
-              `// código aqui`,
-              `\`\`\``,
-              `COMMIT: feat(escopo): descrição`,
-              `\`\`\``,
-            ].join('\n')
+          const pushResults = await pushFilesToRepos(llmResult.text, run.card_key, run.card_title, stageRepos, effectiveRepoId)
+          for (const pushResult of pushResults) {
+            let pushMsg: string
+            if (pushResult.ok) {
+              const repoRow = await dbGet<{ repo_url: string }>('SELECT repo_url FROM git_repositories WHERE id = ?', [pushResult.repoId])
+              const repoUrlRaw = (repoRow?.repo_url ?? '').replace(/\.git$/, '').replace(/\/+$/, '')
+              const linkArvore = repoUrlRaw
+                ? (/github\.com\//.test(repoUrlRaw)
+                    ? `${repoUrlRaw}/tree/${pushResult.branch}`
+                    : `${repoUrlRaw}/-/tree/${pushResult.branch}`)
+                : ''
+              pushMsg = [
+                `✅ **Código commitado** → \`${pushResult.repoName}\``,
+                ``,
+                `🌿 Branch: \`${pushResult.branch}\``,
+                `📝 Commit: ${pushResult.message}`,
+                `📁 Arquivos: ${pushResult.files?.join(', ')}`,
+                linkArvore ? `🔗 ${linkArvore}` : '',
+              ].filter(Boolean).join('\n')
+            } else {
+              logger.error({ run_id: run.id, agent: agent.name, repo: pushResult.repoName, result: pushResult }, 'pipeline-engine: code push failed')
+              pushMsg = `❌ **Push não realizado** [${pushResult.repoName}]: ${pushResult.message}`
+            }
+            const pushCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, pushMsg)
+            await logMessage(run.id, 'agent_to_card', stageId, pushMsg, pushCommentId ?? undefined)
           }
-          const pushCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, pushMsg)
-          await logMessage(run.id, 'agent_to_card', stageId, pushMsg, pushCommentId ?? undefined)
         } catch (pushErr: any) {
           const pushErrMsg = `❌ **Erro ao commitar código**: ${pushErr?.message ?? String(pushErr)}`
-          logger.error({ pushErr, run_id: run.id, agent: agent.name, repo_id: effectiveRepoId }, 'pipeline-engine: code push exception')
+          logger.error({ pushErr, run_id: run.id, agent: agent.name }, 'pipeline-engine: code push exception')
           const pushErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, pushErrMsg).catch(() => null)
           if (pushErrId) await logMessage(run.id, 'agent_to_card', stageId, pushErrMsg, pushErrId)
         }
