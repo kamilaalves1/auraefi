@@ -10,6 +10,7 @@ import { db_helpers } from '@/lib/db'
 import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { getWorkPipelineRow, decryptPipelineSecrets } from '@/lib/work-pipeline-config'
 import type { WorkPipelineConfigJson, WorkPipelineSecrets } from '@/lib/work-pipeline-types'
+import { logError } from '@/lib/error-logger'
 import { calculateTokenCost } from '@/lib/token-pricing'
 import { fetchJiraIssuesByStatus, postJiraComment, getJiraCommentsSince, transitionJiraIssue } from '@/lib/work-pipeline-jira'
 import { fetchAzureWorkItemsByState, postAzureComment, getAzureCommentsSince, moveAzureWorkItem } from '@/lib/work-pipeline-azure'
@@ -1819,6 +1820,7 @@ async function startColumn(
             } else {
               const archErrMsg = `⚠️ **Push do arquiteto falhou**: ${archFixResult.message}`
               logger.error({ run_id: run.id, agent: agent.name, result: archFixResult }, 'pipeline-engine: architect push failed')
+              logError('pipeline:push', archFixResult.message, { run_id: run.id, agent: agent.name, card_key: run.card_key, repo_id: effectiveRepoId }, run.workspace_id).catch(() => {})
               const archErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, archErrMsg)
               await logMessage(run.id, 'agent_to_card', stageId, archErrMsg, archErrId ?? undefined)
             }
@@ -1828,11 +1830,13 @@ async function startColumn(
             ? [`✅ **Merge realizado na main**`, ``, mergeResult.message].join('\n')
             : `⚠️ **Merge não realizado**: ${mergeResult.message}`
           if (!mergeResult.ok) logger.error({ run_id: run.id, agent: agent.name, result: mergeResult }, 'pipeline-engine: merge to main failed')
+          if (!mergeResult.ok) logError('pipeline:merge', mergeResult.message, { run_id: run.id, agent: agent.name, card_key: run.card_key, repo_id: effectiveRepoId }, run.workspace_id).catch(() => {})
           const mergeCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, mergeMsg)
           await logMessage(run.id, 'agent_to_card', stageId, mergeMsg, mergeCommentId ?? undefined)
         } catch (mergeErr: any) {
           const mergeErrMsg = `❌ **Erro no merge**: ${mergeErr?.message ?? String(mergeErr)}`
           logger.error({ mergeErr, run_id: run.id, agent: agent.name }, 'pipeline-engine: merge to main exception')
+          logError('pipeline:merge', mergeErr?.message ?? String(mergeErr), { run_id: run.id, agent: agent.name, card_key: run.card_key }, run.workspace_id).catch(() => {})
           const mergeErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, mergeErrMsg).catch(() => null)
           if (mergeErrId) await logMessage(run.id, 'agent_to_card', stageId, mergeErrMsg, mergeErrId)
         }
@@ -1866,6 +1870,7 @@ async function startColumn(
             ].filter(Boolean).join('\n')
           } else {
             logger.error({ run_id: run.id, agent: agent.name, repo_id: effectiveRepoId, result: pushResult }, 'pipeline-engine: code push failed')
+            logError('pipeline:push', pushResult.message, { run_id: run.id, agent: agent.name, card_key: run.card_key, repo_id: effectiveRepoId }, run.workspace_id).catch(() => {})
             pushMsg = [
               `❌ **Push não realizado**: ${pushResult.message}`,
               ``,
@@ -1884,6 +1889,7 @@ async function startColumn(
         } catch (pushErr: any) {
           const pushErrMsg = `❌ **Erro ao commitar código**: ${pushErr?.message ?? String(pushErr)}`
           logger.error({ pushErr, run_id: run.id, agent: agent.name, repo_id: effectiveRepoId }, 'pipeline-engine: code push exception')
+          logError('pipeline:push', pushErr?.message ?? String(pushErr), { run_id: run.id, agent: agent.name, card_key: run.card_key, repo_id: effectiveRepoId }, run.workspace_id).catch(() => {})
           const pushErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, pushErrMsg).catch(() => null)
           if (pushErrId) await logMessage(run.id, 'agent_to_card', stageId, pushErrMsg, pushErrId)
         }
@@ -1894,6 +1900,7 @@ async function startColumn(
       const nowFail = Math.floor(Date.now() / 1000)
       await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowFail, agent.id])
       logger.error({ err, run_id: run.id, column_id: column.id, agent_id: agent.id }, 'pipeline-engine: LLM call failed')
+      logError('pipeline:llm', err instanceof Error ? err.message : String(err), { run_id: run.id, agent: agent.name, card_key: run.card_key, stage: column.column_name }, run.workspace_id).catch(() => {})
       await updateRun(run.id, { status: 'failed' })
       const errMsg = err instanceof Error ? err.message : String(err)
       await postCardComment(run.provider, cfg, secrets, run.card_key, `❌ Falha no agente "${agent.name}" — estágio "${column.column_name}": ${errMsg}`)

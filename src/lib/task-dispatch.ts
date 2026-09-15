@@ -3,6 +3,7 @@ import { dbGet, dbGetAll, dbRun } from './db-pool'
 import { eventBus } from './event-bus'
 import { logger } from './logger'
 import { config } from './config'
+import { logError } from './error-logger'
 
 interface DispatchableTask {
   id: number
@@ -766,6 +767,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
     } catch (err: any) {
       const errorMsg = err.message || 'Unknown error'
       logger.error({ taskId: task.id, err }, 'Aegis review failed')
+      logError('aegis:review', errorMsg, { taskId: task.id }, task.workspace_id).catch(() => {})
 
       // Revert to review so it can be retried
       await dbRun('UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?', ['review', Math.floor(Date.now() / 1000), task.id])
@@ -1033,6 +1035,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
     } catch (err: any) {
       const errorMsg = err.message || 'Unknown error'
       logger.error({ taskId: task.id, agent: task.agent_name, err }, 'Task dispatch failed')
+      logError('task:dispatch', errorMsg, { taskId: task.id, agent: task.agent_name }, task.workspace_id).catch(() => {})
 
       // Increment dispatch_attempts and decide next status
       const currentAttempts = (await dbGet('SELECT dispatch_attempts FROM tasks WHERE id = ?', [task.id]) as { dispatch_attempts: number } | undefined)?.dispatch_attempts ?? 0

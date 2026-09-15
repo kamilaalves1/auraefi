@@ -1906,3 +1906,27 @@ export function runMigrations(db: Database.Database) {
     })()
   }
 }
+
+// Migration added externally — error_logs table
+const errorLogsMigration: Migration = {
+  id: '069_error_logs',
+  up(db: Database.Database) {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS error_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        level TEXT NOT NULL DEFAULT 'error',
+        source TEXT NOT NULL,
+        message TEXT NOT NULL,
+        data TEXT,
+        workspace_id INTEGER NOT NULL DEFAULT 1,
+        created_at INTEGER NOT NULL DEFAULT (unixepoch())
+      );
+      CREATE INDEX IF NOT EXISTS idx_error_logs_created_at ON error_logs(created_at);
+      CREATE INDEX IF NOT EXISTS idx_error_logs_source ON error_logs(source);
+      CREATE INDEX IF NOT EXISTS idx_error_logs_workspace ON error_logs(workspace_id);
+    `)
+  }
+}
+
+// Register the migration
+registerMigrations([errorLogsMigration])

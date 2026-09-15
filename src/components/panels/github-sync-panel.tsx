@@ -331,7 +331,7 @@ function RepoForm({
   saving,
 }: {
   initial?: Partial<GitRepository>
-  onSave: (data: { name: string; provider: GitProvider; repo_url: string; branch: string; access_token: string | null; base_url: string | null }) => void
+  onSave: (data: { name: string; provider: GitProvider; repo_url: string; branch: string; access_token?: string | null; base_url: string | null }) => void
   onCancel: () => void
   saving: boolean
 }) {
@@ -445,13 +445,22 @@ function RepoForm({
       <div className="flex gap-2 pt-1">
         <Button
           size="sm"
-          onClick={() => onSave({
-            name, provider,
-            repo_url: repoUrl.trim(),
-            branch,
-            access_token: token.trim() || null,
-            base_url: baseUrl.trim() || null,
-          })}
+          onClick={() => {
+            const trimmedToken = token.trim()
+            // When editing: if token field is empty, omit access_token so the
+            // server keeps the existing value (avoids wiping a token that was
+            // masked/not returned by the API for the current user role).
+            const tokenPayload = initial?.id
+              ? (trimmedToken ? { access_token: trimmedToken } : {})
+              : { access_token: trimmedToken || null }
+            onSave({
+              name, provider,
+              repo_url: repoUrl.trim(),
+              branch,
+              ...tokenPayload,
+              base_url: baseUrl.trim() || null,
+            } as Parameters<typeof onSave>[0])
+          }}
           disabled={saving || !name.trim() || !repoUrl.trim()}
           className="min-w-[80px]"
         >
