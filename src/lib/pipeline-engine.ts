@@ -1716,11 +1716,21 @@ async function startColumn(
   const outputParts: string[] = (await dbGetAll(`SELECT body FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND body LIKE '🤖 **%' ORDER BY created_at ASC`, [run.id, stageId]) as { body: string }[]).map(r => r.body)
 
   // Fetch repo context once for the whole stage — use the first repo_id found across any assignment,
-  // or fall back to the pipeline's linked repo. All agents in the stage share the same codebase.
-  const stageRepoId = assignments.find(a => a.repo_id)?.repo_id
+  // Resolve the repo for this stage with three levels of fallback:
+  // 1. repo_id explicitly set on any assignment in this column
+  // 2. repo_id on the pipeline-level config
+  // 3. First active repository in the workspace (the "default" repo configured in Repositórios)
+  const stageRepoId: number | null = assignments.find(a => a.repo_id)?.repo_id
     ?? (() => {
       const pipeCfg = cfg as unknown as { repo_id?: number }
       return pipeCfg?.repo_id ?? null
+    })()
+    ?? await (async () => {
+      const row = await dbGet<{ id: number }>(
+        'SELECT id FROM git_repositories WHERE workspace_id = ? AND is_active = 1 ORDER BY id ASC LIMIT 1',
+        [run.workspace_id]
+      )
+      return row?.id ?? null
     })()
   const stageRepoContext = stageRepoId ? await fetchRepoContext(stageRepoId) : ''
 
@@ -1736,7 +1746,9 @@ async function startColumn(
     const previousMessages = await getLastAgentMessages(run.id)
     const contextSoFar = outputParts.length ? `## Outputs anteriores nesta etapa\n${outputParts.join('\n---\n')}\n\n` : ''
     const agentSkills = await loadAgentSkills(run.workspace_id)
-    const hasRepo = !!(assignment.repo_id ?? stageRepoId)
+    // Use the agent's own repo_id, or fall back to the stage-level repo (pipeline default)
+    const effectiveRepoId = assignment.repo_id ?? stageRepoId ?? null
+    const hasRepo = !!effectiveRepoId
     const prompt = contextSoFar + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepoContext, hasRepo)
     const taskId = await createAgentTask(run, column, agent, prompt, false, assignment.llm_model)
     await updateRun(run.id, { task_id: taskId ?? undefined })
@@ -1789,11 +1801,11 @@ async function startColumn(
       } catch { /* non-critical */ }
 
       // If this is a software architect with a linked repo, push any fixes then merge to main
-      if (assignment.role === 'software architect' && assignment.repo_id) {
+      if (assignment.role === 'software architect' && effectiveRepoId) {
         try {
-          // If the architect generated FILE: blocks (corrections), push them before merging
-          if (/###\s*FILE:/i.test(llmResult.text)) {
-            const archFixResult = await pushCodeToGitHub(assignment.repo_id, run.card_key, run.card_title, llmResult.text)
+          // If the architect generated FILE/ARQUIVO blocks (corrections), push them before merging
+          if (/###\s*(?:FILE|ARQUIVO):/i.test(llmResult.text)) {
+            const archFixResult = await pushCodeToGitHub(effectiveRepoId, run.card_key, run.card_title, llmResult.text)
             if (archFixResult.ok) {
               const archFixMsg = [
                 `🔧 **${agent.name} aplicou correções no código**`,
@@ -1804,38 +1816,40 @@ async function startColumn(
               ].join('\n')
               const archFixId = await postCardComment(run.provider, cfg, secrets, run.card_key, archFixMsg)
               await logMessage(run.id, 'agent_to_card', stageId, archFixMsg, archFixId ?? undefined)
+            } else {
+              const archErrMsg = `⚠️ **Push do arquiteto falhou**: ${archFixResult.message}`
+              logger.error({ run_id: run.id, agent: agent.name, result: archFixResult }, 'pipeline-engine: architect push failed')
+              const archErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, archErrMsg)
+              await logMessage(run.id, 'agent_to_card', stageId, archErrMsg, archErrId ?? undefined)
             }
           }
-          const mergeResult = await mergeToMain(assignment.repo_id, run.card_key, run.card_title)
+          const mergeResult = await mergeToMain(effectiveRepoId, run.card_key, run.card_title)
           const mergeMsg = mergeResult.ok
             ? [`✅ **Merge realizado na main**`, ``, mergeResult.message].join('\n')
             : `⚠️ **Merge não realizado**: ${mergeResult.message}`
+          if (!mergeResult.ok) logger.error({ run_id: run.id, agent: agent.name, result: mergeResult }, 'pipeline-engine: merge to main failed')
           const mergeCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, mergeMsg)
           await logMessage(run.id, 'agent_to_card', stageId, mergeMsg, mergeCommentId ?? undefined)
-        } catch (mergeErr) {
-          logger.warn({ mergeErr }, 'pipeline-engine: merge to main failed')
+        } catch (mergeErr: any) {
+          const mergeErrMsg = `❌ **Erro no merge**: ${mergeErr?.message ?? String(mergeErr)}`
+          logger.error({ mergeErr, run_id: run.id, agent: agent.name }, 'pipeline-engine: merge to main exception')
+          const mergeErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, mergeErrMsg).catch(() => null)
+          if (mergeErrId) await logMessage(run.id, 'agent_to_card', stageId, mergeErrMsg, mergeErrId)
         }
       }
 
       // Publica o codigo de QUALQUER papel com repositorio ligado que tenha
-      // emitido bloco de arquivo. Antes o push era exclusivo de `developer`, e
-      // medido em 2026-09-08 nos cartoes AURA-1 e AURA-2: quem emitiu blocos
-      // `### FILE:` foi o devops engineer (8 e 7 arquivos), enquanto o developer
-      // escreveu texto sem bloco. Ou seja o unico papel autorizado a publicar
-      // nao gerava arquivo, e quem gerava nao podia publicar.
-      // `software architect` fica fora porque o bloco imediatamente acima ja
-      // trata o push dele antes do merge -- entrar aqui publicaria duas vezes.
-      if (assignment.repo_id
+      // emitido bloco de arquivo.
+      // `software architect` fica fora porque o bloco acima ja trata o push
+      // dele antes do merge — entrar aqui publicaria duas vezes.
+      if (effectiveRepoId
         && assignment.role !== 'software architect'
         && /###\s*(?:FILE|ARQUIVO):/i.test(llmResult.text)) {
         try {
-          const pushResult = await pushCodeToGitHub(assignment.repo_id, run.card_key, run.card_title, llmResult.text)
+          const pushResult = await pushCodeToGitHub(effectiveRepoId, run.card_key, run.card_title, llmResult.text)
           let pushMsg: string
           if (pushResult.ok) {
-            const repoRow = await dbGet<{ repo_url: string }>('SELECT repo_url FROM git_repositories WHERE id = ?', [assignment.repo_id])
-            // Link da arvore por provider: GitHub usa /tree/<branch> e GitLab usa
-            // /-/tree/<branch>. Antes o link so era montado quando a URL casava
-            // com github.com, entao repositorio GitLab ficava sem link nenhum.
+            const repoRow = await dbGet<{ repo_url: string }>('SELECT repo_url FROM git_repositories WHERE id = ?', [effectiveRepoId])
             const repoUrlRaw = (repoRow?.repo_url ?? '').replace(/\.git$/, '').replace(/\/+$/, '')
             const linkArvore = repoUrlRaw
               ? (/github\.com\//.test(repoUrlRaw)
@@ -1851,13 +1865,14 @@ async function startColumn(
               linkArvore ? `🔗 ${linkArvore}` : '',
             ].filter(Boolean).join('\n')
           } else {
+            logger.error({ run_id: run.id, agent: agent.name, repo_id: effectiveRepoId, result: pushResult }, 'pipeline-engine: code push failed')
             pushMsg = [
-              `⚠️ **GitHub push não realizado**: ${pushResult.message}`,
+              `❌ **Push não realizado**: ${pushResult.message}`,
               ``,
               `Dica: gere código usando o formato:`,
               `\`\`\``,
-              `### FILE: src/caminho/Arquivo.java`,
-              `\`\`\`java`,
+              `### FILE: src/caminho/Arquivo.ext`,
+              `\`\`\`linguagem`,
               `// código aqui`,
               `\`\`\``,
               `COMMIT: feat(escopo): descrição`,
@@ -1866,8 +1881,11 @@ async function startColumn(
           }
           const pushCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, pushMsg)
           await logMessage(run.id, 'agent_to_card', stageId, pushMsg, pushCommentId ?? undefined)
-        } catch (pushErr) {
-          logger.warn({ pushErr }, 'pipeline-engine: GitHub push failed')
+        } catch (pushErr: any) {
+          const pushErrMsg = `❌ **Erro ao commitar código**: ${pushErr?.message ?? String(pushErr)}`
+          logger.error({ pushErr, run_id: run.id, agent: agent.name, repo_id: effectiveRepoId }, 'pipeline-engine: code push exception')
+          const pushErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, pushErrMsg).catch(() => null)
+          if (pushErrId) await logMessage(run.id, 'agent_to_card', stageId, pushErrMsg, pushErrId)
         }
       }
 
