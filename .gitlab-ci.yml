@@ -43,17 +43,23 @@ variables:
     - |
       set -e
 
+      # O Bullseye encerrou o LTS. Utilizamos os repositórios históricos,
+      # nos quais os pacotes referenciados pelos índices permanecem disponíveis.
+      printf '%s\n' \
+        'deb http://archive.debian.org/debian bullseye main' \
+        'deb http://archive.debian.org/debian-security bullseye-security main' \
+        > /etc/apt/sources.list
+
+      rm -f /etc/apt/sources.list.d/*.list
       rm -rf /var/lib/apt/lists/*
 
       apt-get \
         -o Acquire::Check-Valid-Until=false \
         -o Acquire::Retries=3 \
-        -o Acquire::http::No-Cache=true \
-        -o Acquire::http::Max-Age=0 \
         update
 
       apt-get install -y --no-install-recommends \
-        curl unzip jq tar gzip
+        curl unzip jq tar gzip ca-certificates
 
       command -v curl >/dev/null || {
         echo "ERRO: curl ausente apos apt-get install"
