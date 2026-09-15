@@ -81,24 +81,7 @@ const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
   ],
 }
 
-interface LLMOption {
-  value: string
-  /** Label longo — usado nos dropdowns agrupados do LLMComplexityCard */
-  label: string
-  /** Label curto — usado nos <select> nativos de assignment (espaço limitado) */
-  shortLabel: string
-  provider: string
-}
-
-/** Remove a dica de velocidade/custo após "—" e parênteses de provider para encurtar o label */
-function makeShortLabel(label: string, providerName: string): string {
-  // "GPT-4o mini — rápido"          → "GPT-4o mini"
-  // "Sonnet 4.6 — balanceado"        → "Sonnet 4.6"
-  // "GPT-4o (OpenAI) — topo de linha" → "GPT-4o"
-  const withoutHint   = label.replace(/\s*—.*$/, '').trim()
-  const withoutParens = withoutHint.replace(/\s*\([^)]+\)\s*$/, '').trim()
-  return withoutParens || providerName
-}
+interface LLMOption { value: string; label: string; provider: string }
 
 function useLLMOptions() {
   const [options, setOptions]   = useState<LLMOption[]>([])
@@ -114,13 +97,9 @@ function useLLMOptions() {
         for (const prov of connected) {
           const models = PROVIDER_MODELS[prov.id]
           if (models) {
-            models.forEach(m => opts.push({
-              ...m,
-              provider: prov.name,
-              shortLabel: makeShortLabel(m.label, prov.name),
-            }))
+            models.forEach(m => opts.push({ ...m, provider: prov.name }))
           } else {
-            opts.push({ value: prov.id, label: prov.name, shortLabel: prov.name, provider: prov.name })
+            opts.push({ value: prov.id, label: prov.name, provider: prov.name })
           }
         }
         setOptions(opts)
