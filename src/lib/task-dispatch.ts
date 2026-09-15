@@ -426,9 +426,6 @@ async function callWithFallback(
 // Direct Claude API dispatch (gateway-free)
 // ---------------------------------------------------------------------------
 
-function getAnthropicApiKey(): string | null {
-  return (process.env.ANTHROPIC_API_KEY || '').trim() || null
-}
 
 /** Resolve API key: env → settings table (integration.PROVIDER_API_KEY) → ~/.gateway/.env */
 async function resolveProviderApiKey(provider: string): Promise<string> {
@@ -488,7 +485,13 @@ async function classifyDirectModel(task: DispatchableTask, pipelineCfg?: Pipelin
     try {
       const cfg = JSON.parse(task.agent_config)
       if (typeof cfg.dispatchModel === 'string' && cfg.dispatchModel) {
-        return cfg.dispatchModel.replace(/^.*\//, '')
+        // Preserve provider prefix (e.g. "openai:gpt-4o") — only strip display-name
+        // separators like "OpenAI / gpt-4o" → "openai:gpt-4o" if they were stored that way
+        const raw = cfg.dispatchModel
+        // Already in canonical "provider:model" format — return as-is
+        if (raw.includes(':')) return raw
+        // Strip display-name prefix (e.g. "Anthropic/claude-sonnet") — bare model, default provider
+        return raw.replace(/^[^/]+\//, '')
       }
     } catch { /* ignore */ }
   }
@@ -535,13 +538,30 @@ async function getAgentSoulContent(task: DispatchableTask): Promise<string | nul
   }
 }
 
-async function callClaudeDirectly(
+/** Extract provider prefix from a model string (e.g. "openai:gpt-4o" → "openai", "claude-sonnet-4-6" → "anthropic") */
+function extractProvider(model: string): string {
+  if (model.includes(':')) return model.split(':')[0].toLowerCase()
+  return 'anthropic'
+}
+
+/** Check if any configured provider has a usable API key, returning the resolved model to use */
+async function resolveDispatchModel(task: DispatchableTask): Promise<{ model: string; hasKey: boolean }> {
+  const pipelineCfg = await getPipelineConfig(task.workspace_id)
+  const model = await classifyDirectModel(task, pipelineCfg)
+  const provider = extractProvider(model)
+  const key = await resolveProviderApiKey(provider)
+  return { model, hasKey: !!key }
+}
+
+async function dispatchDirectly(
   task: DispatchableTask,
   prompt: string,
 ): Promise<AgentResponseParsed> {
-  if (!(await resolveProviderApiKey('anthropic'))) throw new Error('ANTHROPIC_API_KEY não configurada — configure em Integrações')
   const pipelineCfg = await getPipelineConfig(task.workspace_id)
   const model = await classifyDirectModel(task, pipelineCfg)
+  const provider = extractProvider(model)
+  const key = await resolveProviderApiKey(provider)
+  if (!key) throw new Error(`${provider.toUpperCase()}_API_KEY não configurada — configure em Integrações`)
   return callWithFallback(task, prompt, model)
 }
 
@@ -649,19 +669,19 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
       const prompt = buildReviewPrompt(task)
       let agentResponse: AgentResponseParsed
 
-      if (!(await isGatewayAvailable()) && !!(await resolveProviderApiKey('anthropic'))) {
-        // Direct Claude API review — no gateway needed
-        const reviewTask: DispatchableTask = {
-          id: task.id, title: task.title, description: task.description,
-          status: 'quality_review', priority: 'high', assigned_to: 'aegis',
-          workspace_id: task.workspace_id, agent_name: 'aegis', agent_id: 0,
-          agent_config: null, ticket_prefix: task.ticket_prefix,
-          project_ticket_no: task.project_ticket_no, project_id: null,
-        }
-        agentResponse = await callClaudeDirectly(reviewTask, prompt)
-      } else {
-        throw new Error('Gateway dispatch for quality review requires a direct API key')
+      // Direct provider API review — uses pipeline config model for the workspace
+      const reviewTask: DispatchableTask = {
+        id: task.id, title: task.title, description: task.description,
+        status: 'quality_review', priority: 'high', assigned_to: 'aegis',
+        workspace_id: task.workspace_id, agent_name: 'aegis', agent_id: 0,
+        agent_config: null, ticket_prefix: task.ticket_prefix,
+        project_ticket_no: task.project_ticket_no, project_id: null,
       }
+      const { model: aegisModel, hasKey: aegisHasKey } = await resolveDispatchModel(reviewTask)
+      if (!aegisHasKey) {
+        throw new Error(`${extractProvider(aegisModel).toUpperCase()}_API_KEY não configurada — configure em Integrações`)
+      }
+      agentResponse = await dispatchDirectly(reviewTask, prompt)
 
       if (!agentResponse.text) {
         throw new Error('Aegis review returned empty response')
@@ -919,8 +939,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
 
       let agentResponse: AgentResponseParsed
       const gatewayAvailable = await isGatewayAvailable()
-      const directApiKey = await resolveProviderApiKey('anthropic')
-      const useDirectApi = !!directApiKey
+      const { model: resolvedModel, hasKey } = await resolveDispatchModel(task)
 
       if (targetSession) {
         // Session-targeted dispatch: fire-and-forget acknowledgement
@@ -929,14 +948,15 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
           text: `Task dispatched to session ${targetSession}. The agent will process it within that session context.`,
           sessionId: targetSession,
         }
-      } else if (useDirectApi) {
-        // Direct Claude API dispatch — used when gateway is unavailable or as fallback
+      } else if (hasKey) {
+        // Direct provider API dispatch — uses the model/provider from pipeline config or agent config
         if (gatewayAvailable) {
-          logger.info({ taskId: task.id, agent: task.agent_name }, 'Gateway available but no RPC dispatch configured — falling back to direct API')
+          logger.info({ taskId: task.id, agent: task.agent_name, model: resolvedModel }, 'Gateway available but no RPC dispatch configured — falling back to direct API')
         }
-        agentResponse = await callClaudeDirectly(task, prompt)
+        agentResponse = await dispatchDirectly(task, prompt)
       } else {
-        throw new Error('No dispatch method available: configure ANTHROPIC_API_KEY or assign a target_session to this task')
+        const provider = extractProvider(resolvedModel)
+        throw new Error(`${provider.toUpperCase()}_API_KEY não configurada — configure em Integrações`)
       }
 
       if (!agentResponse.text) {
