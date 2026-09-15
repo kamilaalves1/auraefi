@@ -1,60 +1,3 @@
-# Esteira do Aura (PTI-787) - repositorio da APLICACAO, desenvolvimento/aura (id 1872)
-# GitLab de TESTE. Este arquivo esta em TRANSICAO e tem DOIS caminhos vivos ao
-# mesmo tempo. Leia os dois paragrafos abaixo antes de mexer.
-#
-# CAMINHO ANTIGO (o que existe hoje e continua funcionando):
-#   merge em master -> validate -> release (build + .tar.gz no S3) -> deploy MANUAL
-#   por SSM Run Command. Jobs: validate, release, deploy, rollback.
-#   Todos exigem $CI_COMMIT_BRANCH == "master" (ou merge_request_event, ou web).
-#
-# CAMINHO NOVO (o que passa a valer):
-#   push de TAG vX.Y.Z -> este repo apenas DISPARA por trigger a esteira de
-#   infraestrutura em nivel1/infraestrutura/services/aura (id 1881), passando
-#   GN_VERSAO_APP = a tag. O build, a publicacao no S3 e o SSM passam a acontecer
-#   LA. Jobs novos: disparar-esteira e receber-callback.
-#
-# POR QUE OS DOIS CONVIVEM. O caminho novo depende de coisas que ainda nao estao
-# fechadas (o valor do deploy token 1265, o trigger token de callback deste repo,
-# a protecao do padrao de tag v*). Enquanto qualquer um desses estiver em aberto,
-# apagar o caminho antigo deixaria o Aura sem forma de subir. Ver
-# docs/PRE-REQUISITOS.md no repo 1881.
-#
-# [FATO] leitura das rules deste arquivo, nesta sessao: os dois caminhos NAO se
-# cruzam. Num push de TAG a variavel CI_COMMIT_BRANCH chega VAZIA, entao as
-# rules de validate, release e deploy (que exigem == "master") sao falsas, e a
-# de rollback exige CI_PIPELINE_SOURCE == "web", que tambem nao e o caso. No
-# sentido inverso, disparar-esteira exige CI_COMMIT_TAG, que chega vazia num push
-# de branch. Nenhum job do caminho antigo roda num pipeline de tag e nenhum job
-# do caminho novo roda num pipeline de master.
-#
-# O CORTE. Quando o caminho novo estiver provado, apague os blocos marcados
-# "APAGAR NO CORTE" (release, deploy, rollback) e o `deploy` da lista de stages.
-# O `validate` FICA: ele e o unico gate de merge request deste repo.
-#
-# ------------------------------------------------------------------------------
-# Notas do caminho antigo, preservadas:
-#
-# Sem container e sem SSH: a instancia GitLab nao tem registry e o SG do host so
-# aceita os dois /32 dos conectores ZPA.
-#
-# A imagem e bullseye (glibc 2.31) de proposito: o host alvo tem glibc 2.34, e
-# binario nativo compilado numa glibc mais nova nao roda numa mais antiga.
-#
-# Variaveis a cadastrar em Settings > CI/CD > Variables, MASKED e PROTECTED:
-#   AWS_ACCESS_KEY_ID       chave do usuario efi-aura-ci
-#   AWS_SECRET_ACCESS_KEY   idem
-# O master precisa estar PROTEGIDO, senao variavel protected chega vazia - foi
-# exatamente o que derrubou os 4 pipelines anteriores, com $CI_REGISTRY vazio.
-#
-# ATENCAO - a mesma armadilha vale para o caminho novo, com uma diferenca que
-# custa uma tarde: DEPLOY_TRIGGER_TOKEN so chega ao job disparar-esteira se a TAG
-# for uma ref protegida. Proteger o branch master nao protege a tag v1.2.3.
-# Ver docs/VARIAVEIS-CI.md.
-
-# Guarda de entrada. Sem ela, um POST no trigger deste repo sem
-# CALLBACK_INFRA_STATUS criaria um pipeline em que nenhum job casa - pipeline
-# vazio, erro obscuro para quem disparou. Aqui ele nao nasce e o POST recebe uma
-# recusa explicita. Todo o resto (push, merge request, web) segue como antes.
 workflow:
   rules:
     - if: '$CI_PIPELINE_SOURCE == "trigger" && $CALLBACK_INFRA_STATUS == null'
@@ -64,7 +7,7 @@ workflow:
 stages:
   - validate
   - release
-  - deploy          # APAGAR NO CORTE junto com release/deploy/rollback
+  - deploy
   - disparo
   - callback
 
@@ -73,37 +16,18 @@ variables:
   S3_BUCKET: efi-aura-releases-823196744369
   S3_PREFIX: releases
   SSM_DOCUMENT: efi-aura-deploy
-  # ATENCAO -- PINADO NA v5 DE PROPOSITO, e nao na v4 que este caminho usava.
-  # Enquanto os dois caminhos convivem, ambos apontam para a UNICA EC2 da conta,
-  # e `resource_group` NAO os serializa: ele e escopado ao projeto, entao o
-  # rg-deploy do 1881 nao cruza com o deploy-aura daqui. A unica exclusao mutua
-  # real e o lock (mkdir) que existe DENTRO do documento -- e ele so existe a
-  # partir da v5. Com a v4 aqui, um clique no botao antigo entra por cima de um
-  # deploy v5 em andamento e os dois trocam o symlink ao mesmo tempo.
-  # Compativel: a v5 tem os MESMOS dois parametros obrigatorios da v4
-  # (Version, Sha256), que e exatamente o que este job passa; CommitSha assume o
-  # default "legado", que exige o manifesto AUSENTE -- o caso dos artefatos
-  # master-* deste caminho. Publicar a v5 (PR-09) ANTES de subir este pin.
-  SSM_DOC_VERSION: "5"          # versao fixada: sem pin, uma edicao muda o que implanta
+  SSM_DOC_VERSION: "5"
   TARGET_INSTANCE: i-0c7c2bb068ed75adf
   BUILD_SECRET: aura/prod/build
-  RELEASE_NAME: ${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}
-  # o passo do documento SSM tem timeout de 2400s; o teto de espera aqui tem de
-  # ser MAIOR, senao o job fica vermelho afirmando falha enquanto o deploy ainda
-  # esta rodando
+  RELEASE_NAME: "${CI_COMMIT_REF_SLUG}-${CI_COMMIT_SHORT_SHA}"
   DEPLOY_WAIT_SECONDS: "2700"
-
-  # ---- caminho novo ----
-  # Branch do repo 1881 em que a esteira de infraestrutura roda. E a ref do
-  # PIPELINE de infra, nao a versao da aplicacao: a versao viaja em GN_VERSAO_APP.
   INFRA_REF: "master"
-  # Padrao de tag aceito. Convencao da casa, medida nos repos de aplicacao:
-  # vX.Y.Z estrito (ima=v3.1.50, gmud=v1.4.5, core-tco=v0.0.8).
   TAG_REGEX: '^v[0-9]+\.[0-9]+\.[0-9]+$'
 
 .node:
   image: node:22-bullseye-slim
-  tags: [docker]
+  tags:
+    - docker
   before_script:
     - corepack enable
     - corepack prepare pnpm@11.15.1 --activate
@@ -111,41 +35,65 @@ variables:
 
 .node_aws:
   image: node:22-bullseye-slim
-  tags: [docker]
+  tags:
+    - docker
   before_script:
     - corepack enable
     - corepack prepare pnpm@11.15.1 --activate
     - |
       set -e
-      # Instala o AWS CLI sem apt-get (evita dependencia dos repositorios debian-security
-      # que retornam 404 intermitentemente no bullseye).
-      # curl, tar e gzip ja existem na imagem node:22-bullseye-slim.
-      # unzip e substituido por bsdtar (tambem presente); jq e substituido por node -e.
-      curl -sS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
-      cd /tmp && bsdtar -xf awscli.zip && ./aws/install >/dev/null && cd -
+
+      rm -rf /var/lib/apt/lists/*
+
+      apt-get \
+        -o Acquire::Check-Valid-Until=false \
+        -o Acquire::Retries=3 \
+        -o Acquire::http::No-Cache=true \
+        -o Acquire::http::Max-Age=0 \
+        update
+
+      apt-get install -y --no-install-recommends \
+        curl unzip jq tar gzip
+
+      command -v curl >/dev/null || {
+        echo "ERRO: curl ausente apos apt-get install"
+        exit 1
+      }
+
+      command -v unzip >/dev/null || {
+        echo "ERRO: unzip ausente apos apt-get install"
+        exit 1
+      }
+
+      command -v jq >/dev/null || {
+        echo "ERRO: jq ausente apos apt-get install"
+        exit 1
+      }
+
+      rm -rf /var/lib/apt/lists/*
+    - curl -fsS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
+    - unzip -q /tmp/awscli.zip -d /tmp
+    - /tmp/aws/install >/dev/null
     - aws --version
 
 .aws:
-  # entrypoint vazio e obrigatorio: a imagem amazon/aws-cli tem
-  # ENTRYPOINT ["/usr/local/bin/aws"], entao sem isso o runner roda
-  # 'aws sh -c ...' e falha com "invalid choice: sh"
   image:
     name: amazon/aws-cli:latest
-    entrypoint: [""]
-  tags: [docker]
+    entrypoint:
+      - ""
+  tags:
+    - docker
   before_script:
     - yum install -y jq >/dev/null 2>&1 || true
     - aws --version
 
-# alpine com curl e jq: mesma base dos services da casa (core-tco, gmud, vision).
-# Os jobs do caminho novo nao tocam a AWS - so falam HTTP com o GitLab.
 .alpine:
   image: alpine:3.20
-  tags: [docker]
+  tags:
+    - docker
   before_script:
     - apk add --no-cache curl jq coreutils >/dev/null
 
-# ---------------------------------------------------------------- validate
 validate:
   extends: .node
   stage: validate
@@ -158,18 +106,11 @@ validate:
     - pnpm build
   cache:
     key:
-      files: [pnpm-lock.yaml]
-    paths: [.pnpm-store]
+      files:
+        - pnpm-lock.yaml
+    paths:
+      - .pnpm-store
 
-# ==============================================================================
-# APAGAR NO CORTE - inicio.
-# Os tres jobs abaixo (release, deploy, rollback) sao o caminho antigo inteiro:
-# build no runner deste repo, .tar.gz no S3 e SSM disparado daqui. Depois que o
-# caminho por tag estiver provado, apague daqui ate a marca "APAGAR NO CORTE -
-# fim", e tire tambem o stage `deploy` da lista la em cima. NAO apague o
-# `validate`: ele e o gate de merge request e nao tem substituto no 1881.
-# ==============================================================================
-# ----------------------------------------------------------------- release
 release:
   extends: .node_aws
   stage: release
@@ -177,298 +118,358 @@ release:
     - if: '$CI_COMMIT_BRANCH == "master" && $CI_PIPELINE_SOURCE == "push"'
   script:
     - aws sts get-caller-identity --query Arn --output text
-
-    # as NEXT_PUBLIC_* sao build-time: o Next as embute no bundle do cliente.
-    # exportadas no shell, NUNCA gravadas em arquivo - um .env aqui entraria no
-    # artefato, porque o trace do Next copia a arvore inteira do projeto.
     - |
-      SEG=$(aws secretsmanager get-secret-value --secret-id "$BUILD_SECRET" --query SecretString --output text)
-      N=$(printf '%s' "$SEG" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(Object.keys(JSON.parse(d)).length))")
-      echo "segredo de build: $N variaveis"
-      [ "$N" -ge 5 ] || { echo "ERRO: segredo de build com apenas $N chaves"; exit 1; }
-      while IFS='=' read -r k v; do export "$k=$v"; done < <(printf '%s' "$SEG" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>Object.entries(JSON.parse(d)).forEach(([k,v])=>console.log(k+'='+v)))")
-      unset SEG
-      env | grep -c '^NEXT_PUBLIC_' | xargs echo "NEXT_PUBLIC_ exportadas:"
+      SEG=$(aws secretsmanager get-secret-value \
+        --secret-id "$BUILD_SECRET" \
+        --query SecretString \
+        --output text)
 
+      N=$(printf '%s' "$SEG" | jq -r 'keys | length')
+
+      echo "segredo de build: $N variaveis"
+
+      if [ "$N" -lt 5 ]; then
+        echo "ERRO: segredo de build com apenas $N chaves"
+        exit 1
+      fi
+
+      while IFS='=' read -r k v; do
+        export "$k=$v"
+      done < <(
+        printf '%s' "$SEG" |
+          jq -r 'to_entries[] | "\(.key)=\(.value)"'
+      )
+
+      unset SEG
+
+      env |
+        grep -c '^NEXT_PUBLIC_' |
+        xargs echo "NEXT_PUBLIC_ exportadas:"
     - pnpm install --frozen-lockfile
     - pnpm build
-
-    # layout que o standalone exige: static e public tem de ir para dentro dele
-    # `cp -r origem destino` copia PARA DENTRO quando o destino ja existe como
-    # diretorio. O deploy de 2026-09-08 abortou no gate de estrutura com
-    # "aninhamento em public/public": o Next passou a criar .next/standalone/public,
-    # e a copia entrou dentro dele. A linha do .next/static tinha o MESMO defeito
-    # latente -- nao disparou so porque aquele destino ainda nao existia.
-    # `cp -a origem/. destino/` copia o CONTEUDO, com o destino existindo ou nao.
-    - mkdir -p .next/standalone/public .next/standalone/.next/static
+    - mkdir -p .next/standalone/public
+    - mkdir -p .next/standalone/.next/static
     - cp -a .next/static/. .next/standalone/.next/static/
     - cp -a public/. .next/standalone/public/
-    # o schema e lido em runtime por join(process.cwd(),'src','lib',...).
-    # hoje entra por acidente do trace; garantir explicitamente.
     - mkdir -p .next/standalone/src/lib
     - cp src/lib/schema-mysql.sql .next/standalone/src/lib/schema-mysql.sql
-    # as skills sao lidas em runtime por join(process.cwd(),'skills',<nome>,'SKILL.md')
-    # em src/app/api/project-skills/route.ts. Vinham so pelo trace, que arrasta o
-    # diretorio por acidente daquela rota; se ela mudar, sumiriam em silencio.
     - mkdir -p .next/standalone/skills
     - cp -r skills/. .next/standalone/skills/
     - test -f .next/standalone/server.js
-
-    # empacotar SEM o lixo que o trace arrasta: .git, docs e os DEPLOY_*.md
-    # (que tem senha em texto claro), compose, Vagrantfile, testes
     - |
-      # --no-wildcards-match-slash: sem ele o curinga do GNU tar atravessa '/', e
-      # './*.md' apaga tambem skills/<nome>/SKILL.md e todo .md aninhado. Com ele,
-      # './*.md' volta a significar o que o comentario acima diz: os .md da raiz.
-      tar czf artefato.tgz -C .next/standalone \
+      tar czf artefato.tgz \
+        -C .next/standalone \
         --no-wildcards-match-slash \
-        --exclude='./.git' --exclude='./.git/*' \
-        --exclude='./tests' --exclude='./docs' --exclude='./e2e*' \
-        --exclude='./playwright*' --exclude='./*.md' \
-        --exclude='./docker*' --exclude='./Vagrantfile' \
-        --exclude='./.env' --exclude='./.env.*' \
+        --exclude='./.git' \
+        --exclude='./.git/*' \
+        --exclude='./tests' \
+        --exclude='./docs' \
+        --exclude='./e2e*' \
+        --exclude='./playwright*' \
+        --exclude='./*.md' \
+        --exclude='./docker*' \
+        --exclude='./Vagrantfile' \
+        --exclude='./.env' \
+        --exclude='./.env.*' \
         .
+
       ls -l artefato.tgz
-      tar tzf artefato.tgz | wc -l | xargs echo "entradas no pacote:"
+
+      tar tzf artefato.tgz |
+        wc -l |
+        xargs echo "entradas no pacote:"
+
       tar tzf artefato.tgz > /tmp/pacote.txt
-      # match EXATO: com grep sem -F o ponto de '.git' casaria '.gitignore'
-      for proibido in .git DEPLOY_SIMPLES.md DEPLOY_GUIA.md docker-compose.yml Vagrantfile .env; do
-        if grep -qxF "./$proibido" /tmp/pacote.txt || grep -qF "./$proibido/" /tmp/pacote.txt; then
-          echo "ERRO: $proibido entrou no artefato"; exit 1
+
+      for proibido in \
+        .git \
+        DEPLOY_SIMPLES.md \
+        DEPLOY_GUIA.md \
+        docker-compose.yml \
+        Vagrantfile \
+        .env
+      do
+        if grep -qxF "./$proibido" /tmp/pacote.txt ||
+           grep -qF "./$proibido/" /tmp/pacote.txt
+        then
+          echo "ERRO: $proibido entrou no artefato"
+          exit 1
         fi
       done
-      # e o que TEM de estar presente
-      for exigido in ./server.js ./src/lib/schema-mysql.sql; do
-        grep -qxF "$exigido" /tmp/pacote.txt || { echo "ERRO: $exigido ausente do artefato"; exit 1; }
-      done
-      grep -qF './.next/static/' /tmp/pacote.txt || { echo "ERRO: .next/static ausente"; exit 1; }
-      grep -qF './public/' /tmp/pacote.txt || { echo "ERRO: public ausente"; exit 1; }
-      # o que o time edita com mais frequencia sao as skills, e elas sao so arquivo
-      # de dado: nenhuma quebra de build acusa a falta delas. Sem esta assercao,
-      # perde-las produz pipeline verde com a aplicacao inalterada.
-      N_SKILL=$(grep -c '/SKILL\.md$' /tmp/pacote.txt || true)
-      [ "${N_SKILL:-0}" -ge 1 ] || { echo "ERRO: nenhum SKILL.md no artefato"; exit 1; }
-      echo "SKILL.md no pacote: $N_SKILL"
-      echo "conferido: nada proibido, e o essencial esta presente"
 
-    - SHA=$(sha256sum artefato.tgz | awk '{print $1}')
-    - echo "$SHA" > artefato.sha256
-    - echo "release=$RELEASE_NAME sha256=$SHA"
-    - aws s3 cp artefato.tgz "s3://$S3_BUCKET/$S3_PREFIX/$RELEASE_NAME.tar.gz" --only-show-errors
-    - aws s3 cp artefato.sha256 "s3://$S3_BUCKET/$S3_PREFIX/$RELEASE_NAME.sha256" --only-show-errors
-    - echo "publicado em s3://$S3_BUCKET/$S3_PREFIX/$RELEASE_NAME.tar.gz"
+      for exigido in \
+        ./server.js \
+        ./src/lib/schema-mysql.sql
+      do
+        if ! grep -qxF "$exigido" /tmp/pacote.txt; then
+          echo "ERRO: $exigido ausente do artefato"
+          exit 1
+        fi
+      done
+
+      if ! grep -qF './.next/static/' /tmp/pacote.txt; then
+        echo "ERRO: .next/static ausente"
+        exit 1
+      fi
+
+      if ! grep -qF './public/' /tmp/pacote.txt; then
+        echo "ERRO: public ausente"
+        exit 1
+      fi
+
+      N_SKILL=$(grep -c '/SKILL\.md$' /tmp/pacote.txt || true)
+
+      if [ "${N_SKILL:-0}" -lt 1 ]; then
+        echo "ERRO: nenhum SKILL.md no artefato"
+        exit 1
+      fi
+
+      echo "SKILL.md no pacote: $N_SKILL"
+      echo "conferido: nada proibido e o essencial esta presente"
+    - |
+      SHA=$(sha256sum artefato.tgz | awk '{print $1}')
+
+      echo "$SHA" > artefato.sha256
+      echo "release=$RELEASE_NAME sha256=$SHA"
+
+      aws s3 cp \
+        artefato.tgz \
+        "s3://$S3_BUCKET/$S3_PREFIX/$RELEASE_NAME.tar.gz" \
+        --only-show-errors
+
+      aws s3 cp \
+        artefato.sha256 \
+        "s3://$S3_BUCKET/$S3_PREFIX/$RELEASE_NAME.sha256" \
+        --only-show-errors
+
+      echo "publicado em s3://$S3_BUCKET/$S3_PREFIX/$RELEASE_NAME.tar.gz"
   artifacts:
-    paths: [artefato.sha256]
+    paths:
+      - artefato.sha256
     expire_in: 30 days
   cache:
     key:
-      files: [pnpm-lock.yaml]
-    paths: [.pnpm-store]
+      files:
+        - pnpm-lock.yaml
+    paths:
+      - .pnpm-store
     policy: pull
 
-# ------------------------------------------------------------------ deploy
 deploy:
   extends: .aws
   stage: deploy
   when: manual
-  resource_group: deploy-aura        # impede dois deploys simultaneos
-  timeout: 55m                       # acima do DEPLOY_WAIT_SECONDS
-  needs: [release]
+  resource_group: deploy-aura
+  timeout: 55m
+  needs:
+    - release
   environment:
     name: teste
     url: https://aura.interno.testesejaefi.com.br
   rules:
     - if: '$CI_COMMIT_BRANCH == "master" && $CI_PIPELINE_SOURCE == "push"'
   script:
-    - SHA=$(cat artefato.sha256)
-    - echo "implantando $RELEASE_NAME (sha256 $SHA)"
     - |
+      SHA=$(cat artefato.sha256)
+
+      echo "implantando $RELEASE_NAME (sha256 $SHA)"
+
       CID=$(aws ssm send-command \
         --instance-ids "$TARGET_INSTANCE" \
         --document-name "$SSM_DOCUMENT" \
         --document-version "$SSM_DOC_VERSION" \
         --parameters "Version=$RELEASE_NAME,Sha256=$SHA" \
         --timeout-seconds "$DEPLOY_WAIT_SECONDS" \
-        --query 'Command.CommandId' --output text)
+        --query 'Command.CommandId' \
+        --output text)
+
       echo "CommandId: $CID"
+
       FIM=$(( $(date +%s) + DEPLOY_WAIT_SECONDS ))
       ST=Pending
+
       while [ "$(date +%s)" -lt "$FIM" ]; do
         sleep 10
-        ST=$(aws ssm get-command-invocation --command-id "$CID" --instance-id "$TARGET_INSTANCE" --query Status --output text 2>/dev/null || echo Pending)
-        case "$ST" in Success|Failed|Cancelled|TimedOut) break;; esac
-        echo "  ... $ST"
+
+        ST=$(aws ssm get-command-invocation \
+          --command-id "$CID" \
+          --instance-id "$TARGET_INSTANCE" \
+          --query Status \
+          --output text 2>/dev/null || echo Pending)
+
+        case "$ST" in
+          Success|Failed|Cancelled|TimedOut)
+            break
+            ;;
+        esac
+
+        echo "... $ST"
       done
+
       echo "--------- saida do deploy ---------"
-      aws ssm get-command-invocation --command-id "$CID" --instance-id "$TARGET_INSTANCE" --query StandardOutputContent --output text || true
-      echo "----------------------------------"
+
+      aws ssm get-command-invocation \
+        --command-id "$CID" \
+        --instance-id "$TARGET_INSTANCE" \
+        --query StandardOutputContent \
+        --output text || true
+
+      echo "-----------------------------------"
+
       if [ "$ST" != "Success" ]; then
         echo "DEPLOY NAO CONCLUIDO. status=$ST"
-        [ "$ST" = "Failed" ] && echo "o documento reverte sozinho; confira a saida acima para saber se o rollback deu certo"
-        case "$ST" in Pending|InProgress|Delayed) echo "ATENCAO: estado INDETERMINADO, o comando pode ainda estar rodando. CommandId=$CID";; esac
+
+        if [ "$ST" = "Failed" ]; then
+          echo "O documento reverte sozinho; confira a saida acima."
+        fi
+
+        case "$ST" in
+          Pending|InProgress|Delayed)
+            echo "Estado indeterminado. CommandId=$CID"
+            ;;
+        esac
+
         exit 1
       fi
+
       echo "deploy concluido: $RELEASE_NAME"
 
-# ---------------------------------------------------------------- rollback
 rollback:
   extends: .aws
   stage: deploy
   when: manual
   resource_group: deploy-aura
   timeout: 55m
-  needs: []                          # sem isso o rollback fica atras do validate,
-                                     # e com o master vermelho o botao nunca aparece
+  needs: []
   rules:
     - if: '$CI_PIPELINE_SOURCE == "web" && $ROLLBACK_VERSION'
   script:
-    - test -n "$ROLLBACK_VERSION" || { echo "informe ROLLBACK_VERSION ao rodar o pipeline"; exit 1; }
-    - echo "revertendo para $ROLLBACK_VERSION"
     - |
-      SHA=$(aws s3 cp "s3://$S3_BUCKET/$S3_PREFIX/$ROLLBACK_VERSION.sha256" - 2>/dev/null | tr -d '[:space:]')
-      [ -n "$SHA" ] || { echo "ERRO: nao achei o sha256 de $ROLLBACK_VERSION no bucket"; exit 1; }
+      if [ -z "$ROLLBACK_VERSION" ]; then
+        echo "Informe ROLLBACK_VERSION ao rodar o pipeline"
+        exit 1
+      fi
+
+      echo "revertendo para $ROLLBACK_VERSION"
+
+      SHA=$(aws s3 cp \
+        "s3://$S3_BUCKET/$S3_PREFIX/$ROLLBACK_VERSION.sha256" \
+        - 2>/dev/null |
+        tr -d '[:space:]')
+
+      if [ -z "$SHA" ]; then
+        echo "ERRO: nao achei o sha256 de $ROLLBACK_VERSION no bucket"
+        exit 1
+      fi
+
       CID=$(aws ssm send-command \
         --instance-ids "$TARGET_INSTANCE" \
-        --document-name "$SSM_DOCUMENT" --document-version "$SSM_DOC_VERSION" \
+        --document-name "$SSM_DOCUMENT" \
+        --document-version "$SSM_DOC_VERSION" \
         --parameters "Version=$ROLLBACK_VERSION,Sha256=$SHA" \
         --timeout-seconds "$DEPLOY_WAIT_SECONDS" \
-        --query 'Command.CommandId' --output text)
+        --query 'Command.CommandId' \
+        --output text)
+
       echo "CommandId: $CID"
+
       FIM=$(( $(date +%s) + DEPLOY_WAIT_SECONDS ))
       ST=Pending
+
       while [ "$(date +%s)" -lt "$FIM" ]; do
         sleep 10
-        ST=$(aws ssm get-command-invocation --command-id "$CID" --instance-id "$TARGET_INSTANCE" --query Status --output text 2>/dev/null || echo Pending)
-        case "$ST" in Success|Failed|Cancelled|TimedOut) break;; esac
+
+        ST=$(aws ssm get-command-invocation \
+          --command-id "$CID" \
+          --instance-id "$TARGET_INSTANCE" \
+          --query Status \
+          --output text 2>/dev/null || echo Pending)
+
+        case "$ST" in
+          Success|Failed|Cancelled|TimedOut)
+            break
+            ;;
+        esac
       done
-      aws ssm get-command-invocation --command-id "$CID" --instance-id "$TARGET_INSTANCE" --query StandardOutputContent --output text || true
-      [ "$ST" = "Success" ] || { echo "rollback nao concluido: $ST"; exit 1; }
+
+      aws ssm get-command-invocation \
+        --command-id "$CID" \
+        --instance-id "$TARGET_INSTANCE" \
+        --query StandardOutputContent \
+        --output text || true
+
+      if [ "$ST" != "Success" ]; then
+        echo "rollback nao concluido: $ST"
+        exit 1
+      fi
+
       echo "rollback concluido: $ROLLBACK_VERSION"
 
-# ==============================================================================
-# APAGAR NO CORTE - fim.
-# ==============================================================================
-
-# ==============================================================================
-# CAMINHO NOVO - a partir daqui e o que fica depois do corte
-# ==============================================================================
-
-# ------------------------------------------------------------- disparar-esteira
-# Unico job deste repo no caminho novo que faz alguma coisa acontecer. Ele NAO
-# constroi e NAO implanta: manda um POST no trigger do projeto 1881 e sai.
-#
-# Sem `environment:` de proposito. A pagina Environments deste repo diz "o que
-# esta no ar"; quem sabe isso e a esteira de 1881, que roda o SSM e o verify.
-# Marcar ambiente aqui faria a tag aparecer como implantada no instante em que o
-# POST saiu - antes de qualquer coisa ter sido construida.
 disparar-esteira:
   extends: .alpine
   stage: disparo
   needs: []
-  # Mesmo grupo dos jobs antigos. ATENCAO -- isto NAO e exclusao mutua real e
-  # nao deve ser lido como tal: este job so faz um POST e sai em segundos,
-  # liberando o grupo enquanto o pipeline do 1881 ainda vai rodar de 8 a 45 min.
-  # E `resource_group` e escopado ao PROJETO, entao o rg-deploy do 1881 nao
-  # cruza com este. Serve para nao dispararem dois triggers ao mesmo tempo, e so
-  # isso. Quem de fato serializa o deploy e o lock dentro do documento SSM v5 --
-  # por isso os jobs antigos daqui tambem foram pinados na v5 (ver variables).
   resource_group: deploy-aura
   timeout: 10m
   rules:
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_TAG =~ /^v[0-9]+\.[0-9]+\.[0-9]+$/'
       when: on_success
-    # Tag fora do padrao vX.Y.Z: o job aparece, explica e reprova. Falhar aqui e
-    # melhor que ficar em silencio - "empurrei a tag e nao aconteceu nada" e a
-    # pergunta mais cara de responder depois.
     - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_TAG'
       when: on_success
   script:
     - |
       set -eu
+
       echo "tag empurrada: ${CI_COMMIT_TAG}"
-      echo "commit       : ${CI_COMMIT_SHA}"
-      echo "autor        : ${GITLAB_USER_NAME:-?} <${GITLAB_USER_EMAIL:-?}>"
+      echo "commit: ${CI_COMMIT_SHA}"
+      echo "autor: ${GITLAB_USER_NAME:-?} <${GITLAB_USER_EMAIL:-?}>"
 
-      # 1. formato da tag
-      echo "${CI_COMMIT_TAG}" | grep -Eq "${TAG_REGEX}" || {
-        echo "ERRO - a tag '${CI_COMMIT_TAG}' nao segue o padrao vX.Y.Z."
-        echo "A convencao da casa e vX.Y.Z estrito (exemplos medidos: ima v3.1.50,"
-        echo "gmud v1.4.5, core-tco v0.0.8). Nada foi disparado."
-        echo "Apague a tag errada e crie a certa:"
-        echo "  git tag -d ${CI_COMMIT_TAG} && git push origin :refs/tags/${CI_COMMIT_TAG}"
-        exit 1; }
-      echo "formato da tag: ok"
+      if ! echo "${CI_COMMIT_TAG}" | grep -Eq "${TAG_REGEX}"; then
+        echo "ERRO: a tag '${CI_COMMIT_TAG}' nao segue o padrao vX.Y.Z."
+        echo "Apague a tag errada e crie a tag correta."
+        exit 1
+      fi
 
-      # 2. as duas variaveis do trigger
-      # Este e o modo de falha numero 1 do caminho novo, e ele NAO se parece com
-      # um problema de variavel: o curl responde 404 e a mensagem do GitLab fala
-      # em projeto inexistente. Por isso a checagem vem antes do POST.
-      test -n "${DEPLOY_TRIGGER_TOKEN:-}" || {
-        echo "ERRO - DEPLOY_TRIGGER_TOKEN chegou VAZIA."
-        echo "Causa quase certa: a variavel esta marcada Protected e a tag"
-        echo "'${CI_COMMIT_TAG}' nao casa com nenhum padrao em"
-        echo "Settings > Repository > Protected tags. Variavel protegida NAO e"
-        echo "injetada fora de ref protegida, e proteger o branch master nao"
-        echo "protege tag nenhuma. Ver docs/VARIAVEIS-CI.md."
-        exit 1; }
-      test -n "${DEPLOY_TRIGGER_URL:-}" || {
-        echo "ERRO - DEPLOY_TRIGGER_URL chegou VAZIA. Mesma causa provavel da"
-        echo "mensagem acima. Valor esperado:"
-        echo "  https://<gitlab>/api/v4/projects/1881/trigger/pipeline"
-        exit 1; }
+      if [ -z "${DEPLOY_TRIGGER_TOKEN:-}" ]; then
+        echo "ERRO: DEPLOY_TRIGGER_TOKEN chegou vazia."
+        echo "Confira se a tag esta protegida no GitLab."
+        exit 1
+      fi
 
-      # 3. o POST
-      # -k acompanha o padrao dos services da casa (core-tco, gmud, vision), cujo
-      # runner nao carrega a CA interna. Quando a CA entrar na imagem, tire o -k.
-      echo "disparando a esteira de infraestrutura (projeto 1881, ref ${INFRA_REF})"
+      if [ -z "${DEPLOY_TRIGGER_URL:-}" ]; then
+        echo "ERRO: DEPLOY_TRIGGER_URL chegou vazia."
+        exit 1
+      fi
+
+      echo "disparando a esteira de infraestrutura"
+
       RESP=$(curl -sS -k -X POST \
-        -o /tmp/trigger.json -w '%{http_code}' \
+        -o /tmp/trigger.json \
+        -w '%{http_code}' \
         -F "token=${DEPLOY_TRIGGER_TOKEN}" \
         -F "ref=${INFRA_REF}" \
         -F "variables[GN_VERSAO_APP]=${CI_COMMIT_TAG}" \
         -F "variables[APP_COMMIT_SHA]=${CI_COMMIT_SHA}" \
         -F "variables[APP_PIPELINE_URL]=${CI_PIPELINE_URL}" \
         "${DEPLOY_TRIGGER_URL}") || {
-          echo "ERRO - o curl nao completou. Confira DEPLOY_TRIGGER_URL e a rede do runner."
-          exit 1; }
+          echo "ERRO: o curl nao completou."
+          exit 1
+        }
 
       echo "HTTP ${RESP}"
+
       if [ "${RESP}" != "201" ]; then
-        echo "ERRO - o trigger nao criou pipeline. Resposta do GitLab:"
-        # a resposta de erro do trigger nao devolve o token; pode imprimir.
+        echo "ERRO: o trigger nao criou o pipeline."
         cat /tmp/trigger.json 2>/dev/null || true
-        echo ""
-        echo "404 = token invalido/revogado, ou DEPLOY_TRIGGER_URL apontando para"
-        echo "      projeto errado. O trigger token do 1881 e o id 1126."
-        echo "400 = ref '${INFRA_REF}' inexistente no 1881, ou o pipeline de la foi"
-        echo "      recusado pelas workflow rules daquele repo."
         exit 1
       fi
 
       PID=$(jq -r '.id // empty' /tmp/trigger.json)
       WEB=$(jq -r '.web_url // empty' /tmp/trigger.json)
+
       echo "pipeline de infraestrutura criado: id=${PID:-?}"
-      echo "acompanhe em: ${WEB:-<sem web_url na resposta>}"
+      echo "acompanhe em: ${WEB:-sem_url}"
 
-      echo ""
-      echo "=============================================================="
-      echo "ATENCAO - VERDE AQUI NAO SIGNIFICA DEPLOY FEITO."
-      echo "Este job so provou que o POST foi aceito. Quem constroi, publica no"
-      echo "S3 e roda o SSM e o pipeline acima. O veredito volta para ESTE repo"
-      echo "como um SEGUNDO pipeline, na mesma tag ${CI_COMMIT_TAG}, com o job"
-      echo "receber-callback. E esse segundo pipeline que fica verde ou vermelho"
-      echo "de verdade."
-      echo "=============================================================="
-
-# ------------------------------------------------------------ receber-callback
-# Ponta de volta. A esteira de 1881 termina fazendo um POST no trigger DESTE
-# repo com ref = a tag e as variaveis CALLBACK_INFRA_*. O pipeline que nasce
-# desse POST tem uma unica funcao: transformar o resultado real do deploy em
-# verde ou vermelho aqui, onde a desenvolvedora olha.
-#
-# Sem este job o POST de callback criaria um pipeline sem nenhum job casando, o
-# curl da outra ponta usa --fail e o pipeline de infraestrutura terminaria
-# vermelho por causa da resposta - depois de ter implantado com sucesso.
 receber-callback:
   extends: .alpine
   stage: callback
@@ -480,29 +481,30 @@ receber-callback:
   script:
     - |
       set -eu
-      echo "callback da esteira de infraestrutura (projeto 1881)"
-      echo "versao  : ${GN_VERSAO_APP:-<vazio>}"
-      echo "ambiente: ${CALLBACK_INFRA_ENV:-<vazio>}"
-      echo "status  : ${CALLBACK_INFRA_STATUS:-<vazio>}"
-      echo "--------------- log devolvido pela infra ---------------"
+
+      echo "callback da esteira de infraestrutura"
+      echo "versao: ${GN_VERSAO_APP:-vazio}"
+      echo "ambiente: ${CALLBACK_INFRA_ENV:-vazio}"
+      echo "status: ${CALLBACK_INFRA_STATUS:-vazio}"
+      echo "--------------- log da infraestrutura ---------------"
+
       if [ -n "${CALLBACK_INFRA_BODY:-}" ]; then
-        printf '%s' "${CALLBACK_INFRA_BODY}" | base64 -d 2>/dev/null \
-          || { echo "(corpo nao decodificou como base64; bruto abaixo)"; printf '%s\n' "${CALLBACK_INFRA_BODY}"; }
+        printf '%s' "${CALLBACK_INFRA_BODY}" |
+          base64 -d 2>/dev/null || {
+            echo "Corpo nao decodificou como base64:"
+            printf '%s\n' "${CALLBACK_INFRA_BODY}"
+          }
       else
-        echo "(a infra nao devolveu corpo)"
+        echo "A infraestrutura nao devolveu corpo."
       fi
-      echo "-------------------------------------------------------"
-    - |
-      set -eu
-      # PROVA POSITIVA. Verde aqui exige a palavra "success" vinda da infra, e la
-      # ela so e emitida quando o stage verify gravou o marcador verify_ok.
-      # Ausencia de falha nao e prova de sucesso: em 24/08 um deploy que nao
-      # mudou nada ficou verde cinco vezes seguidas porque ninguem afirmava o
-      # estado final, so conferia se algo tinha estourado.
+
+      echo "-----------------------------------------------------"
+
       if [ "${CALLBACK_INFRA_STATUS:-}" != "success" ]; then
-        echo "DEPLOY DE ${GN_VERSAO_APP:-?} NAO CONFIRMADO (status=${CALLBACK_INFRA_STATUS:-vazio})"
-        echo "O log acima veio da esteira de 1881. Leia antes de repetir o disparo."
-        echo "Para voltar a versao anterior, veja DEPLOY-KAMILA.md, secao 'se der errado'."
+        echo "DEPLOY DE ${GN_VERSAO_APP:-?} NAO CONFIRMADO"
+        echo "status=${CALLBACK_INFRA_STATUS:-vazio}"
         exit 1
       fi
-      echo "DEPLOY CONFIRMADO: ${GN_VERSAO_APP} esta no ar em ${CALLBACK_INFRA_ENV:-teste}"
+
+      echo "DEPLOY CONFIRMADO"
+      echo "${GN_VERSAO_APP} esta no ar em ${CALLBACK_INFRA_ENV:-teste}"
