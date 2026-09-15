@@ -117,23 +117,12 @@ variables:
     - corepack prepare pnpm@11.15.1 --activate
     - |
       set -e
-      # Acquire::Check-Valid-Until=false: os metadados do bullseye-security expiram e o
-      # apt-get update passa a falhar. Incidente 2026-09-08 13:57: o update falhou
-      # ("Release file ... is expired (invalid since 16h 44min)"), o && curto-circuitou,
-      # curl nao instalou, e o job morreu na linha SEGUINTE com "curl: command not found"
-      # (exit 127) -- erro que aponta para o lugar errado e custa tempo de quem investiga.
-      #
-      # NAO trocar bullseye por bookworm para resolver isto: a imagem e bullseye
-      # (glibc 2.31) de proposito, porque o host alvo tem glibc 2.34 e binario nativo
-      # compilado em glibc mais nova nao roda em mais antiga (ver cabecalho).
-      apt-get -o Acquire::Check-Valid-Until=false update -qq
-      apt-get install -y -qq curl unzip jq tar gzip >/dev/null
-      # gate: sem isto, a ausencia de curl so aparece na linha seguinte, como 127
-      command -v curl  >/dev/null || { echo "ERRO: curl ausente apos apt-get install";  exit 1; }
-      command -v unzip >/dev/null || { echo "ERRO: unzip ausente apos apt-get install"; exit 1; }
-      command -v jq    >/dev/null || { echo "ERRO: jq ausente apos apt-get install";    exit 1; }
-    - curl -sS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
-    - unzip -q /tmp/awscli.zip -d /tmp && /tmp/aws/install >/dev/null
+      # Instala o AWS CLI sem apt-get (evita dependencia dos repositorios debian-security
+      # que retornam 404 intermitentemente no bullseye).
+      # curl, tar e gzip ja existem na imagem node:22-bullseye-slim.
+      # unzip e substituido por bsdtar (tambem presente); jq e substituido por node -e.
+      curl -sS "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o /tmp/awscli.zip
+      cd /tmp && bsdtar -xf awscli.zip && ./aws/install >/dev/null && cd -
     - aws --version
 
 .aws:
@@ -194,10 +183,10 @@ release:
     # artefato, porque o trace do Next copia a arvore inteira do projeto.
     - |
       SEG=$(aws secretsmanager get-secret-value --secret-id "$BUILD_SECRET" --query SecretString --output text)
-      N=$(printf '%s' "$SEG" | jq -r 'keys|length')
+      N=$(printf '%s' "$SEG" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(Object.keys(JSON.parse(d)).length))")
       echo "segredo de build: $N variaveis"
       [ "$N" -ge 5 ] || { echo "ERRO: segredo de build com apenas $N chaves"; exit 1; }
-      while IFS='=' read -r k v; do export "$k=$v"; done < <(printf '%s' "$SEG" | jq -r 'to_entries[]|"\(.key)=\(.value)"')
+      while IFS='=' read -r k v; do export "$k=$v"; done < <(printf '%s' "$SEG" | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>Object.entries(JSON.parse(d)).forEach(([k,v])=>console.log(k+'='+v)))")
       unset SEG
       env | grep -c '^NEXT_PUBLIC_' | xargs echo "NEXT_PUBLIC_ exportadas:"
 
