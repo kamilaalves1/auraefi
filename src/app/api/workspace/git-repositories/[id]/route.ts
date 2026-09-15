@@ -81,12 +81,19 @@ export async function PUT(request: NextRequest, { params }: Params) {
     const branch = typeof body.branch === 'string' && body.branch.trim()
       ? body.branch.trim().slice(0, 100) : existing.branch
     const is_active = typeof body.is_active === 'boolean' ? (body.is_active ? 1 : 0) : existing.is_active
-    // access_token: explicit null clears it, string sets it, undefined keeps existing
-    const access_token = body.access_token === null
-      ? null
+    // access_token: explicit null or empty string → reject (token is required)
+    // string value → set new token
+    // undefined (omitted) → keep existing
+    const access_token = body.access_token === null || (typeof body.access_token === 'string' && !body.access_token.trim())
+      ? existing.access_token  // keep existing — never allow clearing
       : typeof body.access_token === 'string' && body.access_token.trim()
         ? body.access_token.trim()
         : existing.access_token
+
+    // Ensure token is not null after resolution
+    if (!access_token) {
+      return NextResponse.json({ error: 'Token de acesso é obrigatório' }, { status: 400 })
+    }
     // base_url: same pattern
     const base_url = body.base_url === null
       ? null

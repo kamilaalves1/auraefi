@@ -795,7 +795,10 @@ async function pushCodeToGitHub(
     | { repo_url: string; branch: string; access_token: string | null; provider?: string | null; base_url?: string | null }
     | undefined
 
-  if (!repo?.access_token) return { ok: false, message: 'Repositório sem token de acesso configurado' }
+  if (!repo?.access_token) {
+    logger.warn({ repoId, repo_url: repo?.repo_url, has_token: !!repo?.access_token, repo_exists: !!repo }, 'pushCodeToGitHub: repo token check failed')
+    return { ok: false, message: 'Repositório sem token de acesso configurado' }
+  }
 
   const files = extractFilesFromLLMOutput(llmOutput)
   if (files.length === 0) {
@@ -1981,30 +1984,41 @@ async function startColumn(
   // Carry forward output from already-completed agents as context
   const outputParts: string[] = (await dbGetAll(`SELECT body FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND body LIKE '🤖 **%' ORDER BY created_at ASC`, [run.id, stageId]) as { body: string }[]).map(r => r.body)
 
-  // Fetch repo context once for the whole stage — use the first repo_id found across any assignment,
-  // Resolve the repo for this stage with three levels of fallback:
-  // 1. repo_id explicitly set on any assignment in this column (dropdown por agente)
-  // 2. first valid repo in linkedRepoIds from pipeline config (Repositórios do sistema)
-  // 3. First active repository in the workspace (safety net)
-  const stageRepoId: number | null = assignments.find(a => a.repo_id)?.repo_id
-    ?? await (async () => {
-      const ids = Array.isArray((cfg as any).linkedRepoIds) ? (cfg as any).linkedRepoIds as number[] : []
-      for (const rid of ids) {
-        const row = await dbGet<{ id: number }>(
-          'SELECT id FROM git_repositories WHERE id = ? AND workspace_id = ? AND is_active = 1',
-          [rid, run.workspace_id]
-        )
-        if (row?.id) return row.id
-      }
-      return null
-    })()
-    ?? await (async () => {
-      const row = await dbGet<{ id: number }>(
-        'SELECT id FROM git_repositories WHERE workspace_id = ? AND is_active = 1 ORDER BY id ASC LIMIT 1',
-        [run.workspace_id]
+  // Resolve the active repository for this stage.
+  // Priority: assignment dropdown > linkedRepoIds (first valid with token) > any workspace repo with token
+  // IDs in linkedRepoIds that no longer exist or have no token are silently skipped.
+  async function resolveActiveRepo(workspaceId: number): Promise<number | null> {
+    // 1. Per-agent dropdown
+    const fromAssignment = assignments.find(a => a.repo_id)?.repo_id
+    if (fromAssignment) {
+      const r = await dbGet<{ id: number }>('SELECT id FROM git_repositories WHERE id = ? AND is_active = 1', [fromAssignment])
+      if (r?.id) return r.id
+    }
+
+    // 2. Repos linked in "Repositórios do sistema" — skip deleted or token-less ones
+    const linkedIds: number[] = Array.isArray((cfg as any).linkedRepoIds) ? (cfg as any).linkedRepoIds as number[] : []
+    for (const rid of linkedIds) {
+      const r = await dbGet<{ id: number; access_token: string | null }>(
+        'SELECT id, access_token FROM git_repositories WHERE id = ? AND workspace_id = ? AND is_active = 1',
+        [rid, workspaceId]
       )
-      return row?.id ?? null
-    })()
+      if (r?.id && r.access_token && r.access_token.trim()) return r.id
+    }
+
+    // 3. Any active repo in the workspace with a token — most recently created first
+    const r = await dbGet<{ id: number }>(
+      `SELECT id FROM git_repositories
+       WHERE workspace_id = ? AND is_active = 1 AND access_token IS NOT NULL AND TRIM(access_token) != ''
+       ORDER BY created_at DESC LIMIT 1`,
+      [workspaceId]
+    )
+    if (r?.id) {
+      logger.info({ workspaceId, repoId: r.id }, 'pipeline-engine: using workspace fallback repo (linkedRepoIds had no valid token)')
+    }
+    return r?.id ?? null
+  }
+
+  const stageRepoId = await resolveActiveRepo(run.workspace_id)
   // Load context for ALL linked repos so the agent understands the full codebase
   const linkedRepoIds: number[] = Array.isArray((cfg as any).linkedRepoIds)
     ? (cfg as any).linkedRepoIds as number[]
@@ -2014,7 +2028,9 @@ async function startColumn(
   const stageRepos: Array<{ id: number; name: string; context: string }> = []
   for (const rid of linkedRepoIds.length > 0 ? linkedRepoIds : (stageRepoId ? [stageRepoId] : [])) {
     const repoRow = await dbGet<{ id: number; name: string; repo_url: string; access_token: string | null }>(
-      'SELECT id, name, repo_url, access_token FROM git_repositories WHERE id = ? AND workspace_id = ? AND is_active = 1',
+      `SELECT id, name, repo_url, access_token FROM git_repositories
+       WHERE id = ? AND workspace_id = ? AND is_active = 1
+         AND access_token IS NOT NULL AND access_token != ''`,
       [rid, run.workspace_id]
     )
     if (!repoRow) continue
@@ -2721,6 +2737,22 @@ async function getActivePipelines(): Promise<ActivePipelineEntry[]> {
 }
 
 export async function tickPipelineEngine(): Promise<{ ok: boolean; message: string }> {
+  // Cancel runs stuck in 'running' for more than 2 hours — prevents stale runs
+  // from blocking new executions and consuming resources indefinitely
+  try {
+    const staleThreshold = Math.floor(Date.now() / 1000) - 2 * 60 * 60
+    const staleResult = await dbRun(
+      `UPDATE pipeline_card_runs SET status = 'failed', updated_at = UNIX_TIMESTAMP()
+       WHERE status = 'running' AND updated_at < ?`,
+      [staleThreshold]
+    )
+    if (staleResult.affectedRows > 0) {
+      logger.info({ count: staleResult.affectedRows }, 'pipeline-engine: cancelled stale running runs')
+    }
+  } catch (err) {
+    logger.warn({ err }, 'pipeline-engine: stale run cleanup failed')
+  }
+
   const pipelines = await getActivePipelines()
 
   if (pipelines.length === 0) {

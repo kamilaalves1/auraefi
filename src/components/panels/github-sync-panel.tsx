@@ -406,16 +406,20 @@ function RepoForm({
       {/* Access token */}
       <div>
         <label className="text-[10px] text-muted-foreground uppercase tracking-wider mb-1 block">
-          Token de acesso
-          <span className="ml-1 normal-case font-normal text-muted-foreground/50">(para repositórios privados)</span>
+          Token de acesso <span className="text-red-400">*</span>
+          {initial?.id && (
+            <span className="ml-1 normal-case font-normal text-muted-foreground/50">(deixe em branco para manter o atual)</span>
+          )}
         </label>
         <div className="relative">
           <input
             type={showToken ? 'text' : 'password'}
             value={token}
             onChange={e => setToken(e.target.value)}
-            placeholder={PROVIDERS[provider].tokenHint}
-            className="w-full h-8 px-3 pr-16 rounded-lg bg-background border border-border/60 text-xs text-foreground placeholder:text-muted-foreground/30 focus:outline-none focus:border-primary/50 font-mono"
+            placeholder={initial?.id ? '••••••• (token atual mantido)' : PROVIDERS[provider].tokenHint}
+            className={`w-full h-8 px-3 pr-16 rounded-lg bg-background border text-xs text-foreground placeholder:text-muted-foreground/30 focus:outline-none font-mono ${
+              !token && !initial?.id ? 'border-red-400/50 focus:border-red-400' : 'border-border/60 focus:border-primary/50'
+            }`}
           />
           <button
             type="button"
@@ -461,7 +465,7 @@ function RepoForm({
               base_url: baseUrl.trim() || null,
             } as Parameters<typeof onSave>[0])
           }}
-          disabled={saving || !name.trim() || !repoUrl.trim()}
+          disabled={saving || !name.trim() || !repoUrl.trim() || (!initial?.id && !token.trim())}
           className="min-w-[80px]"
         >
           {saving ? '...' : initial?.id ? 'Salvar' : 'Adicionar'}

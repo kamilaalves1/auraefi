@@ -105,6 +105,9 @@ export async function POST(request: NextRequest) {
     if (!repo_url) {
       return NextResponse.json({ error: 'repo_url is required' }, { status: 400 })
     }
+    if (!access_token) {
+      return NextResponse.json({ error: 'Token de acesso é obrigatório' }, { status: 400 })
+    }
 
     const now = Math.floor(Date.now() / 1000)
     const result = await dbRun(`INSERT INTO git_repositories (workspace_id, name, provider, repo_url, branch, access_token, base_url, created_at, updated_at)
