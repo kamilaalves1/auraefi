@@ -51,7 +51,7 @@ export function ErrosPanel() {
     setTotal(data.total ?? 0)
   }, [source])
 
-  useSmartPoll(fetchErrors, { interval: 10_000, immediate: true })
+  useSmartPoll(fetchErrors, 10_000)
 
   const toggleExpand = (id: number) => {
     setExpanded(prev => {
