@@ -43,11 +43,10 @@ variables:
     - |
       set -e
 
-      # O Bullseye encerrou o LTS. Utilizamos os repositórios históricos,
-      # nos quais os pacotes referenciados pelos índices permanecem disponíveis.
+      # Bullseye arquivado. O repositorio principal contém as versões
+      # necessárias de curl, unzip, jq, tar, gzip e ca-certificates.
       printf '%s\n' \
         'deb http://archive.debian.org/debian bullseye main' \
-        'deb http://archive.debian.org/debian-security bullseye-security main' \
         > /etc/apt/sources.list
 
       rm -f /etc/apt/sources.list.d/*.list
