@@ -672,7 +672,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
       const prompt = buildReviewPrompt(task)
       let agentResponse: AgentResponseParsed
 
-      if (!(await isGatewayAvailable()) && await getAnthropicApiKey()) {
+      if (!(await isGatewayAvailable()) && !!(await getAnthropicApiKey())) {
         // Direct Claude API review — no gateway needed
         const reviewTask: DispatchableTask = {
           id: task.id, title: task.title, description: task.description,
@@ -943,7 +943,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
         : null
 
       let agentResponse: AgentResponseParsed
-      const useDirectApi = !(await isGatewayAvailable()) && await getAnthropicApiKey()
+      const useDirectApi = !(await isGatewayAvailable()) && !!(await getAnthropicApiKey())
 
       if (useDirectApi && !targetSession) {
         // Direct Claude API dispatch — no gateway needed
