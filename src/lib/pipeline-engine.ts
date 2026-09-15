@@ -1916,6 +1916,16 @@ async function startColumn(
   cfg: WorkPipelineConfigJson,
   secrets: WorkPipelineSecrets,
 ): Promise<void> {
+  // Guard: if this run has been reprocessed too many times, give up to avoid infinite loops
+  const MAX_RUN_ATTEMPTS = 10
+  if ((run.run_count ?? 1) > MAX_RUN_ATTEMPTS) {
+    const msg = `🛑 **${run.card_key}** — execução cancelada após ${run.run_count} tentativas sem sucesso.`
+    logger.error({ run_id: run.id, card_key: run.card_key, run_count: run.run_count }, 'pipeline-engine: run exceeded max attempts, cancelling')
+    await postCardComment(run.provider, cfg, secrets, run.card_key, msg).catch(() => {})
+    await updateRun(run.id, { status: 'failed' })
+    return
+  }
+
   const assignments = parseAssignments(column).sort((a, b) => a.order - b.order)
   const agentMap = new Map((await getAgentsByIds(assignments.map(a => a.agent_id))).map((ag: AgentFullRow) => [ag.id, ag] as [number, AgentFullRow]))
   const stageId = String(column.id)
