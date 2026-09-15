@@ -19,6 +19,8 @@ interface DispatchableTask {
   project_ticket_no: number | null
   project_id: number | null
   tags?: string[]
+  /** LLM escolhido na atribuição da coluna do fluxo (lido do metadata da tarefa) */
+  _resolved_llm_model?: string
 }
 
 // ---------------------------------------------------------------------------
@@ -200,7 +202,7 @@ async function dispatchToModel(
     case 'openai':
       return dispatchOpenAICompat(
         'https://api.openai.com/v1/chat/completions',
-        process.env.OPENAI_API_KEY || '',
+        await resolveProviderApiKey('openai'),
         modelId, prompt, systemPrompt, provider,
         taskId, workspaceId,
       )
@@ -208,7 +210,7 @@ async function dispatchToModel(
     case 'groq':
       return dispatchOpenAICompat(
         'https://api.groq.com/openai/v1/chat/completions',
-        process.env.GROQ_API_KEY || '',
+        await resolveProviderApiKey('groq'),
         modelId, prompt, systemPrompt, provider,
         taskId, workspaceId,
       )
@@ -216,7 +218,7 @@ async function dispatchToModel(
     case 'openrouter':
       return dispatchOpenAICompat(
         'https://openrouter.ai/api/v1/chat/completions',
-        process.env.OPENROUTER_API_KEY || '',
+        await resolveProviderApiKey('openrouter'),
         modelId, prompt, systemPrompt, provider,
         taskId, workspaceId,
       )
@@ -224,7 +226,7 @@ async function dispatchToModel(
     case 'deepseek':
       return dispatchOpenAICompat(
         'https://api.deepseek.com/chat/completions',
-        process.env.DEEPSEEK_API_KEY || '',
+        await resolveProviderApiKey('deepseek'),
         modelId, prompt, systemPrompt, provider,
         taskId, workspaceId,
       )
@@ -245,8 +247,8 @@ async function dispatchToAnthropic(
   taskId: number,
   workspaceId: number,
 ): Promise<ProviderCallResult> {
-  const apiKey = (process.env.ANTHROPIC_API_KEY || '').trim()
-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured')
+  const apiKey = await resolveProviderApiKey('anthropic')
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY não configurada — configure em Integrações')
 
   const body: Record<string, unknown> = {
     model,
@@ -315,8 +317,8 @@ async function dispatchToGemini(
   taskId: number,
   workspaceId: number,
 ): Promise<ProviderCallResult> {
-  const apiKey = (process.env.GEMINI_API_KEY || '').trim()
-  if (!apiKey) throw new Error('GEMINI_API_KEY not configured')
+  const apiKey = await resolveProviderApiKey('gemini')
+  if (!apiKey) throw new Error('GEMINI_API_KEY não configurada — configure em Integrações')
 
   const body: Record<string, unknown> = {
     contents: [{ role: 'user', parts: [{ text: prompt }] }],
@@ -428,16 +430,59 @@ function getAnthropicApiKey(): string | null {
   return (process.env.ANTHROPIC_API_KEY || '').trim() || null
 }
 
+/** Resolve API key: env → settings table (integration.PROVIDER_API_KEY) → ~/.gateway/.env */
+async function resolveProviderApiKey(provider: string): Promise<string> {
+  const envKey = `${provider.toUpperCase()}_API_KEY`
+  const fromEnv = (process.env[envKey] || '').trim()
+  if (fromEnv) return fromEnv
+  try {
+    for (const k of [`integration.${envKey}`, `${provider.toLowerCase()}.api_key`]) {
+      const row = await dbGet('SELECT value FROM settings WHERE `key` = ?', [k]) as { value: string } | undefined
+      const v = (row?.value || '').trim()
+      if (v) return v
+    }
+  } catch { /* ignore */ }
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { readFileSync } = require('fs') as typeof import('fs')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { join } = require('path') as typeof import('path')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { homedir } = require('os') as typeof import('os')
+    const content = readFileSync(join(homedir(), '.gateway', '.env'), 'utf-8')
+    for (const line of content.split('\n')) {
+      const m = line.match(new RegExp(`^${envKey}\\s*=\\s*(.+)$`))
+      if (m) { const v = m[1].trim().replace(/^["']|["']$/g, ''); if (v) return v }
+    }
+  } catch { /* not found */ }
+  return ''
+}
+
 async function isGatewayAvailable(): Promise<boolean> {
   try {
-    const row = await dbGet('SELECT COUNT(*) as c FROM gateways', []) as { c: number } | undefined
-    return (row?.c ?? 0) > 0
+    const row = await dbGet('SELECT url FROM gateways LIMIT 1', []) as { url: string } | undefined
+    if (!row?.url) return false
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const net = require('net') as typeof import('net')
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { URL: NodeURL } = require('url') as typeof import('url')
+    const parsed = new NodeURL(row.url.startsWith('http') ? row.url : `http://${row.url}`)
+    const host = parsed.hostname
+    const port = parseInt(parsed.port || (parsed.protocol === 'https:' ? '443' : '80'), 10)
+    return await new Promise<boolean>((resolve) => {
+      const socket = net.createConnection({ host, port, timeout: 2000 }, () => { socket.destroy(); resolve(true) })
+      socket.on('error', () => resolve(false))
+      socket.on('timeout', () => { socket.destroy(); resolve(false) })
+    })
   } catch {
     return false
   }
 }
 
 async function classifyDirectModel(task: DispatchableTask, pipelineCfg?: PipelineConfig): Promise<string> {
+  // 0. Modelo definido na atribuição da coluna do fluxo — máxima prioridade
+  if (task._resolved_llm_model) return task._resolved_llm_model
+
   // 1. Per-agent config override
   if (task.agent_config) {
     try {
@@ -604,7 +649,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string 
       const prompt = buildReviewPrompt(task)
       let agentResponse: AgentResponseParsed
 
-      if (!isGatewayAvailable() && getAnthropicApiKey()) {
+      if (!(await isGatewayAvailable()) && !!getAnthropicApiKey()) {
         // Direct Claude API review — no gateway needed
         const reviewTask: DispatchableTask = {
           id: task.id, title: task.title, description: task.description,
@@ -811,11 +856,20 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
     return { ok: true, message: 'No assigned tasks to dispatch' }
   }
 
-  // Parse JSON tags column
+  // Parse JSON tags column + extrai llm_model do metadata (gravado pelo pipeline-engine)
   for (const task of tasks) {
     if (typeof task.tags === 'string') {
       try { task.tags = JSON.parse(task.tags as string) } catch { task.tags = undefined }
     }
+    try {
+      const raw = (task as unknown as { metadata?: string }).metadata
+      if (raw) {
+        const meta = JSON.parse(raw) as Record<string, unknown>
+        if (typeof meta.llm_model === 'string' && meta.llm_model) {
+          task._resolved_llm_model = meta.llm_model
+        }
+      }
+    } catch { /* não-fatal */ }
   }
 
   const results: Array<{ id: number; success: boolean; error?: string }> = []
@@ -864,7 +918,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
         : null
 
       let agentResponse: AgentResponseParsed
-      const useDirectApi = !isGatewayAvailable() && getAnthropicApiKey()
+      const useDirectApi = !(await isGatewayAvailable()) && !!getAnthropicApiKey()
 
       if (useDirectApi && !targetSession) {
         // Direct Claude API dispatch — no gateway needed
