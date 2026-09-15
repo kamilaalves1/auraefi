@@ -1423,14 +1423,12 @@ function ColumnConfigurator({
                             {llmOptions.length > 0 && (
                               <select
                                 value={a.llm_model ?? ''}
-                                onChange={e => updateAssign(colIdx, aIdx, { llm_model: e.target.value || undefined })}
-                                className={`${sel} w-36`}
-                                title={llmOptions.find(o => o.value === (a.llm_model ?? ''))?.label ?? 'Modelo de IA para este agente'}>
+                                onChange={e => updateAssign(colIdx, aIdx, { llm_model: e.target.value })}
+                                className={`${sel} w-32`}
+                                title="Modelo de IA para este agente">
                                 <option value="">— Modelo —</option>
                                 {llmOptions.map(o => (
-                                  <option key={o.value} value={o.value} title={`${o.provider} · ${o.label}`}>
-                                    {o.provider} / {o.shortLabel}
-                                  </option>
+                                  <option key={o.value} value={o.value}>{o.provider !== o.label ? `${o.provider} / ${o.label}` : o.label}</option>
                                 ))}
                               </select>
                             )}
@@ -1587,14 +1585,14 @@ export function ClientPipelinesPanel() {
               {/* Model priority legend */}
               <div className="rounded-xl border border-border/40 bg-secondary/20 px-3 py-3 space-y-1.5 text-xs">
                 <p className="font-semibold text-foreground text-xs">Prioridade do modelo</p>
-                {([
-                  { label: 'Modelo definido na atribuição da coluna',  detail: 'dropdown por agente, acima' },
-                  { label: 'Regra por complexidade do card',           detail: 'Simples / Média / Complexa' },
-                  { label: 'Padrão do provider em Integrações',        detail: 'fallback automático' },
-                ] as { label: string; detail: string }[]).map(({ label, detail }, i) => (
+                {[
+                  'Modelo definido no agente (coluna → atribuição)',
+                  'Regra por complexidade da tarefa',
+                  'Padrão do provider em Integrações',
+                ].map((text, i) => (
                   <div key={i} className="flex items-start gap-2 text-muted-foreground">
                     <span className="text-primary font-semibold shrink-0 w-3 text-center">{i + 1}</span>
-                    <span>{label} <span className="text-muted-foreground/40">({detail})</span></span>
+                    <span>{text}</span>
                   </div>
                 ))}
               </div>
