@@ -31,7 +31,7 @@ export async function recordSpawnStart(input: {
   workspaceId?: number
 }): Promise<number> {
   const result = await dbRun(`
-    INSERT INTO spawn_history (agent_name, agent_id, spawn_type, session_id, `trigger`, status, workspace_id)
+    INSERT INTO spawn_history (agent_name, agent_id, spawn_type, session_id, \`trigger\`, status, workspace_id)
     VALUES (?, ?, ?, ?, ?, 'started', ?)
   `, [
     input.agentName,

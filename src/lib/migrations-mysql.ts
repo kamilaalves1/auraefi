@@ -20,9 +20,12 @@ export async function runMigrationsMysql(): Promise<void> {
     const schemaPath = join(process.cwd(), 'src', 'lib', 'schema-mysql.sql')
     const schema = readFileSync(schemaPath, 'utf8')
     const statements = schema
+      .split('\n')
+      .filter((linha) => !linha.trim().startsWith('--'))
+      .join('\n')
       .split(';')
       .map((s) => s.trim())
-      .filter((s) => s.length > 0 && !s.startsWith('--'))
+      .filter((s) => s.length > 0)
 
     for (const stmt of statements) {
       try {

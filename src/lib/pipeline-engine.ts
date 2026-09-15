@@ -1444,7 +1444,8 @@ async function createAgentTask(
   column: PipelineColumn,
   agent: AgentRow,
   description: string,
-  isUserReply = false
+  isUserReply = false,
+  llmModel?: string,
 ): Promise<number | null> {
   const now = Math.floor(Date.now() / 1000)
   const title = isUserReply
@@ -1457,6 +1458,7 @@ async function createAgentTask(
     card_key: run.card_key,
     provider: run.provider,
     is_user_reply: isUserReply,
+    ...(llmModel ? { llm_model: llmModel } : {}),
   })
 
   try {
@@ -1632,7 +1634,7 @@ async function startColumn(
     const previousMessages = await getLastAgentMessages(run.id)
     const contextSoFar = outputParts.length ? `## Outputs anteriores nesta etapa\n${outputParts.join('\n---\n')}\n\n` : ''
     const prompt = contextSoFar + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepoContext)
-    const taskId = await createAgentTask(run, column, agent, prompt)
+    const taskId = await createAgentTask(run, column, agent, prompt, false, assignment.llm_model)
     await updateRun(run.id, { task_id: taskId ?? undefined })
 
     try {
@@ -2012,7 +2014,7 @@ async function executeMentionInstruction(
       buildPrompt(run, column, previousMessages, agent.name, agent.role),
     ].join('\n')
 
-    const taskId = await createAgentTask(run, column, agent, prompt, true)
+    const taskId = await createAgentTask(run, column, agent, prompt, true, assignment.llm_model)
     await updateRun(run.id, { task_id: taskId ?? undefined })
 
     try {
@@ -2168,7 +2170,7 @@ async function processInboundComments(
       if (agent) {
         const prevMsgs = await getLastAgentMessages(run.id)
         const replyDesc = `O usuário respondeu no card ${run.card_key}:\n\n"${comment.body}"\n\n${buildPrompt(run, column, prevMsgs, agent.name, agent.role)}`
-        await createAgentTask(run, column, agent, replyDesc, true)
+        await createAgentTask(run, column, agent, replyDesc, true, assignments[0]?.llm_model)
       }
     }
   }
