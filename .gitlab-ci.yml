@@ -126,8 +126,12 @@ variables:
       # NAO trocar bullseye por bookworm para resolver isto: a imagem e bullseye
       # (glibc 2.31) de proposito, porque o host alvo tem glibc 2.34 e binario nativo
       # compilado em glibc mais nova nao roda em mais antiga (ver cabecalho).
+      # Bullseye-security foi descontinuado e os pacotes retornam 404.
+      # Remove esse source para que o apt nao tente baixar de la.
+      rm -f /etc/apt/sources.list.d/debian-security.list || true
+      sed -i '/debian-security/d' /etc/apt/sources.list || true
       apt-get -o Acquire::Check-Valid-Until=false update -qq
-      apt-get install -y -qq curl unzip jq tar gzip >/dev/null
+      apt-get -o Acquire::Check-Valid-Until=false install -y -qq --no-install-recommends curl unzip jq tar gzip >/dev/null
       # gate: sem isto, a ausencia de curl so aparece na linha seguinte, como 127
       command -v curl  >/dev/null || { echo "ERRO: curl ausente apos apt-get install";  exit 1; }
       command -v unzip >/dev/null || { echo "ERRO: unzip ausente apos apt-get install"; exit 1; }
