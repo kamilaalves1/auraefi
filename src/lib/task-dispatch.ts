@@ -162,10 +162,20 @@ interface PipelineConfig {
 
 async function getPipelineConfig(workspaceId: number): Promise<PipelineConfig> {
   try {
+    // Try the task's own workspace first
     const row = await dbGet('SELECT config FROM work_pipelines WHERE workspace_id = ? ORDER BY id ASC LIMIT 1', [workspaceId]) as { config: string | null } | undefined
-    if (!row?.config) return {}
-    const parsed = JSON.parse(row.config)
-    return typeof parsed === 'object' && parsed !== null ? parsed : {}
+    if (row?.config) {
+      const parsed = JSON.parse(row.config)
+      if (typeof parsed === 'object' && parsed !== null) return parsed
+    }
+    // Fallback: any pipeline in the system (e.g. Aegis review tasks created with workspace_id=1
+    // while the actual pipeline lives in workspace 2)
+    const any = await dbGet('SELECT config FROM work_pipelines ORDER BY id ASC LIMIT 1', []) as { config: string | null } | undefined
+    if (any?.config) {
+      const parsed = JSON.parse(any.config)
+      if (typeof parsed === 'object' && parsed !== null) return parsed
+    }
+    return {}
   } catch { return {} }
 }
 
