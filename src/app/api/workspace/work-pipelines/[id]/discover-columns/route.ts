@@ -27,11 +27,15 @@ async function discoverJiraColumns(config: Record<string, any>, secrets: Record<
   }
 
   const auth = Buffer.from(`${email}:${token}`).toString('base64')
-  const headers = { Authorization: `Basic ${auth}`, Accept: 'application/json' }
+  const headers = {
+    Authorization: `Basic ${auth}`,
+    Accept: 'application/json',
+    'User-Agent': 'AURA/1.0 (Jira Column Discovery)',
+  }
 
   const signal = AbortSignal.timeout(12000)
 
-  async function fetchJson<T>(url: string): Promise<{ ok: boolean; status: number; data: T | null }> {
+  async function fetchJson<T>(url: string): Promise<{ ok: boolean; status: number; data: T | null; error?: string }> {
     try {
       const r = await fetch(url, { headers, signal })
       const text = await r.text()
@@ -39,7 +43,7 @@ async function discoverJiraColumns(config: Record<string, any>, secrets: Record<
       try { data = JSON.parse(text) } catch { /* not json */ }
       return { ok: r.ok, status: r.status, data }
     } catch (e: any) {
-      return { ok: false, status: 0, data: null }
+      return { ok: false, status: 0, data: null, error: e.message }
     }
   }
 
@@ -82,7 +86,12 @@ async function discoverJiraColumns(config: Record<string, any>, secrets: Record<
   if (status === 401) detail = 'credenciais inválidas — verifique e-mail e API Token'
   else if (status === 403) detail = 'sem permissão — o token não acessa este projeto'
   else if (status === 404) detail = 'projeto não encontrado — verifique o Project Key'
-  else if (status === 0)   detail = 'host inacessível — verifique a URL'
+  else if (status === 0) {
+    if (boards.error?.includes('ENOTFOUND')) detail = 'DNS não resolve — verifique a URL do Jira'
+    else if (boards.error?.includes('ECONNREFUSED')) detail = 'conexão recusada — servidor não respondeu'
+    else if (boards.error?.includes('timeout')) detail = 'timeout — servidor demorou muito'
+    else detail = `host inacessível — ${boards.error || 'verifique a URL e conexão de rede'}`
+  }
 
   throw new Error(`Não foi possível importar colunas do Jira: ${detail}`)
 }
