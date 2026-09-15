@@ -1521,8 +1521,8 @@ async function createAgentTask(
 
   try {
     const result = await dbRun(
-      `INSERT INTO tasks (title, description, status, priority, assigned_to, created_by, created_at, updated_at, metadata) VALUES (?, ?, 'assigned', 'high', ?, 'pipeline-engine', ?, ?, ?)`,
-      [title, description, agent.name, now, now, metadata]
+      `INSERT INTO tasks (title, description, status, priority, assigned_to, created_by, created_at, updated_at, metadata, workspace_id) VALUES (?, ?, 'assigned', 'high', ?, 'pipeline-engine', ?, ?, ?, ?)`,
+      [title, description, agent.name, now, now, metadata, run.workspace_id]
     )
     return result.insertId
   } catch (err) {
