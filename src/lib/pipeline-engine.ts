@@ -315,20 +315,53 @@ async function resolveApiKey(provider: string): Promise<string | null> {
   return null
 }
 
-function agentSystemPrompt(agent: AgentFullRow): string {
+function agentSystemPrompt(agent: AgentFullRow & { _skills?: string }): string {
   const base = agent.soul_content?.trim() || agent.instructions?.trim() ||
     `You are ${agent.name}, a ${agent.role} agent. Analyze the task and provide a thorough response.`
 
   let persona: any = null
   try { if (agent.config) persona = JSON.parse(agent.config).persona } catch { /* ignore */ }
-  if (!persona) return base
 
   const parts = [base]
-  if (persona.authority_level?.trim()) parts.push(`\n## Nível de autoridade\n${persona.authority_level.trim()}`)
-  if (persona.restrictions?.length) parts.push(`\n## Restrições\n${(persona.restrictions as string[]).map(r => `- ${r}`).join('\n')}`)
-  if (persona.capabilities?.length) parts.push(`\n## Capacidades\n${(persona.capabilities as string[]).map(c => `- ${c}`).join('\n')}`)
-  if (persona.collaborators?.length) parts.push(`\n## Agentes colaboradores\n${(persona.collaborators as string[]).join(', ')}`)
+  if (persona?.authority_level?.trim()) parts.push(`\n## Nível de autoridade\n${persona.authority_level.trim()}`)
+  if (persona?.restrictions?.length) parts.push(`\n## Restrições\n${(persona.restrictions as string[]).map(r => `- ${r}`).join('\n')}`)
+  if (persona?.capabilities?.length) parts.push(`\n## Capacidades\n${(persona.capabilities as string[]).map(c => `- ${c}`).join('\n')}`)
+  if (persona?.collaborators?.length) parts.push(`\n## Agentes colaboradores\n${(persona.collaborators as string[]).join(', ')}`)
+  if (agent._skills?.trim()) parts.push(`\n## Suas skills\n\n${agent._skills.trim()}`)
   return parts.join('\n')
+}
+
+async function loadAgentSkills(agentName: string, workspaceId: number): Promise<string> {
+  try {
+    // Skills can be linked directly to the agent (by name) or workspace-wide
+    const rows = await dbGetAll<{ name: string; path: string; description: string | null }>(
+      `SELECT s.name, s.path, s.description
+       FROM skills s
+       LEFT JOIN agent_skills ags ON ags.skill_id = s.id
+       LEFT JOIN agents a ON a.id = ags.agent_id AND a.workspace_id = ?
+       WHERE a.name = ?
+         AND s.path IS NOT NULL
+       ORDER BY s.name ASC`,
+      [workspaceId, agentName]
+    )
+    if (!rows.length) return ''
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { readFileSync, existsSync } = require('fs') as typeof import('fs')
+    const parts: string[] = []
+    for (const row of rows) {
+      try {
+        if (row.path && existsSync(row.path)) {
+          const content = readFileSync(row.path, 'utf-8')
+          parts.push(`### Skill: ${row.name}\n${content.trim()}`)
+        } else if (row.description) {
+          parts.push(`### Skill: ${row.name}\n${row.description}`)
+        }
+      } catch { /* skip unreadable skill */ }
+    }
+    return parts.join('\n\n')
+  } catch {
+    return ''
+  }
 }
 
 async function callAnthropicLLM(agent: AgentFullRow, prompt: string, apiKey: string, cfgModel: string | null): Promise<LLMResult> {
@@ -1406,9 +1439,36 @@ function buildPrompt(
   previousMessages: string,
   agentName?: string,
   agentRole?: string,
-  repoContext?: string
+  repoContext?: string,
+  hasRepo?: boolean
 ): string {
   const hasInstructions = !!column.instructions?.trim()
+
+  const commitInstructions = hasRepo ? [
+    '',
+    '## Formato de entrega de código',
+    '',
+    'Quando produzir ou modificar arquivos, use OBRIGATORIAMENTE este formato para cada arquivo:',
+    '',
+    '```',
+    '### FILE: caminho/relativo/do/arquivo.ext',
+    '```linguagem',
+    '// conteúdo completo do arquivo aqui',
+    '```',
+    'COMMIT: tipo(escopo): descrição curta do que foi feito',
+    '```',
+    '',
+    'Exemplo:',
+    '```',
+    '### FILE: src/services/UserService.java',
+    '```java',
+    'public class UserService { ... }',
+    '```',
+    'COMMIT: feat(user): implement user service',
+    '```',
+    '',
+    'Inclua o conteúdo COMPLETO de cada arquivo, não trechos parciais.',
+  ].join('\n') : ''
 
   const parts = [
     `# Card: ${card.card_key} — ${card.card_title}`,
@@ -1421,6 +1481,7 @@ function buildPrompt(
     '',
     previousMessages ? `## Contexto dos agentes anteriores nesta mesma etapa\n${previousMessages}\n` : '',
     repoContext ? repoContext : '',
+    commitInstructions,
     hasInstructions
       ? `## Suas instruções\n\nSiga EXATAMENTE as instruções abaixo. Elas têm prioridade absoluta sobre qualquer outra orientação.\n\n${column.instructions}`
       : `## Estágio atual: ${column.column_name}\n\nAnalise o card e produza uma entrega relevante para sua função.`,
@@ -1633,12 +1694,15 @@ async function startColumn(
 
     const previousMessages = await getLastAgentMessages(run.id)
     const contextSoFar = outputParts.length ? `## Outputs anteriores nesta etapa\n${outputParts.join('\n---\n')}\n\n` : ''
-    const prompt = contextSoFar + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepoContext)
+    const agentSkills = await loadAgentSkills(agent.name, run.workspace_id)
+    const hasRepo = !!(assignment.repo_id ?? stageRepoId)
+    const prompt = contextSoFar + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepoContext, hasRepo)
     const taskId = await createAgentTask(run, column, agent, prompt, false, assignment.llm_model)
     await updateRun(run.id, { task_id: taskId ?? undefined })
 
     try {
-      const llmResult = await callAgentLLM(agent, prompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
+      const agentWithSkills = { ...agent, _skills: agentSkills }
+      const llmResult = await callAgentLLM(agentWithSkills as AgentFullRow, prompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
       const nowDone = Math.floor(Date.now() / 1000)
 
       try {
