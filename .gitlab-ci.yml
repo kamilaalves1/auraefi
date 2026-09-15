@@ -117,17 +117,17 @@ variables:
     - corepack prepare pnpm@11.15.1 --activate
     - |
       set -e
-      # Bullseye (Debian 11) chegou ao fim de vida em agosto de 2026.
-      # O repositorio debian-security foi desativado e NAO existe no archive.
-      # Solucao: reescrever sources.list apontando apenas para archive.debian.org/debian.
-      # bullseye-security nao tem espelho no archive — remover completamente.
-      # Check-Valid-Until=false e necessario porque metadados de arquivo nao sao renovados.
-      # NAO trocar bullseye por bookworm: a imagem e bullseye (glibc 2.31) de
-      # proposito porque o host alvo tem glibc 2.34 e binario compilado em glibc
-      # mais nova nao roda em mais antiga (ver cabecalho do arquivo).
-      printf 'deb http://archive.debian.org/debian bullseye main\ndeb http://archive.debian.org/debian bullseye-updates main\n' > /etc/apt/sources.list
+      # Acquire::Check-Valid-Until=false: os metadados do bullseye-security expiram e o
+      # apt-get update passa a falhar. Incidente 2026-09-08 13:57: o update falhou
+      # ("Release file ... is expired (invalid since 16h 44min)"), o && curto-circuitou,
+      # curl nao instalou, e o job morreu na linha SEGUINTE com "curl: command not found"
+      # (exit 127) -- erro que aponta para o lugar errado e custa tempo de quem investiga.
+      #
+      # NAO trocar bullseye por bookworm para resolver isto: a imagem e bullseye
+      # (glibc 2.31) de proposito, porque o host alvo tem glibc 2.34 e binario nativo
+      # compilado em glibc mais nova nao roda em mais antiga (ver cabecalho).
       apt-get -o Acquire::Check-Valid-Until=false update -qq
-      apt-get -o Acquire::Check-Valid-Until=false install -y -qq --no-install-recommends curl unzip jq tar gzip >/dev/null
+      apt-get install -y -qq curl unzip jq tar gzip >/dev/null
       # gate: sem isto, a ausencia de curl so aparece na linha seguinte, como 127
       command -v curl  >/dev/null || { echo "ERRO: curl ausente apos apt-get install";  exit 1; }
       command -v unzip >/dev/null || { echo "ERRO: unzip ausente apos apt-get install"; exit 1; }
