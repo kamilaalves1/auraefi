@@ -523,34 +523,11 @@ async function classifyDirectModel(task: DispatchableTask, pipelineCfg?: Pipelin
   const cfgModel = tier === 'complex' ? cfg.llm_complex : tier === 'simple' ? cfg.llm_simple : cfg.llm_medium
   if (cfgModel) return cfgModel
 
-  // 4. Try to find any configured pipeline model as fallback (any tier)
-  const anyPipelineModel = cfg.llm_medium ?? cfg.llm_simple ?? cfg.llm_complex ?? cfg.llm_fallback_model
-  if (anyPipelineModel) return anyPipelineModel
+  // 4. Fallback model configured in the pipeline screen
+  if (cfg.llm_fallback_model) return cfg.llm_fallback_model
 
-  // 5. Hardcoded fallbacks — prefer a provider that actually has a key configured
-  const hardcodedByTier: Record<string, string> = {
-    complex: 'anthropic:claude-opus-4-6',
-    simple:  'anthropic:claude-haiku-4-5-20251001',
-    medium:  'anthropic:claude-sonnet-4-6',
-  }
-  // If Anthropic key is absent, try OpenAI/other providers before giving up
-  const anthropicKey = await resolveProviderApiKey('anthropic')
-  if (anthropicKey) return hardcodedByTier[tier]
-
-  // No Anthropic key — check other providers in order of preference
-  for (const [provider, fallbackModel] of [
-    ['openai', 'openai:gpt-4o-mini'],
-    ['gemini', 'gemini:gemini-1.5-flash'],
-    ['openrouter', 'openrouter:openai/gpt-4o-mini'],
-    ['groq', 'groq:llama-3.1-8b-instant'],
-    ['deepseek', 'deepseek:deepseek-chat'],
-  ] as [string, string][]) {
-    const k = await resolveProviderApiKey(provider)
-    if (k) return fallbackModel
-  }
-
-  // Last resort — return Anthropic model and let dispatchToAnthropic throw a clear error
-  return hardcodedByTier[tier]
+  // 5. No model configured at all — throw a clear error pointing to the pipeline screen
+  throw new Error('Nenhum modelo LLM configurado no pipeline. Configure os modelos na tela de Pipeline.')
 }
 
 async function getAgentSoulContent(task: DispatchableTask): Promise<string | null> {
