@@ -363,7 +363,8 @@ async function loadAgentSkills(workspaceId: number): Promise<string> {
 
 async function callAnthropicLLM(agent: AgentFullRow, prompt: string, apiKey: string, cfgModel: string | null): Promise<LLMResult> {
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY não configurada — configure em Integrações')
-  const model = (agent.model && !agent.model.includes(':')) ? agent.model : (cfgModel || 'claude-sonnet-4-6')
+  const model = (agent.model && !agent.model.includes(':')) ? agent.model : cfgModel
+  if (!model) throw new Error('Nenhum modelo configurado para Anthropic — configure na tela de Pipeline')
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -388,7 +389,8 @@ async function callAnthropicLLM(agent: AgentFullRow, prompt: string, apiKey: str
 async function callGeminiLLM(agent: AgentFullRow, prompt: string, apiKey: string | null, cfgModel: string | null): Promise<LLMResult> {
   if (!apiKey) throw new Error('GEMINI_API_KEY não configurada — configure em Integrações')
   const agentModelIsGemini = agent.model && !agent.model.includes(':') && agent.model.toLowerCase().startsWith('gemini')
-  const model = agentModelIsGemini ? agent.model : (cfgModel || 'gemini-2.0-flash')
+  const model = agentModelIsGemini ? agent.model : cfgModel
+  if (!model) throw new Error('Nenhum modelo configurado para Gemini — configure na tela de Pipeline')
 
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
@@ -427,25 +429,66 @@ const OPENAI_COMPAT_BASES: Record<string, string> = {
 async function callOpenAICompatLLM(agent: AgentFullRow, prompt: string, provider: string, apiKey: string | null, cfgModel: string | null): Promise<LLMResult> {
   if (!apiKey) throw new Error(`${provider.toUpperCase()}_API_KEY não configurada — configure em Integrações`)
   const base = OPENAI_COMPAT_BASES[provider] || 'https://api.openai.com/v1'
-  const defaultModel: Record<string, string> = { openai: 'gpt-4o-mini', openrouter: 'openai/gpt-4o-mini', groq: 'llama-3.3-70b-versatile' }
   // Only use agent.model if it looks native to this provider (no colon, no other-provider prefix)
   const otherProviderPrefixes = ['claude', 'gemini', 'ollama', 'deepseek', 'llama', 'mixtral']
   const agentModelNative = agent.model && !agent.model.includes(':') &&
     !otherProviderPrefixes.some(p => agent.model!.toLowerCase().startsWith(p))
-  const model = agentModelNative ? agent.model : (cfgModel || defaultModel[provider] || 'gpt-4o-mini')
+  const model = agentModelNative ? agent.model : cfgModel
+  if (!model) throw new Error(`Nenhum modelo configurado para ${provider} — configure na tela de Pipeline`)
 
-  const response = await fetch(`${base}/chat/completions`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      model,
-      messages: [
-        { role: 'system', content: agentSystemPrompt(agent) },
-        { role: 'user', content: prompt },
-      ],
-    }),
-    signal: AbortSignal.timeout(90_000),
-  })
+  const systemContent = agentSystemPrompt(agent as AgentFullRow & { _skills?: string })
+
+  const buildBody = (useCompletionTokens: boolean, omitSystem: boolean) => {
+    const messages: Array<{ role: string; content: string }> = []
+    if (omitSystem) {
+      messages.push({ role: 'user', content: `${systemContent}\n\n${prompt}` })
+    } else {
+      messages.push({ role: 'system', content: systemContent })
+      messages.push({ role: 'user', content: prompt })
+    }
+    const body: Record<string, unknown> = { model, messages }
+    if (useCompletionTokens) {
+      body.max_completion_tokens = 2048
+    } else {
+      body.max_tokens = 2048
+    }
+    return body
+  }
+
+  const doFetch = (body: Record<string, unknown>) =>
+    fetch(`${base}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(90_000),
+    })
+
+  // First attempt: standard params
+  let response = await doFetch(buildBody(false, false))
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => '')
+    if (response.status === 400 && errText.includes('max_completion_tokens')) {
+      logger.info({ model, provider }, 'Model requires max_completion_tokens — retrying')
+      response = await doFetch(buildBody(true, false))
+      if (!response.ok) {
+        const errText2 = await response.text().catch(() => '')
+        if (response.status === 400 && (errText2.includes('system') || errText2.includes('unsupported'))) {
+          logger.info({ model, provider }, 'Model does not support system role — retrying without it')
+          response = await doFetch(buildBody(true, true))
+          if (!response.ok) throw new Error(`${provider} API error ${response.status}: ${(await response.text().catch(() => '')).slice(0, 300)}`)
+        } else {
+          throw new Error(`${provider} API error ${response.status}: ${errText2.slice(0, 300)}`)
+        }
+      }
+    } else if (response.status === 400 && (errText.includes('"system"') || errText.includes('system_prompt'))) {
+      logger.info({ model, provider }, 'Model does not support system role — retrying without it')
+      response = await doFetch(buildBody(false, true))
+      if (!response.ok) throw new Error(`${provider} API error ${response.status}: ${(await response.text().catch(() => '')).slice(0, 300)}`)
+    } else {
+      throw new Error(`${provider} API error ${response.status}: ${errText.slice(0, 300)}`)
+    }
+  }
   if (!response.ok) throw new Error(`${provider} API error ${response.status}: ${await response.text()}`)
 
   const data = await response.json() as {
@@ -462,7 +505,8 @@ async function callOpenAICompatLLM(agent: AgentFullRow, prompt: string, provider
 
 async function callOllamaLLM(agent: AgentFullRow, prompt: string, cfg: WorkPipelineConfigJson, cfgModel: string | null): Promise<LLMResult> {
   const ollamaHost = (cfg.ollamaHost || 'http://localhost:11434').replace(/\/+$/, '')
-  const model = cfg.ollamaModel || (agent.model && !agent.model.startsWith('claude-') ? agent.model : null) || cfgModel || 'llama3.2'
+  const model = cfg.ollamaModel || (agent.model && !agent.model.startsWith('claude-') ? agent.model : null) || cfgModel
+  if (!model) throw new Error('Nenhum modelo configurado para Ollama — configure na tela de Pipeline')
 
   const response = await fetch(`${ollamaHost}/api/chat`, {
     method: 'POST',

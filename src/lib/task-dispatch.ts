@@ -27,57 +27,6 @@ interface DispatchableTask {
 // Model routing
 // ---------------------------------------------------------------------------
 
-/**
- * Classify a task's complexity and return the appropriate model ID.
- * Uses keyword signals on title + description.
- *
- * Tiers:
- *   ROUTINE  → cheap model (Haiku)   — file ops, status checks, formatting
- *   MODERATE → mid model  (Sonnet)   — code gen, summaries, analysis, drafts
- *   COMPLEX  → premium model (Opus)  — debugging, architecture, novel problems
- *
- * The caller may override this by setting agent.config.dispatchModel.
- */
-function classifyTaskModel(task: DispatchableTask): string | null {
-  // Allow per-agent config override
-  if (task.agent_config) {
-    try {
-      const cfg = JSON.parse(task.agent_config)
-      if (typeof cfg.dispatchModel === 'string' && cfg.dispatchModel) return cfg.dispatchModel
-    } catch { /* ignore */ }
-  }
-
-  const text = `${task.title} ${task.description ?? ''}`.toLowerCase()
-  const priority = task.priority?.toLowerCase() ?? ''
-
-  // Complex signals → Opus
-  const complexSignals = [
-    'debug', 'diagnos', 'architect', 'design system', 'security audit',
-    'root cause', 'investigate', 'incident', 'failure', 'broken', 'not working',
-    'refactor', 'migration', 'performance optim', 'why is',
-  ]
-  if (priority === 'critical' || complexSignals.some(s => text.includes(s))) {
-    return 'claude-opus-4-8'
-  }
-
-  // Routine signals → Haiku
-  const routineSignals = [
-    'status check', 'health check', 'ping', 'list ', 'fetch ', 'format',
-    'rename', 'move file', 'read file', 'update readme', 'bump version',
-    'send message', 'post to', 'notify', 'summarize', 'translate',
-    'quick ', 'simple ', 'routine ', 'minor ',
-  ]
-  if (priority === 'low' && routineSignals.some(s => text.includes(s))) {
-    return 'claude-haiku-4-5-20251001'
-  }
-  if (routineSignals.some(s => text.includes(s)) && priority !== 'high' && priority !== 'critical') {
-    return 'claude-haiku-4-5-20251001'
-  }
-
-  // Default: let the agent's own configured model handle it (no override)
-  return null
-}
-
 /** Extract the agent identifier from the agent's config JSON.
  *  Falls back to agent_name (display name) if agent id is not set. */
 function resolveGatewayAgentId(task: DispatchableTask): string {
@@ -297,21 +246,71 @@ async function dispatchOpenAICompat(
   const trimmedKey = apiKey.trim()
   if (!trimmedKey) throw new Error(`${provider} API key not configured`)
 
-  const messages: Array<{ role: string; content: string }> = []
-  if (systemPrompt) messages.push({ role: 'system', content: systemPrompt })
-  messages.push({ role: 'user', content: prompt })
+  const buildBody = (useCompletionTokens: boolean, omitSystem: boolean) => {
+    const messages: Array<{ role: string; content: string }> = []
+    if (systemPrompt) {
+      if (omitSystem) {
+        // Some models (e.g. o1) don't support system role — merge into first user message
+        messages.push({ role: 'user', content: `${systemPrompt}\n\n${prompt}` })
+      } else {
+        messages.push({ role: 'system', content: systemPrompt })
+        messages.push({ role: 'user', content: prompt })
+      }
+    } else {
+      messages.push({ role: 'user', content: prompt })
+    }
+    const body: Record<string, unknown> = { model, messages }
+    if (useCompletionTokens) {
+      body.max_completion_tokens = 4096
+    } else {
+      body.max_tokens = 4096
+    }
+    return body
+  }
 
   logger.info({ taskId, model, provider }, `Dispatching via ${provider} API`)
 
-  const res = await fetch(endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${trimmedKey}` },
-    body: JSON.stringify({ model, max_tokens: 4096, messages }),
-  })
+  const doFetch = async (body: Record<string, unknown>) =>
+    fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${trimmedKey}` },
+      body: JSON.stringify(body),
+    })
+
+  // First attempt: standard params
+  let res = await doFetch(buildBody(false, false))
+
   if (!res.ok) {
     const errBody = await res.text().catch(() => '')
-    throw new Error(`${provider} API ${res.status}: ${errBody.substring(0, 300)}`)
+    // Detect models that require max_completion_tokens (e.g. o1, o3, future reasoning models)
+    if (res.status === 400 && errBody.includes('max_completion_tokens')) {
+      logger.info({ taskId, model, provider }, 'Model requires max_completion_tokens — retrying')
+      res = await doFetch(buildBody(true, false))
+      if (!res.ok) {
+        const errBody2 = await res.text().catch(() => '')
+        // Some models also don't support system role — retry without it
+        if (res.status === 400 && (errBody2.includes('system') || errBody2.includes('unsupported'))) {
+          logger.info({ taskId, model, provider }, 'Model does not support system role — retrying without it')
+          res = await doFetch(buildBody(true, true))
+          if (!res.ok) {
+            throw new Error(`${provider} API ${res.status}: ${(await res.text().catch(() => '')).substring(0, 300)}`)
+          }
+        } else {
+          throw new Error(`${provider} API ${res.status}: ${errBody2.substring(0, 300)}`)
+        }
+      }
+    // Detect models that don't support system role at all
+    } else if (res.status === 400 && (errBody.includes('"system"') || errBody.includes('system_prompt'))) {
+      logger.info({ taskId, model, provider }, 'Model does not support system role — retrying without it')
+      res = await doFetch(buildBody(false, true))
+      if (!res.ok) {
+        throw new Error(`${provider} API ${res.status}: ${(await res.text().catch(() => '')).substring(0, 300)}`)
+      }
+    } else {
+      throw new Error(`${provider} API ${res.status}: ${errBody.substring(0, 300)}`)
+    }
   }
+
   const data = await res.json() as { choices: Array<{ message: { content: string } }>; usage?: { prompt_tokens?: number; completion_tokens?: number } }
   const text = data.choices?.[0]?.message?.content || null
   const usage = data.usage ? { input_tokens: data.usage.prompt_tokens, output_tokens: data.usage.completion_tokens } : undefined
