@@ -918,20 +918,25 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
         : null
 
       let agentResponse: AgentResponseParsed
-      const useDirectApi = !(await isGatewayAvailable()) && !!(await resolveProviderApiKey('anthropic'))
+      const gatewayAvailable = await isGatewayAvailable()
+      const directApiKey = await resolveProviderApiKey('anthropic')
+      const useDirectApi = !!directApiKey
 
-      if (useDirectApi && !targetSession) {
-        // Direct Claude API dispatch — no gateway needed
-        agentResponse = await callClaudeDirectly(task, prompt)
-      } else if (targetSession) {
+      if (targetSession) {
         // Session-targeted dispatch: fire-and-forget acknowledgement
-        logger.info({ taskId: task.id, targetSession, agent: task.agent_name }, 'Dispatching task to targeted session (gateway RPC unavailable)')
+        logger.info({ taskId: task.id, targetSession, agent: task.agent_name }, 'Dispatching task to targeted session')
         agentResponse = {
           text: `Task dispatched to session ${targetSession}. The agent will process it within that session context.`,
           sessionId: targetSession,
         }
+      } else if (useDirectApi) {
+        // Direct Claude API dispatch — used when gateway is unavailable or as fallback
+        if (gatewayAvailable) {
+          logger.info({ taskId: task.id, agent: task.agent_name }, 'Gateway available but no RPC dispatch configured — falling back to direct API')
+        }
+        agentResponse = await callClaudeDirectly(task, prompt)
       } else {
-        throw new Error('Gateway dispatch requires a direct API key or a target session')
+        throw new Error('No dispatch method available: configure ANTHROPIC_API_KEY or assign a target_session to this task')
       }
 
       if (!agentResponse.text) {
