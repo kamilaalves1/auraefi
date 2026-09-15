@@ -1336,15 +1336,18 @@ async function fetchRepoContext(repoId: number): Promise<string> {
     | undefined
   if (!repo?.access_token) return ''
 
+  // Narrow access_token to string after the null guard above
+  const repoWithToken = repo as typeof repo & { access_token: string }
+
   // Route to the correct provider API based on the configured URL
   const isGitHub = /github\.com\//.test(repo.repo_url)
   const isBitbucket = /bitbucket\.org\//.test(repo.repo_url)
   if (isGitHub) {
-    return fetchRepoContextGitHub(repo)
+    return fetchRepoContextGitHub(repoWithToken)
   } else if (isBitbucket) {
-    return fetchRepoContextBitbucket(repo)
+    return fetchRepoContextBitbucket(repoWithToken)
   } else {
-    return fetchRepoContextGitLab(repo)
+    return fetchRepoContextGitLab(repoWithToken)
   }
 }
 
