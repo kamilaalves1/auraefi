@@ -1,0 +1,294 @@
+﻿diff --git a/src/components/panels/client-pipelines-panel.tsx b/src/components/panels/client-pipelines-panel.tsx
+index 736e934..8dc262c 100644
+--- a/src/components/panels/client-pipelines-panel.tsx
++++ b/src/components/panels/client-pipelines-panel.tsx
+@@ -81,7 +81,12 @@ const PROVIDER_MODELS: Record<string, { value: string; label: string }[]> = {
+   ],
+ }
+ 
+-interface LLMOption { value: string; label: string; provider: string }
++interface LLMOption { value: string; label: string; shortLabel: string; provider: string }
++
++/** Remove a dica de velocidade ap├│s "ÔÇö" e par├¬nteses de provider ÔåÆ label curto para <select> nativo */
++function makeShortLabel(label: string): string {
++  return label.replace(/\s*ÔÇö.*$/, '').replace(/\s*\([^)]+\)\s*$/, '').trim()
++}
+ 
+ function useLLMOptions() {
+   const [options, setOptions]   = useState<LLMOption[]>([])
+@@ -97,9 +102,9 @@ function useLLMOptions() {
+         for (const prov of connected) {
+           const models = PROVIDER_MODELS[prov.id]
+           if (models) {
+-            models.forEach(m => opts.push({ ...m, provider: prov.name }))
++            models.forEach(m => opts.push({ ...m, shortLabel: makeShortLabel(m.label), provider: prov.name }))
+           } else {
+-            opts.push({ value: prov.id, label: prov.name, provider: prov.name })
++            opts.push({ value: prov.id, label: prov.name, shortLabel: prov.name, provider: prov.name })
+           }
+         }
+         setOptions(opts)
+@@ -1402,12 +1407,14 @@ function ColumnConfigurator({
+                             {llmOptions.length > 0 && (
+                               <select
+                                 value={a.llm_model ?? ''}
+-                                onChange={e => updateAssign(colIdx, aIdx, { llm_model: e.target.value })}
+-                                className={`${sel} w-32`}
+-                                title="Modelo de IA para este agente">
++                                onChange={e => updateAssign(colIdx, aIdx, { llm_model: e.target.value || undefined })}
++                                className={`${sel} w-36`}
++                                title={llmOptions.find(o => o.value === a.llm_model)?.label ?? 'Modelo de IA para este agente'}>
+                                 <option value="">ÔÇö Modelo ÔÇö</option>
+                                 {llmOptions.map(o => (
+-                                  <option key={o.value} value={o.value}>{o.provider !== o.label ? `${o.provider} / ${o.label}` : o.label}</option>
++                                  <option key={o.value} value={o.value} title={`${o.provider} ┬À ${o.label}`}>
++                                    {o.provider} / {o.shortLabel}
++                                  </option>
+                                 ))}
+                               </select>
+                             )}
+@@ -1565,13 +1572,13 @@ export function ClientPipelinesPanel() {
+               <div className="rounded-xl border border-border/40 bg-secondary/20 px-3 py-3 space-y-1.5 text-xs">
+                 <p className="font-semibold text-foreground text-xs">Prioridade do modelo</p>
+                 {[
+-                  'Modelo definido no agente (coluna ÔåÆ atribui├º├úo)',
+-                  'Regra por complexidade da tarefa',
+-                  'Padr├úo do provider em Integra├º├Áes',
+-                ].map((text, i) => (
++                  { label: 'Modelo definido na atribui├º├úo da coluna', detail: 'dropdown por agente, acima' },
++                  { label: 'Regra por complexidade do card',          detail: 'Simples / M├®dia / Complexa' },
++                  { label: 'Padr├úo do provider em Integra├º├Áes',       detail: 'fallback autom├ítico' },
++                ].map(({ label, detail }, i) => (
+                   <div key={i} className="flex items-start gap-2 text-muted-foreground">
+                     <span className="text-primary font-semibold shrink-0 w-3 text-center">{i + 1}</span>
+-                    <span>{text}</span>
++                    <span>{label} <span className="text-muted-foreground/40">({detail})</span></span>
+                   </div>
+                 ))}
+               </div>
+diff --git a/src/lib/pipeline-engine.ts b/src/lib/pipeline-engine.ts
+index 0b96f86..b79c539 100644
+--- a/src/lib/pipeline-engine.ts
++++ b/src/lib/pipeline-engine.ts
+@@ -1444,7 +1444,8 @@ async function createAgentTask(
+   column: PipelineColumn,
+   agent: AgentRow,
+   description: string,
+-  isUserReply = false
++  isUserReply = false,
++  llmModel?: string,
+ ): Promise<number | null> {
+   const now = Math.floor(Date.now() / 1000)
+   const title = isUserReply
+@@ -1457,6 +1458,7 @@ async function createAgentTask(
+     card_key: run.card_key,
+     provider: run.provider,
+     is_user_reply: isUserReply,
++    ...(llmModel ? { llm_model: llmModel } : {}),
+   })
+ 
+   try {
+@@ -1632,7 +1634,7 @@ async function startColumn(
+     const previousMessages = await getLastAgentMessages(run.id)
+     const contextSoFar = outputParts.length ? `## Outputs anteriores nesta etapa\n${outputParts.join('\n---\n')}\n\n` : ''
+     const prompt = contextSoFar + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepoContext)
+-    const taskId = await createAgentTask(run, column, agent, prompt)
++    const taskId = await createAgentTask(run, column, agent, prompt, false, assignment.llm_model)
+     await updateRun(run.id, { task_id: taskId ?? undefined })
+ 
+     try {
+@@ -2012,7 +2014,7 @@ async function executeMentionInstruction(
+       buildPrompt(run, column, previousMessages, agent.name, agent.role),
+     ].join('\n')
+ 
+-    const taskId = await createAgentTask(run, column, agent, prompt, true)
++    const taskId = await createAgentTask(run, column, agent, prompt, true, assignment.llm_model)
+     await updateRun(run.id, { task_id: taskId ?? undefined })
+ 
+     try {
+@@ -2168,7 +2170,7 @@ async function processInboundComments(
+       if (agent) {
+         const prevMsgs = await getLastAgentMessages(run.id)
+         const replyDesc = `O usu├írio respondeu no card ${run.card_key}:\n\n"${comment.body}"\n\n${buildPrompt(run, column, prevMsgs, agent.name, agent.role)}`
+-        await createAgentTask(run, column, agent, replyDesc, true)
++        await createAgentTask(run, column, agent, replyDesc, true, assignments[0]?.llm_model)
+       }
+     }
+   }
+diff --git a/src/lib/task-dispatch.ts b/src/lib/task-dispatch.ts
+index 1fd6432..bec3dc5 100644
+--- a/src/lib/task-dispatch.ts
++++ b/src/lib/task-dispatch.ts
+@@ -19,6 +19,8 @@ interface DispatchableTask {
+   project_ticket_no: number | null
+   project_id: number | null
+   tags?: string[]
++  /** LLM escolhido na atribui├º├úo da coluna do fluxo (lido do metadata ao despachar) */
++  _resolved_llm_model?: string
+ }
+ 
+ // ---------------------------------------------------------------------------
+@@ -200,7 +202,7 @@ async function dispatchToModel(
+     case 'openai':
+       return dispatchOpenAICompat(
+         'https://api.openai.com/v1/chat/completions',
+-        process.env.OPENAI_API_KEY || '',
++        await resolveProviderApiKey('openai'),
+         modelId, prompt, systemPrompt, provider,
+         taskId, workspaceId,
+       )
+@@ -208,7 +210,7 @@ async function dispatchToModel(
+     case 'groq':
+       return dispatchOpenAICompat(
+         'https://api.groq.com/openai/v1/chat/completions',
+-        process.env.GROQ_API_KEY || '',
++        await resolveProviderApiKey('groq'),
+         modelId, prompt, systemPrompt, provider,
+         taskId, workspaceId,
+       )
+@@ -216,7 +218,7 @@ async function dispatchToModel(
+     case 'openrouter':
+       return dispatchOpenAICompat(
+         'https://openrouter.ai/api/v1/chat/completions',
+-        process.env.OPENROUTER_API_KEY || '',
++        await resolveProviderApiKey('openrouter'),
+         modelId, prompt, systemPrompt, provider,
+         taskId, workspaceId,
+       )
+@@ -224,7 +226,7 @@ async function dispatchToModel(
+     case 'deepseek':
+       return dispatchOpenAICompat(
+         'https://api.deepseek.com/chat/completions',
+-        process.env.DEEPSEEK_API_KEY || '',
++        await resolveProviderApiKey('deepseek'),
+         modelId, prompt, systemPrompt, provider,
+         taskId, workspaceId,
+       )
+@@ -245,8 +247,8 @@ async function dispatchToAnthropic(
+   taskId: number,
+   workspaceId: number,
+ ): Promise<ProviderCallResult> {
+-  const apiKey = (process.env.ANTHROPIC_API_KEY || '').trim()
+-  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not configured')
++  const apiKey = await resolveProviderApiKey('anthropic')
++  if (!apiKey) throw new Error('ANTHROPIC_API_KEY n├úo configurada ÔÇö configure em Integra├º├Áes')
+ 
+   const body: Record<string, unknown> = {
+     model,
+@@ -315,8 +317,8 @@ async function dispatchToGemini(
+   taskId: number,
+   workspaceId: number,
+ ): Promise<ProviderCallResult> {
+-  const apiKey = (process.env.GEMINI_API_KEY || '').trim()
+-  if (!apiKey) throw new Error('GEMINI_API_KEY not configured')
++  const apiKey = await resolveProviderApiKey('gemini')
++  if (!apiKey) throw new Error('GEMINI_API_KEY n├úo configurada ÔÇö configure em Integra├º├Áes')
+ 
+   const body: Record<string, unknown> = {
+     contents: [{ role: 'user', parts: [{ text: prompt }] }],
+@@ -428,16 +430,62 @@ function getAnthropicApiKey(): string | null {
+   return (process.env.ANTHROPIC_API_KEY || '').trim() || null
+ }
+ 
++/** Resolve API key for any provider: env ÔåÆ settings table (integration.*) ÔåÆ ~/.gateway/.env */
++async function resolveProviderApiKey(provider: string): Promise<string> {
++  const envKey = `${provider.toUpperCase()}_API_KEY`
++  const fromEnv = (process.env[envKey] || '').trim()
++  if (fromEnv) return fromEnv
++  try {
++    for (const k of [`integration.${envKey}`, `${provider.toLowerCase()}.api_key`]) {
++      const row = await dbGet('SELECT value FROM settings WHERE `key` = ?', [k]) as { value: string } | undefined
++      const v = (row?.value || '').trim()
++      if (v) return v
++    }
++  } catch { /* ignore */ }
++  try {
++    // eslint-disable-next-line @typescript-eslint/no-require-imports
++    const { readFileSync } = require('fs') as typeof import('fs')
++    // eslint-disable-next-line @typescript-eslint/no-require-imports
++    const { join } = require('path') as typeof import('path')
++    // eslint-disable-next-line @typescript-eslint/no-require-imports
++    const { homedir } = require('os') as typeof import('os')
++    const content = readFileSync(join(homedir(), '.gateway', '.env'), 'utf-8')
++    for (const line of content.split('\n')) {
++      const m = line.match(new RegExp(`^${envKey}\\s*=\\s*(.+)$`))
++      if (m) { const v = m[1].trim().replace(/^["']|["']$/g, ''); if (v) return v }
++    }
++  } catch { /* not found */ }
++  return ''
++}
++
+ async function isGatewayAvailable(): Promise<boolean> {
+   try {
+-    const row = await dbGet('SELECT COUNT(*) as c FROM gateways', []) as { c: number } | undefined
+-    return (row?.c ?? 0) > 0
++    // Checa se existe configura├º├úo E se a porta TCP responde.
++    // S├│ contar linhas na tabela n├úo ├® suficiente ÔÇö pode ter 1 linha apontando
++    // para uma porta fechada, e o dispatch vai falhar com erro de token.
++    const row = await dbGet('SELECT url FROM gateways LIMIT 1', []) as { url: string } | undefined
++    if (!row?.url) return false
++    // eslint-disable-next-line @typescript-eslint/no-require-imports
++    const { URL } = require('url') as typeof import('url')
++    // eslint-disable-next-line @typescript-eslint/no-require-imports
++    const { createConnection } = require('net') as typeof import('net')
++    const parsed = new URL(row.url.startsWith('http') ? row.url : `http://${row.url}`)
++    const host = parsed.hostname
++    const port = parseInt(parsed.port || (parsed.protocol === 'https:' ? '443' : '80'), 10)
++    return await new Promise<boolean>((resolve) => {
++      const socket = createConnection({ host, port, timeout: 2000 }, () => { socket.destroy(); resolve(true) })
++      socket.on('error', () => resolve(false))
++      socket.on('timeout', () => { socket.destroy(); resolve(false) })
++    })
+   } catch {
+     return false
+   }
+ }
+ 
+ async function classifyDirectModel(task: DispatchableTask, pipelineCfg?: PipelineConfig): Promise<string> {
++  // 0. Modelo escolhido na atribui├º├úo da coluna do fluxo ÔÇö prioridade m├íxima
++  if (task._resolved_llm_model) return task._resolved_llm_model
++
+   // 1. Per-agent config override
+   if (task.agent_config) {
+     try {
+@@ -604,7 +652,7 @@ export async function runAegisReviews(): Promise<{ ok: boolean; message: string
+       const prompt = buildReviewPrompt(task)
+       let agentResponse: AgentResponseParsed
+ 
+-      if (!isGatewayAvailable() && getAnthropicApiKey()) {
++      if (!(await isGatewayAvailable()) && !!getAnthropicApiKey()) {
+         // Direct Claude API review ÔÇö no gateway needed
+         const reviewTask: DispatchableTask = {
+           id: task.id, title: task.title, description: task.description,
+@@ -811,11 +859,21 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
+     return { ok: true, message: 'No assigned tasks to dispatch' }
+   }
+ 
+-  // Parse JSON tags column
++  // Parse JSON tags + extrai llm_model do metadata (gravado pelo pipeline-engine)
+   for (const task of tasks) {
+     if (typeof task.tags === 'string') {
+       try { task.tags = JSON.parse(task.tags as string) } catch { task.tags = undefined }
+     }
++    // t.* j├í inclui metadata ÔÇö l├¬ llm_model sem SELECT extra
++    try {
++      const raw = (task as unknown as { metadata?: string }).metadata
++      if (raw) {
++        const meta = JSON.parse(raw) as Record<string, unknown>
++        if (typeof meta.llm_model === 'string' && meta.llm_model) {
++          task._resolved_llm_model = meta.llm_model
++        }
++      }
++    } catch { /* n├úo-fatal */ }
+   }
+ 
+   const results: Array<{ id: number; success: boolean; error?: string }> = []
+@@ -864,7 +922,7 @@ export async function dispatchAssignedTasks(): Promise<{ ok: boolean; message: s
+         : null
+ 
+       let agentResponse: AgentResponseParsed
+-      const useDirectApi = !isGatewayAvailable() && getAnthropicApiKey()
++      const useDirectApi = !(await isGatewayAvailable()) && !!getAnthropicApiKey()
+ 
+       if (useDirectApi && !targetSession) {
+         // Direct Claude API dispatch ÔÇö no gateway needed
