@@ -1099,11 +1099,32 @@ async function checkAndAdvancePRCI(
     return
   }
   const repoRow = await dbGet('SELECT access_token FROM git_repositories WHERE id = ?', [prInfo.repoId]) as { access_token: string | null } | undefined
-  if (!repoRow?.access_token) return
+
+  // If the stored repoId no longer has a token (deleted/recreated), find the current active repo
+  let effectivePrRepoId = prInfo.repoId
+  let prRepoToken = repoRow?.access_token
+  if (!prRepoToken) {
+    const fallback = await dbGet<{ id: number; access_token: string }>(
+      `SELECT id, access_token FROM git_repositories
+       WHERE workspace_id = ? AND is_active = 1 AND access_token IS NOT NULL AND TRIM(access_token) != ''
+       ORDER BY created_at DESC LIMIT 1`,
+      [run.workspace_id]
+    )
+    if (fallback?.id) {
+      logger.info({ run_id: run.id, old_repo_id: prInfo.repoId, new_repo_id: fallback.id }, 'checkAndAdvancePRCI: stored repoId has no token, using active workspace repo')
+      effectivePrRepoId = fallback.id
+      prRepoToken = fallback.access_token
+      // Update pr_check_json so future ticks use the correct repo
+      const updatedPrInfo = { ...prInfo, repoId: fallback.id }
+      await dbRun('UPDATE pipeline_card_runs SET pr_check_json = ? WHERE id = ?', [JSON.stringify(updatedPrInfo), run.id])
+    }
+  }
+
+  if (!prRepoToken) return
 
   let ciResult: { status: 'pending' | 'passed' | 'failed'; summary: string; failureDetails?: string }
   try {
-    ciResult = await checkGitHubCIStatus({ owner: prInfo.owner, repo: prInfo.repo, prNumber: prInfo.prNumber, token: repoRow.access_token })
+    ciResult = await checkGitHubCIStatus({ owner: prInfo.owner, repo: prInfo.repo, prNumber: prInfo.prNumber, token: prRepoToken! })
   } catch (err) {
     logger.warn({ err, run_id: run.id }, 'pipeline-engine: CI status check failed')
     return
@@ -1201,7 +1222,7 @@ async function checkAndAdvancePRCI(
     .join('\n---\n')
 
   // Fetch repo context so the developer sees the real codebase when fixing CI errors
-  const ciRepoContext = await fetchRepoContext(prInfo.repoId)
+  const ciRepoContext = await fetchRepoContext(effectivePrRepoId)
 
   const fixPrompt = [
     `# Correção de CI — ${run.card_key}: ${run.card_title}`,
@@ -1238,7 +1259,7 @@ async function checkAndAdvancePRCI(
     } catch { /* non-critical */ }
 
     // Push the fix to GitHub
-    const pushResult = await pushCodeToGitHub(prInfo.repoId, run.card_key, run.card_title, llmResult.text)
+    const pushResult = await pushCodeToGitHub(effectivePrRepoId, run.card_key, run.card_title, llmResult.text)
     if (!pushResult.ok) {
       const pushFailMsg = [
         `⚠️ **${devAgent.name} gerou correção mas falhou ao fazer push**: ${pushResult.message}`,
@@ -1998,46 +2019,43 @@ async function startColumn(
   // Priority: assignment dropdown > linkedRepoIds (first valid with token) > any workspace repo with token
   // IDs in linkedRepoIds that no longer exist or have no token are silently skipped.
   async function resolveActiveRepo(workspaceId: number): Promise<number | null> {
-    // 1. Per-agent dropdown
-    const fromAssignment = assignments.find(a => a.repo_id)?.repo_id
-    logger.info({ run_id: run.id, workspaceId, fromAssignment, linkedRepoIds_raw: (cfg as any).linkedRepoIds }, 'resolveActiveRepo: starting')
-
-    if (fromAssignment) {
-      const r = await dbGet<{ id: number }>('SELECT id FROM git_repositories WHERE id = ? AND is_active = 1', [fromAssignment])
-      logger.info({ run_id: run.id, fromAssignment, found: !!r?.id }, 'resolveActiveRepo: assignment check')
-      if (r?.id) return r.id
-    }
-
+    // 1. Per-agent dropdown — validated below per-agent, skip here
     // 2. Repos linked in "Repositórios do sistema" — skip deleted or token-less ones
     const linkedIds: number[] = Array.isArray((cfg as any).linkedRepoIds) ? (cfg as any).linkedRepoIds as number[] : []
-    logger.info({ run_id: run.id, workspaceId, linkedIds }, 'resolveActiveRepo: checking linkedRepoIds')
     for (const rid of linkedIds) {
       const r = await dbGet<{ id: number; access_token: string | null }>(
         'SELECT id, access_token FROM git_repositories WHERE id = ? AND workspace_id = ? AND is_active = 1',
         [rid, workspaceId]
       )
-      logger.info({ run_id: run.id, rid, found: !!r?.id, has_token: !!(r?.access_token?.trim()) }, 'resolveActiveRepo: linkedId check')
       if (r?.id && r.access_token && r.access_token.trim()) return r.id
     }
 
     // 3. Any active repo in the workspace with a token — most recently created first
-    const allRepos = await dbGetAll<{ id: number; name: string; access_token: string | null; workspace_id: number; is_active: number }>(
-      'SELECT id, name, access_token, workspace_id, is_active FROM git_repositories WHERE workspace_id = ? ORDER BY created_at DESC',
+    const r = await dbGet<{ id: number }>(
+      `SELECT id FROM git_repositories
+       WHERE workspace_id = ? AND is_active = 1 AND access_token IS NOT NULL AND TRIM(access_token) != ''
+       ORDER BY created_at DESC LIMIT 1`,
       [workspaceId]
     )
-    logger.info({ run_id: run.id, workspaceId, total_repos: allRepos.length, repos: allRepos.map(r => ({ id: r.id, name: r.name, is_active: r.is_active, has_token: !!(r.access_token?.trim()) })) }, 'resolveActiveRepo: all repos in workspace')
+    if (r?.id) return r.id
 
-    const r = allRepos.find(repo => repo.is_active && repo.access_token && repo.access_token.trim())
-    if (r?.id) {
-      logger.info({ run_id: run.id, workspaceId, repoId: r.id, repoName: r.name }, 'pipeline-engine: using workspace fallback repo')
-      return r.id
+    // 4. Last resort: any repo in the system with a token (handles workspace_id mismatch)
+    const any = await dbGet<{ id: number; workspace_id: number }>(
+      `SELECT id, workspace_id FROM git_repositories
+       WHERE is_active = 1 AND access_token IS NOT NULL AND TRIM(access_token) != ''
+       ORDER BY created_at DESC LIMIT 1`,
+      []
+    )
+    if (any?.id) {
+      logger.warn({ run_workspace: workspaceId, repo_workspace: any.workspace_id, repoId: any.id }, 'pipeline-engine: using cross-workspace repo as last resort')
+      return any.id
     }
-    logger.warn({ run_id: run.id, workspaceId }, 'resolveActiveRepo: NO valid repo found in workspace')
+
+    logger.error({ workspaceId, linkedIds }, 'pipeline-engine: no active repo with token found')
     return null
   }
 
   const stageRepoId = await resolveActiveRepo(run.workspace_id)
-  logger.info({ run_id: run.id, stageRepoId, workspace_id: run.workspace_id }, 'pipeline-engine: stageRepoId resolved')
   // Load context for ALL linked repos so the agent understands the full codebase
   const linkedRepoIds: number[] = Array.isArray((cfg as any).linkedRepoIds)
     ? (cfg as any).linkedRepoIds as number[]
@@ -2080,9 +2098,17 @@ async function startColumn(
     const previousMessages = await getLastAgentMessages(run.id)
     const contextSoFar = outputParts.length ? `## Outputs anteriores nesta etapa\n${outputParts.join('\n---\n')}\n\n` : ''
     const agentSkills = await loadAgentSkills(run.workspace_id)
-    // Use the agent's own repo_id, or fall back to the stage-level repo (pipeline default)
-    const effectiveRepoId = assignment.repo_id ?? stageRepoId ?? null
-    logger.info({ run_id: run.id, agent: agent.name, assignment_repo_id: assignment.repo_id, stageRepoId, effectiveRepoId }, 'pipeline-engine: effectiveRepoId for agent')
+    // Use the agent's own repo_id if valid and has token, otherwise fall back to stageRepoId
+    // (assignment.repo_id may reference a deleted repo — always validate against the DB)
+    let effectiveRepoId: number | null = null
+    if (assignment.repo_id) {
+      const valid = await dbGet<{ id: number }>(
+        `SELECT id FROM git_repositories WHERE id = ? AND is_active = 1 AND access_token IS NOT NULL AND TRIM(access_token) != ''`,
+        [assignment.repo_id]
+      )
+      effectiveRepoId = valid?.id ?? null
+    }
+    if (!effectiveRepoId) effectiveRepoId = stageRepoId ?? null
     const prompt = contextSoFar + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepos, hasRepo)
     const taskId = await createAgentTask(run, column, agent, prompt, false, assignment.llm_model)
     await updateRun(run.id, { task_id: taskId ?? undefined })
