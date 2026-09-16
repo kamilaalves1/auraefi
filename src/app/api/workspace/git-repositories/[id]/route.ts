@@ -146,6 +146,25 @@ export async function DELETE(request: NextRequest, { params }: Params) {
       } catch { /* non-fatal */ }
     }
 
+    // Nullify repo_id in all pipeline column assignments that reference the deleted repo
+    const cols = await dbGetAll(
+      'SELECT id, assignments_json FROM pipeline_columns WHERE workspace_id = ?',
+      [workspaceId]
+    ) as Array<{ id: number; assignments_json: string }>
+    for (const col of cols) {
+      try {
+        const arr = JSON.parse(col.assignments_json ?? '[]')
+        let changed = false
+        const patched = arr.map((a: any) => {
+          if (Number(a.repo_id) === Number(id)) { changed = true; return { ...a, repo_id: null } }
+          return a
+        })
+        if (changed) {
+          await dbRun('UPDATE pipeline_columns SET assignments_json = ? WHERE id = ?', [JSON.stringify(patched), col.id])
+        }
+      } catch { /* non-fatal */ }
+    }
+
     const result = await dbRun('DELETE FROM git_repositories WHERE id = ? AND workspace_id = ?', [Number(id), workspaceId])
 
     if (result.affectedRows === 0) return NextResponse.json({ error: 'Repository not found' }, { status: 404 })
