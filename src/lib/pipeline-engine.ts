@@ -2000,35 +2000,44 @@ async function startColumn(
   async function resolveActiveRepo(workspaceId: number): Promise<number | null> {
     // 1. Per-agent dropdown
     const fromAssignment = assignments.find(a => a.repo_id)?.repo_id
+    logger.info({ run_id: run.id, workspaceId, fromAssignment, linkedRepoIds_raw: (cfg as any).linkedRepoIds }, 'resolveActiveRepo: starting')
+
     if (fromAssignment) {
       const r = await dbGet<{ id: number }>('SELECT id FROM git_repositories WHERE id = ? AND is_active = 1', [fromAssignment])
+      logger.info({ run_id: run.id, fromAssignment, found: !!r?.id }, 'resolveActiveRepo: assignment check')
       if (r?.id) return r.id
     }
 
     // 2. Repos linked in "Repositórios do sistema" — skip deleted or token-less ones
     const linkedIds: number[] = Array.isArray((cfg as any).linkedRepoIds) ? (cfg as any).linkedRepoIds as number[] : []
+    logger.info({ run_id: run.id, workspaceId, linkedIds }, 'resolveActiveRepo: checking linkedRepoIds')
     for (const rid of linkedIds) {
       const r = await dbGet<{ id: number; access_token: string | null }>(
         'SELECT id, access_token FROM git_repositories WHERE id = ? AND workspace_id = ? AND is_active = 1',
         [rid, workspaceId]
       )
+      logger.info({ run_id: run.id, rid, found: !!r?.id, has_token: !!(r?.access_token?.trim()) }, 'resolveActiveRepo: linkedId check')
       if (r?.id && r.access_token && r.access_token.trim()) return r.id
     }
 
     // 3. Any active repo in the workspace with a token — most recently created first
-    const r = await dbGet<{ id: number }>(
-      `SELECT id FROM git_repositories
-       WHERE workspace_id = ? AND is_active = 1 AND access_token IS NOT NULL AND TRIM(access_token) != ''
-       ORDER BY created_at DESC LIMIT 1`,
+    const allRepos = await dbGetAll<{ id: number; name: string; access_token: string | null; workspace_id: number; is_active: number }>(
+      'SELECT id, name, access_token, workspace_id, is_active FROM git_repositories WHERE workspace_id = ? ORDER BY created_at DESC',
       [workspaceId]
     )
+    logger.info({ run_id: run.id, workspaceId, total_repos: allRepos.length, repos: allRepos.map(r => ({ id: r.id, name: r.name, is_active: r.is_active, has_token: !!(r.access_token?.trim()) })) }, 'resolveActiveRepo: all repos in workspace')
+
+    const r = allRepos.find(repo => repo.is_active && repo.access_token && repo.access_token.trim())
     if (r?.id) {
-      logger.info({ workspaceId, repoId: r.id }, 'pipeline-engine: using workspace fallback repo (linkedRepoIds had no valid token)')
+      logger.info({ run_id: run.id, workspaceId, repoId: r.id, repoName: r.name }, 'pipeline-engine: using workspace fallback repo')
+      return r.id
     }
-    return r?.id ?? null
+    logger.warn({ run_id: run.id, workspaceId }, 'resolveActiveRepo: NO valid repo found in workspace')
+    return null
   }
 
   const stageRepoId = await resolveActiveRepo(run.workspace_id)
+  logger.info({ run_id: run.id, stageRepoId, workspace_id: run.workspace_id }, 'pipeline-engine: stageRepoId resolved')
   // Load context for ALL linked repos so the agent understands the full codebase
   const linkedRepoIds: number[] = Array.isArray((cfg as any).linkedRepoIds)
     ? (cfg as any).linkedRepoIds as number[]
@@ -2073,6 +2082,7 @@ async function startColumn(
     const agentSkills = await loadAgentSkills(run.workspace_id)
     // Use the agent's own repo_id, or fall back to the stage-level repo (pipeline default)
     const effectiveRepoId = assignment.repo_id ?? stageRepoId ?? null
+    logger.info({ run_id: run.id, agent: agent.name, assignment_repo_id: assignment.repo_id, stageRepoId, effectiveRepoId }, 'pipeline-engine: effectiveRepoId for agent')
     const prompt = contextSoFar + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepos, hasRepo)
     const taskId = await createAgentTask(run, column, agent, prompt, false, assignment.llm_model)
     await updateRun(run.id, { task_id: taskId ?? undefined })

@@ -572,6 +572,17 @@ function ConnectedBacklogCard({
     }
   }
 
+  const handleCancelRun = async (runId: number) => {
+    try {
+      await fetch('/api/pipeline/engine/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'cancel', run_id: runId }),
+      })
+      await loadRuns()
+    } catch { /* ignore */ }
+  }
+
   const handleShowRuns = () => {
     if (!showRuns) loadRuns()
     setShowRuns(s => !s)
@@ -907,14 +918,23 @@ function ConnectedBacklogCard({
                     <span className={`text-[11px] font-medium shrink-0 ${s.color}`}>{s.label}</span>
                     <span className="text-[11px] text-muted-foreground/60 shrink-0">{agoStr}</span>
                     {(run.status === 'waiting_input' || run.status === 'running') && (
-                      <button
-                        onClick={() => handleReprocessRun(run.id)}
-                        disabled={reprocessingId === run.id}
-                        title="Reprocessar esta etapa agora"
-                        className="text-[11px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors shrink-0 disabled:opacity-50"
-                      >
-                        {reprocessingId === run.id ? '...' : '↺ Reprocessar'}
-                      </button>
+                      <>
+                        <button
+                          onClick={() => handleReprocessRun(run.id)}
+                          disabled={reprocessingId === run.id}
+                          title="Reprocessar esta etapa agora"
+                          className="text-[11px] px-1.5 py-0.5 rounded border border-amber-500/30 text-amber-400 hover:bg-amber-500/10 transition-colors shrink-0 disabled:opacity-50"
+                        >
+                          {reprocessingId === run.id ? '...' : '↺ Reprocessar'}
+                        </button>
+                        <button
+                          onClick={() => handleCancelRun(run.id)}
+                          title="Cancelar esta execução presa"
+                          className="text-[11px] px-1.5 py-0.5 rounded border border-red-500/30 text-red-400 hover:bg-red-500/10 transition-colors shrink-0"
+                        >
+                          ✕ Cancelar
+                        </button>
+                      </>
                     )}
                     {run.status === 'failed' && (
                       <button
