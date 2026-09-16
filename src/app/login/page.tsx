@@ -50,7 +50,18 @@ declare global {
   }
 }
 
-function GoogleIcon({ className }: { className?: string }) {
+function MicrosoftIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none">
+      <rect x="1" y="1" width="10.5" height="10.5" fill="#F25022" />
+      <rect x="12.5" y="1" width="10.5" height="10.5" fill="#7FBA00" />
+      <rect x="1" y="12.5" width="10.5" height="10.5" fill="#00A4EF" />
+      <rect x="12.5" y="12.5" width="10.5" height="10.5" fill="#FFB900" />
+    </svg>
+  )
+}
+
+
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none">
       <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4" />
@@ -75,6 +86,7 @@ export default function LoginPage() {
   const googleCallbackRef = useRef<((response: GoogleCredentialResponse) => void) | null>(null)
 
   const googleClientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID || ''
+  const azureClientId = process.env.NEXT_PUBLIC_AZURE_CLIENT_ID || ''
 
   // Check if first-time setup is needed on page load — auto-redirect to /setup
   useEffect(() => {
@@ -264,6 +276,25 @@ export default function LoginPage() {
           </div>
         )}
 
+        {/* Microsoft / Azure AD Sign-In button — always visible, disabled until configured */}
+        <div className={`mb-3 ${pendingApproval ? 'opacity-50 pointer-events-none' : ''}`}>
+          <div title={!azureClientId ? 'SSO com Azure AD — configuração pendente' : undefined}>
+            <button
+              type="button"
+              disabled={!azureClientId || loading || googleLoading}
+              onClick={() => {
+                if (azureClientId) {
+                  window.location.href = '/api/auth/azure/login'
+                }
+              }}
+              className="w-full h-10 flex items-center justify-center gap-3 rounded-lg border border-border bg-[#0078d4] hover:bg-[#106ebe] text-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#0078d4]/50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed disabled:bg-secondary disabled:text-muted-foreground disabled:border-border"
+            >
+              <MicrosoftIcon className="w-[18px] h-[18px]" />
+              {azureClientId ? 'Entrar com Microsoft' : 'Entrar com Microsoft (em breve)'}
+            </button>
+          </div>
+        </div>
+
         {/* Google Sign-In button — shown only when client ID is configured */}
         {googleClientId && (
           <div className={pendingApproval ? 'opacity-50 pointer-events-none' : ''}>
@@ -288,15 +319,15 @@ export default function LoginPage() {
             {!googleReady && (
               <p className="text-center text-xs text-muted-foreground mt-2">{t('loadingGoogleSignIn')}</p>
             )}
-
-            {/* Divider */}
-            <div className="my-4 flex items-center gap-2">
-              <div className="h-px flex-1 bg-border" />
-              <span className="text-xs text-muted-foreground">{tc('or')}</span>
-              <div className="h-px flex-1 bg-border" />
-            </div>
           </div>
         )}
+
+        {/* Divider between social logins and username/password form */}
+        <div className="my-4 flex items-center gap-2">
+          <div className="h-px flex-1 bg-border" />
+          <span className="text-xs text-muted-foreground">{tc('or')}</span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
 
         <form onSubmit={handleSubmit} className={`space-y-4 ${pendingApproval ? 'opacity-50 pointer-events-none' : ''}`}>
           <div>

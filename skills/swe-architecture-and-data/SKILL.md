@@ -36,7 +36,7 @@ Pode criar alterações versionadas e testes em ambientes autorizados. Exige apr
 
 ## Gate de dados
 
-Exigir compatibilidade, consumidores identificados, qualidade, migração, rollback/reconciliação, segurança, testes e operação. Finalizar `DATA: APPROVED` ou `DATA: BLOCKED`.
+Exigir compatibilidade, consumidores identificados, qualidade, migração, rollback/reconciliação, segurança, testes e operação. Finalizar `DATA: APPROVED`, `DATA: BLOCKED` ou `DATA: NOT_APPLICABLE` (usar quando o card não cria, altera nem transporta dados — ex: mudança de UI sem impacto em persistência).
 
 ## Handoffs e saída
 

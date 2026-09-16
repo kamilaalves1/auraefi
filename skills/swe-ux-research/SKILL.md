@@ -51,6 +51,7 @@ Avaliar teclado, foco, semântica, contraste, leitor de tela, zoom e área de to
 
 - `UX: APPROVED`
 - `UX: BLOCKED`
+- `UX: NOT_APPLICABLE` — usar quando o card não impacta experiência do usuário (ex: task técnica, script, migração de dados). Registrar o motivo e passar o card adiante sem bloquear.
 
 ## Saída obrigatória
 

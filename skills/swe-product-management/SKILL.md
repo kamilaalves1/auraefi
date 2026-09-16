@@ -77,7 +77,18 @@ O MVP deve:
 Finalizar:
 
 - `PRODUCT: READY`; ou
-- `PRODUCT: BLOCKED`.
+- `PRODUCT: BLOCKED`; ou
+- `PRODUCT: NOT_APPLICABLE` — quando o card for puramente técnico e não requerer análise de produto.
+
+## Second Brain
+
+Antes de analisar o card, o sistema injeta automaticamente contexto relevante do Second Brain
+(base de conhecimento de cards anteriores e fontes externas) quando disponível.
+
+Use esse contexto para:
+- Identificar outcomes e métricas já definidos para o domínio
+- Evitar inconsistências com decisões de produto anteriores
+- Enriquecer a hipótese com aprendizados de iterações passadas
 
 ## Saída obrigatória
 

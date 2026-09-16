@@ -71,6 +71,20 @@ Evitar “funcionar corretamente”, “validar integração” e “ajustar sis
 
 `ANALYSIS: READY` somente com regras, exceções, permissões, integrações, critérios e dúvidas resolvidas.
 
+`ANALYSIS: BLOCKED` quando houver dúvidas funcionais não resolvidas que impeçam a implementação.
+
+`ANALYSIS: NOT_APPLICABLE` quando o card for puramente técnico e não requerer análise de negócio.
+
+## Second Brain
+
+Antes de analisar o card, o sistema injeta automaticamente contexto relevante do Second Brain
+(base de conhecimento de cards anteriores e fontes externas) quando disponível.
+
+Use esse contexto para:
+- Identificar regras de negócio já conhecidas no domínio
+- Evitar perguntas já respondidas em cards anteriores
+- Manter consistência com decisões de negócio anteriores
+
 ## Saída obrigatória
 
 - Entendimento.

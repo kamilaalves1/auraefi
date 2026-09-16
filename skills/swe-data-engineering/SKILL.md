@@ -47,6 +47,7 @@ Avaliar:
 
 - `DATA: APPROVED`
 - `DATA: BLOCKED`
+- `DATA: NOT_APPLICABLE` — usar quando o card não envolve criação, alteração, migração ou transporte de dados. Registrar o motivo e passar o card adiante.
 
 ## Saída obrigatória
 

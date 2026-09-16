@@ -10,6 +10,8 @@ import { db_helpers } from '@/lib/db'
 import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { getWorkPipelineRow, decryptPipelineSecrets } from '@/lib/work-pipeline-config'
 import type { WorkPipelineConfigJson, WorkPipelineSecrets } from '@/lib/work-pipeline-types'
+import { validateAgentOutput, formatHarnessRejection } from '@/lib/agent-harness'
+import { searchKnowledge, addKnowledge, formatKnowledgeContext, inferDomain } from '@/lib/second-brain-client'
 import { calculateTokenCost } from '@/lib/token-pricing'
 import { fetchJiraIssuesByStatus, postJiraComment, getJiraCommentsSince, transitionJiraIssue } from '@/lib/work-pipeline-jira'
 import { fetchAzureWorkItemsByState, postAzureComment, getAzureCommentsSince, moveAzureWorkItem } from '@/lib/work-pipeline-azure'
@@ -880,6 +882,100 @@ async function pushCodeToGitHub(
 
   if (committed.length === 0) return { ok: false, message: 'Nenhum arquivo foi commitado com sucesso' }
   return { ok: true, branch: branchName, files: committed, message: commitMsg }
+}
+
+async function openMergeRequestGitLab(
+  repo: { repo_url: string; branch: string; access_token: string | null; base_url?: string | null },
+  cardKey: string,
+  cardTitle: string,
+  reviewBody: string,
+): Promise<{ ok: boolean; url?: string; prNumber?: number; message: string }> {
+  const token = repo.access_token
+  if (!token) return { ok: false, message: 'Repositório sem token configurado' }
+
+  let origin: string
+  let projectPath: string
+  try {
+    const u = new URL(repo.repo_url)
+    origin = (repo.base_url || u.origin).replace(/\/+$/, '')
+    projectPath = u.pathname.replace(/^\/+/, '').replace(/\/+$/, '').replace(/\.git$/, '')
+  } catch {
+    return { ok: false, message: `URL do repositório inválida: ${repo.repo_url}` }
+  }
+
+  const api = `${origin}/api/v4/projects/${encodeURIComponent(projectPath)}`
+  const headers: Record<string, string> = { 'PRIVATE-TOKEN': token, 'Content-Type': 'application/json' }
+
+  const branchName = toBranchSlug(cardKey, cardTitle)
+  const baseBranch = (repo.branch || 'main').trim()
+
+  // Check if branch exists
+  const branchCheck = await fetch(`${api}/repository/branches/${encodeURIComponent(branchName)}`, { headers })
+  if (!branchCheck.ok) {
+    return { ok: false, message: `Branch ${branchName} não encontrada — commit o código primeiro` }
+  }
+
+  // Check if MR already exists
+  const existingResp = await fetch(`${api}/merge_requests?state=opened&source_branch=${encodeURIComponent(branchName)}`, { headers })
+  if (existingResp.ok) {
+    const existing = await existingResp.json() as Array<{ web_url: string; iid: number }>
+    if (existing.length > 0) {
+      return { ok: true, url: existing[0].web_url, prNumber: existing[0].iid, message: `MR já existia: !${existing[0].iid}` }
+    }
+  }
+
+  const mrTitle = toConventionalPRTitle(cardKey, cardTitle)
+  const mrBody = [
+    `## ${cardKey} — ${cardTitle}`,
+    ``,
+    `### Code Review`,
+    reviewBody.substring(0, 3000),
+    ``,
+    `---`,
+    `*MR aberto automaticamente pela esteira de agentes após code review.*`,
+  ].join('\n')
+
+  const mrResp = await fetch(`${api}/merge_requests`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      title: mrTitle,
+      description: mrBody,
+      source_branch: branchName,
+      target_branch: baseBranch,
+      remove_source_branch: false,
+    }),
+  })
+
+  if (!mrResp.ok) {
+    const err = await mrResp.text().catch(() => '')
+    return { ok: false, message: `Erro ao abrir MR: ${err.slice(0, 200)}` }
+  }
+
+  const mr = await mrResp.json() as { web_url: string; iid: number }
+  return { ok: true, url: mr.web_url, prNumber: mr.iid, message: `MR !${mr.iid} aberto com sucesso` }
+}
+
+async function openPRForRepo(
+  repoId: number,
+  cardKey: string,
+  cardTitle: string,
+  reviewBody: string,
+): Promise<{ ok: boolean; url?: string; prNumber?: number; message: string }> {
+  const repo = await dbGet('SELECT * FROM git_repositories WHERE id = ?', [repoId]) as
+    | { repo_url: string; branch: string; access_token: string | null; base_url?: string | null }
+    | undefined
+
+  if (!repo?.access_token) return { ok: false, message: 'Repositório sem token configurado' }
+
+  // Route by provider
+  if (/bitbucket\.org\//.test(repo.repo_url)) {
+    return { ok: false, message: 'Abertura de PR automática no Bitbucket não implementada' }
+  }
+  if (!/github\.com\//.test(repo.repo_url)) {
+    return openMergeRequestGitLab(repo, cardKey, cardTitle, reviewBody)
+  }
+  return openPullRequest(repoId, cardKey, cardTitle, reviewBody)
 }
 
 async function openPullRequest(
@@ -1798,6 +1894,9 @@ function buildPrompt(
           '```',
           '',
           'Inclua o conteúdo COMPLETO de cada arquivo, não trechos parciais.',
+          '',
+          'Para solicitar abertura de Pull Request / Merge Request após o commit, inclua na sua resposta:',
+          'OPEN_PR: true',
         ].join('\n'),
   ].join('\n') : ''
 
@@ -1867,12 +1966,20 @@ async function createAgentTask(
 
 // ─── Card operations (provider-agnostic) ─────────────────────────────────────
 
+class CardNotFoundError extends Error {
+  constructor(cardKey: string) {
+    super(`Card ${cardKey} not found (404) — cancelled run`)
+    this.name = 'CardNotFoundError'
+  }
+}
+
 async function postCardComment(
   provider: string,
   cfg: WorkPipelineConfigJson,
   secrets: WorkPipelineSecrets,
   cardKey: string,
-  body: string
+  body: string,
+  runId?: number
 ): Promise<string | null> {
   try {
     if (provider === 'jira') {
@@ -1883,7 +1990,16 @@ async function postCardComment(
       const r = await postAzureComment(cfg, secrets, cardKey, body)
       return r.commentId
     }
-  } catch (err) {
+  } catch (err: any) {
+    const is404 = err?.message?.includes('404')
+    if (is404 && runId) {
+      logger.warn({ runId, cardKey }, 'pipeline-engine: card deleted from Jira/Azure — cancelling run')
+      await dbRun(
+        `UPDATE pipeline_card_runs SET status = 'cancelled', updated_at = UNIX_TIMESTAMP() WHERE id = ? AND status NOT IN ('done','cancelled')`,
+        [runId]
+      ).catch(() => {})
+      throw new CardNotFoundError(cardKey)
+    }
     logger.warn({ err, cardKey }, 'pipeline-engine: failed to post card comment')
   }
   return null
@@ -1953,7 +2069,7 @@ async function startColumn(
 
   if (!agentMap.size) {
     const noAgentMsg = `⏸️ **${column.column_name}** — aguardando atribuição de agente.`
-    const cid = await postCardComment(run.provider, cfg, secrets, run.card_key, noAgentMsg)
+    const cid = await postCardComment(run.provider, cfg, secrets, run.card_key, noAgentMsg, run.id)
     await logMessage(run.id, 'agent_to_card', stageId, noAgentMsg, cid ?? undefined)
     await updateRun(run.id, { status: 'waiting_input', current_stage_id: stageId })
     return
@@ -2001,11 +2117,11 @@ async function startColumn(
       '',
       `⏳ Processando ${run.card_key}...`,
     ].filter(l => l !== undefined).join('\n')
-    const startCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, startMsg)
+    const startCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, startMsg, run.id)
     await logMessage(run.id, 'agent_to_card', stageId, startMsg, startCommentId ?? undefined)
   } else {
     const resumeMsg = `🔄 **Retomando ${column.column_name}** a partir de **${pendingAgents[0].name}** (${completedAgentIds.size}/${agents.length} agentes já concluídos)`
-    const resumeId = await postCardComment(run.provider, cfg, secrets, run.card_key, resumeMsg)
+    const resumeId = await postCardComment(run.provider, cfg, secrets, run.card_key, resumeMsg, run.id)
     await logMessage(run.id, 'agent_to_card', stageId, resumeMsg, resumeId ?? undefined)
   }
 
@@ -2033,7 +2149,7 @@ async function startColumn(
     // 3. Any active repo in the workspace with a token — most recently created first
     const r = await dbGet<{ id: number }>(
       `SELECT id FROM git_repositories
-       WHERE workspace_id = ? AND is_active = 1 AND access_token IS NOT NULL AND TRIM(access_token) != ''
+       WHERE workspace_id = ? AND is_active = 1 AND access_token IS NOT NULL AND access_token != ''
        ORDER BY created_at DESC LIMIT 1`,
       [workspaceId]
     )
@@ -2042,7 +2158,7 @@ async function startColumn(
     // 4. Last resort: any repo in the system with a token (handles workspace_id mismatch)
     const any = await dbGet<{ id: number; workspace_id: number }>(
       `SELECT id, workspace_id FROM git_repositories
-       WHERE is_active = 1 AND access_token IS NOT NULL AND TRIM(access_token) != ''
+       WHERE is_active = 1 AND access_token IS NOT NULL AND access_token != ''
        ORDER BY created_at DESC LIMIT 1`,
       []
     )
@@ -2098,6 +2214,18 @@ async function startColumn(
     const previousMessages = await getLastAgentMessages(run.id)
     const contextSoFar = outputParts.length ? `## Outputs anteriores nesta etapa\n${outputParts.join('\n---\n')}\n\n` : ''
     const agentSkills = await loadAgentSkills(run.workspace_id)
+
+    // Inject Second Brain context for BA and PM agents
+    const sbRoles = ['business analyst', 'product manager', 'product owner']
+    let secondBrainContext = ''
+    if (sbRoles.some(r => agent.role.toLowerCase().includes(r))) {
+      const domain = inferDomain(run.card_title, run.card_description)
+      const sbEntries = await searchKnowledge(run.card_title + ' ' + run.card_description, domain, 5)
+      if (sbEntries.length > 0) {
+        secondBrainContext = formatKnowledgeContext(sbEntries, domain)
+        logger.info({ run_id: run.id, agent: agent.name, domain, entries: sbEntries.length }, 'second-brain: context injected')
+      }
+    }
     // Use the agent's own repo_id if valid and has token, otherwise fall back to stageRepoId
     // (assignment.repo_id may reference a deleted repo — always validate against the DB)
     let effectiveRepoId: number | null = null
@@ -2109,7 +2237,7 @@ async function startColumn(
       effectiveRepoId = valid?.id ?? null
     }
     if (!effectiveRepoId) effectiveRepoId = stageRepoId ?? null
-    const prompt = contextSoFar + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepos, hasRepo)
+    const prompt = contextSoFar + (secondBrainContext ? secondBrainContext + '\n\n' : '') + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepos, hasRepo)
     const taskId = await createAgentTask(run, column, agent, prompt, false, assignment.llm_model)
     await updateRun(run.id, { task_id: taskId ?? undefined })
 
@@ -2117,6 +2245,23 @@ async function startColumn(
       const agentWithSkills = { ...agent, _skills: agentSkills }
       const llmResult = await callAgentLLM(agentWithSkills as AgentFullRow, prompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
       const nowDone = Math.floor(Date.now() / 1000)
+
+      // ── Harness validation ──────────────────────────────────────────────────
+      const harnessResult = validateAgentOutput(llmResult.text, {
+        agentRole: agent.role,
+        cardKey: run.card_key,
+        hasRepo: hasRepo,
+        columnInstructions: column.instructions,
+      })
+      if (!harnessResult.ok) {
+        const rejectionMsg = formatHarnessRejection(harnessResult.reason!, agent.name, run.card_key)
+        logger.warn({ run_id: run.id, agent: agent.name, role: agent.role, reason: harnessResult.reason }, 'pipeline-engine: harness rejected agent output')
+        await postCardComment(run.provider, cfg, secrets, run.card_key, rejectionMsg, run.id)
+        await updateRun(run.id, { status: 'waiting_input', task_id: null })
+        await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowDone, agent.id])
+        return // stop processing this stage — wait for human intervention
+      }
+      // ── End harness ──────────────────────────────────────────────────────────
 
       try {
         await dbRun(`INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, cost_usd, agent_name, task_id, created_at, workspace_id)
@@ -2234,8 +2379,42 @@ async function startColumn(
         }
       }
 
+      // Open PR/MR if agent signalled OPEN_PR: true
+      if (effectiveRepoId && /^OPEN_PR:\s*true/im.test(llmResult.text)) {
+        try {
+          const prResult = await openPRForRepo(effectiveRepoId, run.card_key, run.card_title, llmResult.text)
+          const prMsg = prResult.ok
+            ? [`✅ **PR/MR aberto automaticamente**`, ``, `🔗 ${prResult.url}`, `*${prResult.message}*`].join('\n')
+            : `⚠️ **Não foi possível abrir PR/MR**: ${prResult.message}`
+          const prCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, prMsg)
+          if (prCommentId) await logMessage(run.id, 'agent_to_card', stageId, prMsg, prCommentId)
+
+          // Store PR info for CI polling (GitHub only)
+          if (prResult.ok && prResult.prNumber) {
+            const repoRow = await dbGet<{ repo_url: string; access_token: string }>(
+              'SELECT repo_url, access_token FROM git_repositories WHERE id = ?', [effectiveRepoId]
+            )
+            if (repoRow && /github\.com\//.test(repoRow.repo_url)) {
+              const urlMatch = repoRow.repo_url.match(/github\.com\/([^/]+)\/([^/.]+)/)
+              if (urlMatch) {
+                const prCheckInfo = {
+                  repoId: effectiveRepoId, stageId,
+                  owner: urlMatch[1], repo: urlMatch[2],
+                  prNumber: prResult.prNumber, ci_fix_count: 0,
+                }
+                await dbRun('UPDATE pipeline_card_runs SET pr_check_json = ? WHERE id = ?', [JSON.stringify(prCheckInfo), run.id])
+              }
+            }
+          }
+        } catch (prErr: any) {
+          logger.error({ prErr, run_id: run.id }, 'pipeline-engine: open PR failed')
+        }
+      }
+
       outputParts.push(`### ${agent.name} (${agent.role})\n${llmResult.text}`)
     } catch (err) {
+      // If the card was deleted from Jira/Azure, the run is already cancelled — don't overwrite
+      if (err instanceof CardNotFoundError) throw err
       const nowFail = Math.floor(Date.now() / 1000)
       await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowFail, agent.id])
       logger.error({ err, run_id: run.id, column_id: column.id, agent_id: agent.id }, 'pipeline-engine: LLM call failed')
@@ -2333,6 +2512,15 @@ async function advanceToNextColumn(
     const doneMsg = `✅ **Esteira concluída** — todos os estágios de _${run.card_key}_ foram processados com sucesso.`
     await postCardComment(run.provider, cfg, secrets, run.card_key, doneMsg)
     eventBus.broadcast('pipeline.run_completed', { run_id: run.id, card_key: run.card_key })
+
+    // Capture knowledge in Second Brain when run completes
+    addKnowledge({
+      content: `Card ${run.card_key} concluído: ${run.card_title}\n\n${run.card_description?.slice(0, 1000) ?? ''}`,
+      domain: inferDomain(run.card_title, run.card_description ?? ''),
+      source: `card:${run.card_key}`,
+      title: run.card_title,
+      card_key: run.card_key,
+    }).catch(() => {}) // non-blocking, non-critical
     try {
       db_helpers.logActivity(
         'pipeline.card_done',
@@ -2398,7 +2586,6 @@ async function checkRunningRuns(
       // Auto-retry: reset failed runs so startColumn can run again (max 3 attempts per stage)
       if (run.status === 'failed') {
         const stageId = run.current_stage_id
-        // Count errors only for the current stage so failures in earlier stages don't block retries here
         const errorCount = (await dbGet(`SELECT COUNT(*) as n FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND body LIKE '❌%'`, [run.id, stageId]) as { n: number }).n
         if (errorCount >= 3) return
         await updateRun(run.id, { status: 'running', task_id: null })

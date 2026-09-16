@@ -49,6 +49,7 @@ Registrar:
 
 - `SECURITY: APPROVED`
 - `SECURITY: BLOCKED`
+- `SECURITY: NOT_APPLICABLE` — usar quando o card não envolve APIs, autenticação, autorização, dados sensíveis ou dependências externas. Registrar o motivo e passar o card adiante.
 
 Risco alto ou crítico exige correção ou aceite humano formal no Jira.
 

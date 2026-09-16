@@ -59,6 +59,7 @@ Backlog anterior ao início do trabalho não integra cycle time.
 - `FLOW: HEALTHY`
 - `FLOW: AT_RISK`
 - `FLOW: BLOCKED`
+- `FLOW: NOT_APPLICABLE` — usar quando não há cards ativos ou o card em questão não afeta o fluxo da squad. Passar adiante sem bloquear.
 
 ## Saída obrigatória
 

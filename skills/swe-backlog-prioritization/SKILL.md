@@ -60,6 +60,7 @@ Não cortar:
 
 - `PRIORITY: APPROVED`
 - `PRIORITY: BLOCKED`
+- `PRIORITY: NOT_APPLICABLE` — usar quando o card já tem prioridade definida e não há disputas ou urgências no backlog. Passar adiante sem bloquear.
 
 ## Saída obrigatória
 
