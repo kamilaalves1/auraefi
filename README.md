@@ -35,7 +35,16 @@ AURA monitora seu backlog, distribui tarefas para agentes de IA especializados e
 
 ---
 
-## 1. O que é o AURA
+## 📊 Diagramas
+
+| Diagrama | Descrição | Link |
+|---|---|---|
+| **Jornada da Demanda** | Perspectiva do negócio — o que acontece desde o card até o deploy, quem participa em cada fase e quais decisões são tomadas | [📄 ver diagrama](docs/diagrams/jornada.md) |
+| **Técnico de Sequência** | Perspectiva do código — quais funções são chamadas, quais APIs são acionadas, como os dados fluem entre os componentes. Inclui diagrama de estados do pipeline e fluxo de montagem do prompt | [📄 ver diagrama](docs/diagrams/tecnico.md) |
+
+> Os diagramas usam **Mermaid** e são renderizados automaticamente no GitHub e no GitLab ao abrir os arquivos `.md`.
+
+---
 
 Imagine que o seu squad tem um time de especialistas de IA disponíveis 24 horas: um Analista de Negócios que refina requisitos, um Arquiteto que toma decisões técnicas, um Developer que escreve e commita código, um QA que valida contra critérios de aceite, um Security Auditor que revisa vulnerabilidades e um DevOps que prepara o deploy. O AURA é o sistema que orquestra esse time.
 
