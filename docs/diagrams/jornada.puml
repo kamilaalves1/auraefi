@@ -1,0 +1,203 @@
+@startuml jornada-da-demanda
+!theme plain
+skinparam backgroundColor #FAFAFA
+skinparam sequenceArrowThickness 1.5
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 200
+skinparam sequenceGroupBackgroundColor #EEF2FF
+skinparam sequenceGroupBorderColor #6366F1
+skinparam noteBorderColor #F59E0B
+skinparam noteBackgroundColor #FFFBEB
+skinparam actorBackgroundColor #DBEAFE
+skinparam participantBackgroundColor #F0FDF4
+
+title Jornada da Demanda — AURA\nDo card ao deploy, passando pelos 13 agentes de IA
+
+'── Atores humanos ─────────────────────────────────────────────────
+actor       "Product Owner"          as PO     #DBEAFE
+actor       "Developer Humano"       as DevH   #DBEAFE
+
+'── Plataformas ────────────────────────────────────────────────────
+participant "Jira / Azure\nDevOps"   as Jira   #FEF3C7
+participant "AURA\n(Orquestrador)"   as AURA   #F0FDF4
+participant "Repositório Git\n(projeto cliente)" as Repo #FEF9C3
+
+'── Agentes de IA ──────────────────────────────────────────────────
+participant "01 · Coordinator\n(Aegis)"        as A01   #E0E7FF
+participant "02 · Product Manager"             as A02   #E0E7FF
+participant "03 · Product Owner\n(Backlog)"    as A03   #E0E7FF
+participant "04 · Scrum Master\n(Flow)"        as A04   #E0E7FF
+participant "05 · Business Analyst"            as A05   #E0E7FF
+participant "06 · Discovery"                   as A06   #E0E7FF
+participant "07 · UX Designer"                 as A07   #E0E7FF
+participant "08 · Software Architect"          as A08   #E0E7FF
+participant "09 · Data Engineer"               as A09   #E0E7FF
+participant "10 · Developer"                   as A10   #E0E7FF
+participant "11 · Security Auditor"            as A11   #E0E7FF
+participant "12 · QA Engineer"                 as A12   #E0E7FF
+participant "13 · DevOps / Release"            as A13   #E0E7FF
+
+== FASE 1 — ENTRADA DA DEMANDA ==
+
+PO  -> Jira : Cria card com descrição e critérios de aceite
+PO  -> Jira : Move para coluna configurada como trigger
+note right of Jira
+  AURA detecta o card
+  em até 10 segundos
+  via polling
+end note
+
+AURA --> Jira : 🚀 "Etapa iniciada — Coordinator em execução"
+
+== FASE 2 — ORQUESTRAÇÃO INICIAL ==
+
+AURA -> A01 : Coordinator avalia o card
+A01 -> A01  : Verifica Definition of Ready\nClassifica complexidade e risco\nDefine sequência de agentes
+A01 --> Jira : 📋 Plano de execução + agentes acionados
+
+group Se o card não tem outcome claro
+  A01 -> A02  : Chama Product Manager
+  A02 --> Jira : 📊 Define: problema, público, outcome, hipótese, métrica de sucesso
+  A02 --> Jira : Gate: PRODUCT: READY
+end
+
+group Se backlog precisa de priorização
+  A01 -> A03  : Chama Product Owner (Backlog)
+  A03 --> Jira : 📌 Prioridade definida por valor, risco e dependências
+  A03 --> Jira : Gate: BACKLOG: PRIORITIZED
+end
+
+group Se há risco de parada ou WIP alto
+  A01 -> A04  : Chama Scrum Master (Flow)
+  A04 --> Jira : 🔄 Análise de WIP, aging e bloqueios
+  A04 --> Jira : Gate: FLOW: OK ou FLOW: BLOCKED
+end
+
+== FASE 3 — DISCOVERY (se card novo de produto) ==
+
+group Se card é uma nova funcionalidade não validada
+  A01 -> A06  : Chama Discovery
+  A06 --> Jira : 🔬 Hipótese formulada\nExperimento definido\nSinal de validação mapeado
+  A06 --> Jira : Gate: DISCOVERY: READY
+end
+
+== FASE 4 — ANÁLISE DE NEGÓCIO ==
+
+AURA -> A05 : Chama Business Analyst
+A05 -> A05  : Consulta Second Brain\n(regras de cards anteriores do domínio)
+A05 -> A05  : Mapeia regras, fluxos, exceções, integrações
+
+alt Faltam informações de negócio
+  A05 --> Jira : ⏸️ ANALYSIS: BLOCKED — pergunta publicada
+  PO  -> Jira  : Responde a dúvida
+  A05 --> Jira : ✅ ANALYSIS: READY
+else Tudo claro
+  A05 --> Jira : ✅ ANALYSIS: READY\nRegras, critérios e exceções documentadas
+end
+
+== FASE 5 — JORNADA DE USUÁRIO (se há impacto na UX) ==
+
+group Se card altera experiência do usuário
+  A01 -> A07  : Chama UX Designer
+  A07 --> Jira : 🎨 Jornada desenhada\nEstados mapeados (loading, vazio, erro, sucesso)\nAcessibilidade verificada
+  A07 --> Jira : Gate: UX: APPROVED ou UX: NOT_APPLICABLE
+end
+
+== FASE 6 — DECISÃO TÉCNICA ==
+
+AURA -> A08 : Chama Software Architect
+A08 -> Repo  : Lê código real do repositório\n(estrutura, padrões, banco, contratos)
+A08 -> A08   : Analisa alternativas\nEscolhe solução\nDefine rollout e rollback com valores específicos
+A08 --> Jira : 🏗️ Decisão técnica: componentes, contratos, NFRs, rollout\nCritério de abortagem com valores específicos
+AURA --> Jira : 📊 Estimativa automática: Story Points + Confiança
+
+group Se há mudança de dados (schema, migration, backfill)
+  A08 -> A09  : Chama Data Engineer
+  A09 --> Jira : 🗃️ Schema projetado\nMigration segura\nBackfill e rollback definidos
+  A09 --> Jira : Gate: DATA: APPROVED ou DATA: NOT_APPLICABLE
+end
+
+A08 --> Jira : Gate: ARCHITECTURE: APPROVED
+
+== FASE 7 — IMPLEMENTAÇÃO ==
+
+AURA -> A10 : Chama Developer
+A10 -> Repo  : Lê código + design-system.md\n+ tokens + AGENTS.md
+note right of A10
+  Se card tem wireframe/screenshot:
+  AURA descreve as imagens via
+  LLM de visão antes de chamar
+  o Developer
+end note
+A10 -> A10   : Gera código respeitando arquitetura,\npadrões e design system do projeto
+A10 -> AURA  : Output com blocos ### FILE: e TEST_CMD
+AURA -> Repo  : git clone → docker run → testes
+AURA -> Repo  : Commit + branch feature/CARD-KEY
+AURA -> Repo  : Abre MR/PR
+A10 --> Jira  : ✅ Código commitado, testes passando, PR aberto
+A10 --> Jira  : Gate: IMPLEMENTATION: READY_FOR_REVIEW
+
+== FASE 8 — REVISÃO DE SEGURANÇA ==
+
+AURA -> A11 : Chama Security Auditor
+A11 -> Repo  : Lê código commitado
+A11 --> Jira : 🔐 Revisão: autenticação, autorização,\ndados sensíveis, dependências, abuso
+A11 --> Jira : Gate: SECURITY: APPROVED ou SECURITY: NOT_APPLICABLE
+
+== FASE 9 — VALIDAÇÃO DE QUALIDADE ==
+
+AURA -> A12 : Chama QA Engineer
+A12 -> A12   : Valida cada critério de aceite\ncom evidência real
+A12 -> AURA  : Instrui execução dos testes automatizados
+AURA -> Repo  : Executa suite de testes no sandbox Docker
+
+alt QA reprova
+  A12 --> Jira : 🔄 VERDICT: CHANGES_REQUESTED\nFeedback detalhado com evidências
+  AURA -> A10  : Card retorna ao Developer com feedback
+  A10 -> Repo  : Corrige e commita novamente
+  A12 --> Jira : ✅ VERDICT: APPROVED (na próxima rodada)
+else QA aprova
+  A12 --> Jira : ✅ VERDICT: APPROVED
+end
+
+== FASE 10 — CI E CODE REVIEW HUMANO ==
+
+Repo -> Repo  : Pipeline CI dispara automaticamente
+
+alt CI falha
+  AURA -> A10  : Developer recebe log real dos jobs\nde CI (GitHub Actions API)
+  A10 -> Repo  : Corrige e faz push (até 3 tentativas)
+  note right
+    Na 4ª falha:
+    waiting_input
+    — humano intervém
+  end note
+end
+
+DevH -> Repo  : Code review humano no MR
+
+alt Revisor solicita mudanças
+  DevH -> Repo  : CHANGES_REQUESTED
+  AURA --> Jira : 🚫 PR fechado — card pausado\nAguarda decisão humana
+  DevH -> Jira  : Comenta "reprocessar com foco em X"
+  AURA -> A10   : Developer recebe feedback e retrabalha
+else Revisor aprova
+  DevH -> Repo  : LGTM / Approved
+  AURA --> Jira : ✅ PR aprovado — avançando para deploy
+end
+
+== FASE 11 — RELEASE / DEPLOY ==
+
+AURA -> A13 : Chama DevOps / Release
+A13 -> A13   : Lê estratégia de rollout\ndefinida pelo Arquiteto\n(feature flag / canary / blue-green)
+A13 -> A13   : Executa: pré-flight → deploy → observação\nCritério de abortagem com valores reais
+A13 --> Jira : 🚀 RELEASE: SUCCESS\nMétricas antes/depois registradas
+
+== FASE 12 — CONCLUSÃO ==
+
+AURA -> Jira  : Move card para coluna final
+AURA --> Jira : ✅ "Esteira concluída — todos os estágios processados"
+AURA -> AURA  : Grava aprendizado no Second Brain\npara cards futuros do mesmo domínio
+PO  -> Jira   : Visualiza rastreabilidade completa:\ncada decisão de cada agente documentada
+
+@enduml

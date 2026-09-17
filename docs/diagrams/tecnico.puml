@@ -1,0 +1,236 @@
+@startuml tecnico-sequencia
+!theme plain
+skinparam backgroundColor #FAFAFA
+skinparam sequenceArrowThickness 1.5
+skinparam responseMessageBelowArrow true
+skinparam maxMessageSize 220
+skinparam sequenceGroupBackgroundColor #F0FDF4
+skinparam sequenceGroupBorderColor #22C55E
+skinparam noteBorderColor #F59E0B
+skinparam noteBackgroundColor #FFFBEB
+
+title Diagrama Técnico de Sequência — AURA\nFluxo interno: funções, APIs e banco de dados
+
+'── Scheduler ──────────────────────────────────────────────────────
+participant "scheduler.ts\n(tick 10s)"         as Sched  #E0E7FF
+participant "pipeline-engine.ts\ntickPipelineEngine()" as Engine #DBEAFE
+
+'── Integrações externas ────────────────────────────────────────────
+participant "work-pipeline-jira.ts\nou work-pipeline-azure.ts" as Jira   #FEF3C7
+participant "API Git\n(GitLab / GitHub)"       as Git    #FEF9C3
+participant "LLM Provider\n(configurado na UI)" as LLM   #FCE7F3
+
+'── Core do engine ──────────────────────────────────────────────────
+participant "startColumn()\nagente por agente"          as Start  #F0FDF4
+participant "fetchRepoContext()\n+ loadAgentSkills()"   as Ctx    #ECFDF5
+participant "second-brain-client.ts"                   as SB     #F0FDF4
+participant "agent-harness.ts"                         as Harn   #FEF2F2
+participant "sandbox-runner.ts\n(Docker)"               as Box    #FFF7ED
+
+'── Persistência e eventos ──────────────────────────────────────────
+participant "MySQL 8\npipeline_card_runs"               as DB     #F8FAFC
+participant "event-bus.ts\n(SSE broadcast)"             as Bus    #EFF6FF
+
+== TICK DO SCHEDULER ==
+
+Sched -> Engine : tickPipelineEngine()
+Engine -> DB    : UPDATE status='failed'\nWHERE status='running' AND updated_at < now-2h
+Engine -> DB    : UPDATE status='failed'\nWHERE status='waiting_input'\nAND pr pendente > 7 dias
+Engine -> Jira  : fetchJiraIssuesByStatus(coluna_trigger)\nAbortSignal.timeout(15_000)
+Jira --> Engine : [ { externalId, title, description, url } ]
+
+loop Para cada card detectado
+  Engine -> DB   : SELECT id, status WHERE card_key = ?
+  alt Run ativo já existe
+    Engine -> Engine : skip — card já em processamento
+  else Novo card
+    Engine -> DB   : INSERT pipeline_card_runs\n(status='running', current_stage_id)
+    Engine -> Start : startColumn(run, column)
+  end
+end
+
+== startColumn() — PREPARAÇÃO DA ETAPA ==
+
+Start -> DB    : INSERT / UPDATE stage_snapshots_json\n(permite rollback futuro)
+
+par Contexto do repositório
+  Start -> Ctx   : fetchRepoContext(repoId)\npromise com timeout de 5 min via Promise.race
+  Ctx -> Git     : GET /repository/tree?recursive=true
+  Git --> Ctx    : árvore completa de arquivos
+  Ctx -> Git     : GET /repository/files/design-system.md/raw
+  Ctx -> Git     : GET /src/services/ContestacaoService.ts/raw
+  Git --> Ctx    : conteúdo dos arquivos (até 160 K chars total)
+  Ctx --> Start  : string com contexto do repositório
+
+and Skills (cache 30s em memória)
+  Start -> Ctx   : loadAgentSkills(workspaceId)
+  Ctx -> Ctx     : verifica cache TTL 30s
+  alt Cache válido
+    Ctx --> Start : skills em memória (sem I/O de disco)
+  else Cache expirado
+    Ctx -> Ctx    : readFileSync(SKILL.md) para cada skill\nconcatena e atualiza cache
+    Ctx --> Start : skills concatenadas
+  end
+
+and Second Brain (só para BA, PM e PO)
+  Start -> SB    : searchKnowledge(titulo+desc, dominio, top=5)\nAbortSignal.timeout(10_000)
+  SB --> Start   : entradas relevantes de cards anteriores
+end
+
+== DESCRIÇÃO DE IMAGENS (se card tem anexos) ==
+
+group Se agente é Developer ou BA e card tem imagens
+  Start -> Jira  : fetchJiraAttachments(cardKey)\nAbortSignal.timeout(15_000)
+  Jira --> Start : [ { filename, mimeType, contentUrl, size } ]
+  Start -> Jira  : downloadJiraAttachment(contentUrl)\nAbortSignal.timeout(20_000)
+  Jira --> Start : base64 da imagem
+  Start -> LLM   : POST /messages (Anthropic)\nou POST /chat/completions (OpenAI)\nou generateContent (Gemini)\ncom imagem em base64
+  LLM --> Start  : descrição textual do layout, componentes, estados
+end
+
+== MONTAGEM E EXECUÇÃO DO PROMPT ==
+
+note over Start
+  Prompt montado em ordem:
+  1. context_summary_json (histórico de decisões do run)
+  2. Contexto do Second Brain
+  3. Descrição visual das imagens
+  4. Contexto do repositório (160K chars)
+  5. Instruções da coluna + skills no system prompt
+end note
+
+Start -> LLM  : callAgentLLM(agent, prompt, cfg, assignmentModel)
+note right of LLM
+  resolveProviderAndModel():
+  1. assignmentModel (dropdown da coluna)
+  2. complexidade do card (simple/medium/complex)
+  3. fallback configurado (fixed ou cascade)
+  Nenhum provider ou modelo hardcoded.
+end note
+LLM --> Start : { text, inputTokens, outputTokens, costUsd, model }
+Start -> DB   : INSERT token_usage\nUPDATE pipeline_card_runs SET cost_usd
+
+== VALIDAÇÃO DO OUTPUT (HARNESS) ==
+
+Start -> Harn : validateAgentOutput(text, { agentRole, cardKey })
+
+alt Gate ausente, resposta vazia ou secret detectado
+  Harn --> Start   : { ok: false, reason: "gate ausente" }
+  Start -> Jira    : postJiraComment(rejectionMsg, runId)\nAbortSignal.timeout(15_000)
+  Start -> DB      : UPDATE status='waiting_input'
+  Start -> DB      : INSERT pipeline_quality_metrics\n(gate_rejected, reason, stage_name, agent_name)
+  Start -> Bus     : broadcast('pipeline.loop_detected') ou similar
+else Output válido
+  Harn --> Start   : { ok: true }
+  Start -> DB      : INSERT pipeline_quality_metrics (gate_passed)
+end
+
+== DETECÇÃO DE LOOP SEMÂNTICO ==
+
+Start -> DB    : SELECT COUNT(*) mensagens similares\nna mesma etapa (LOOP_STAGE_THRESHOLD=3)
+alt Mesma etapa executada ≥ 3× com outputs similares
+  Start -> Jira : postJiraComment("🔄 Loop detectado — intervenção necessária")
+  Start -> DB   : UPDATE status='waiting_input'
+  Start -> Bus  : broadcast('pipeline.loop_detected', { run_id, stage, agent })
+  note right : Pipeline parado.\nHumano comenta "reprocessar" ou "cancelar"
+end
+
+== CONTEXTO E TELEMETRIA ==
+
+Start -> DB   : UPDATE context_summary_json\n{ stage, agent, gate, decision } — até 20 entradas
+Start -> Bus  : broadcast('pipeline.agent_output',\n{ agent, role, tokens_in, tokens_out, model, output_preview })
+
+== SANDBOX DOCKER (se TEST_CMD no output) ==
+
+group Se output contém "TEST_CMD: pnpm test --run"
+  Start -> Box   : runSandboxTests(agentOutput, repoId)
+  Box -> Git     : git clone --depth 1 → /tmp/aura-sandbox-XXXXXX
+  Box -> Box     : docker run --rm\n  --network none\n  --memory 512m\n  --cpus 1\n  --pids-limit 256\n  --read-only\n  --tmpfs /tmp:rw,size=256m\n  --volume /tmp/sandbox:/workspace:ro\n  node:22-alpine sh -c "pnpm test --run"
+  alt Testes passaram
+    Box --> Start : { passed: true, stdout, durationMs }
+    Start -> Jira : postJiraComment("✅ Testes passaram (14.2s)")
+  else Testes falharam
+    Box --> Start : { passed: false, stderr, exitCode }
+    Start -> Jira : postJiraComment("❌ Testes falharam — PR não será aberto")
+    Start -> DB   : UPDATE status='waiting_input'
+    Start -> Bus  : broadcast('pipeline.sandbox_failed', ...)
+    note right : Para aqui. Humano decide reprocessar.
+  end
+  Box -> Box    : rm -rf /tmp/aura-sandbox-XXXXXX (cleanup garantido)
+end
+
+== COMMIT DE CÓDIGO (se ### FILE: no output) ==
+
+group Se output contém blocos "### FILE: caminho/arquivo.ts"
+  Start -> Git  : POST /repository/commits\n(branch: feature/AURA-42,\n files: [{ path, content }])
+  Git --> Start : { ok: true, branch, files, message }
+  Start -> Jira : postJiraComment("✅ Código commitado → feature/AURA-42", runId)
+  Start -> DB   : INSERT pipeline_card_messages (agent_to_card)
+end
+
+== ABERTURA DE PR/MR (se OPEN_PR: true) ==
+
+group Se output contém "OPEN_PR: true"
+  Start -> Git  : POST /merge_requests (GitLab)\nou POST /pulls (GitHub)
+  Git --> Start : { ok: true, prNumber: 88, url: "..." }
+  Start -> Jira : postJiraComment("✅ PR #88 aberto → gitlab.com/.../88", runId)
+  alt Repositório é GitHub
+    Start -> DB : UPDATE pr_check_json\n{ owner, repo, prNumber, ci_fix_count: 0 }
+    note right : CI polling ativado\npara próximo tick
+  end
+  Start -> DB   : UPDATE pr_review_json\n{ repoId, prNumber, prUrl, checkedAt: 0 }
+  note right : Review polling ativado\npara próximo tick
+end
+
+== ESTIMATIVA (só após Software Architect) ==
+
+group Se role == "software architect"
+  Start -> LLM  : generateEstimate() — chamada não-bloqueante\n.catch() absorve falhas, pipeline não espera
+  LLM --> Jira  : 📊 "Story Points: 5 | Confiança: Média"
+  LLM --> DB    : INSERT pipeline_quality_metrics\n(story_points_estimate, value_num=5)
+end
+
+== AVANÇO PARA PRÓXIMA ETAPA ==
+
+Start -> DB    : UPDATE stage_snapshots_json (snapshot pré-avanço)
+
+alt Próxima coluna tem requires_human_approval = 1
+  Start -> Jira : postJiraComment("⏸️ Aprovação necessária — Code Review", runId)
+  Start -> DB   : UPDATE status='waiting_input'
+  note right : Aguarda "avançar" no Jira\nou clique na UI
+else Avança automaticamente
+  Start -> Jira : transitionJiraIssue(nextColumn.name)\nAbortSignal.timeout(15_000)
+  Start -> Bus  : broadcast('pipeline.stage_started',\n{ run_id, stage, agent })
+  Start -> Start : startColumn(run, nextColumn) ← recursivo
+end
+
+== POLLING DE CI (próximo tick) ==
+
+group Se pr_check_json preenchido
+  Engine -> Git  : GET /repos/{owner}/{repo}/pulls/{n}\nAbortSignal.timeout(15_000)
+  Engine -> Git  : GET /commits/{sha}/check-runs?per_page=100
+  alt CI pendente
+    Engine -> Engine : return — retry no próximo tick
+  else CI passou
+    Engine -> DB   : UPDATE pr_check_json = NULL
+    Engine -> Jira : postJiraComment("✅ CI passou — avançando")
+    Engine -> Bus  : broadcast('pipeline.ci_passed', ...)
+    Engine -> Start : advanceToNextColumn()
+  else CI falhou (até 3 tentativas)
+    Engine -> Git  : GET /actions/jobs/{id}/logs\n(últimos 2 KB de stdout/stderr)
+    Engine -> LLM  : Developer corrige com log real de CI\n(não apenas annotations)
+    Engine -> Git  : Push da correção na branch
+    Engine -> DB   : UPDATE pr_check_json (ci_fix_count++)
+    Engine -> Bus  : broadcast('pipeline.ci_failed', { fix_attempt })
+  end
+end
+
+== CONCLUSÃO DO RUN ==
+
+Start -> DB   : UPDATE status='done', task_id=NULL
+Start -> Jira : postJiraComment("✅ Esteira concluída", runId)\nrunId passado — 404 cancela run se card deletado
+Start -> Bus  : broadcast('pipeline.run_completed', { run_id, card_key })
+Start -> SB   : addKnowledge({ card_key, title, description, domain })\nnão-bloqueante (.catch absorve)
+Start -> DB   : INSERT pipeline_quality_metrics (stage_duration_sec)
+
+@enduml

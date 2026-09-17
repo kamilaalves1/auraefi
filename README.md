@@ -37,12 +37,12 @@ AURA monitora seu backlog, distribui tarefas para agentes de IA especializados e
 
 ## 📊 Diagramas
 
-| Diagrama | Descrição | Link |
+| Diagrama | Formato | Descrição |
 |---|---|---|
-| **Jornada da Demanda** | Perspectiva do negócio — o que acontece desde o card até o deploy, quem participa em cada fase e quais decisões são tomadas | [📄 ver diagrama](docs/diagrams/jornada.md) |
-| **Técnico de Sequência** | Perspectiva do código — quais funções são chamadas, quais APIs são acionadas, como os dados fluem entre os componentes. Inclui diagrama de estados do pipeline e fluxo de montagem do prompt | [📄 ver diagrama](docs/diagrams/tecnico.md) |
+| [Jornada da Demanda](docs/diagrams/jornada.md) | PlantUML | Perspectiva do negócio — 12 fases, 13 agentes de IA, cenários alternativos |
+| [Técnico de Sequência](docs/diagrams/tecnico.md) | PlantUML | Perspectiva do código — funções reais, APIs, banco, SSE, Docker sandbox |
 
-> Os diagramas usam **Mermaid** e são renderizados automaticamente no GitHub e no GitLab ao abrir os arquivos `.md`.
+> **Para visualizar:** abra o arquivo `.md` correspondente para instruções. Os fontes `.puml` estão em `docs/diagrams/`. Cole em [plantuml.com/plantuml/uml](https://www.plantuml.com/plantuml/uml/) ou use a extensão PlantUML no VS Code (`Alt+D`).
 
 ---
 
