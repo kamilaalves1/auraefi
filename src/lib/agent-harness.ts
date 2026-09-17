@@ -34,10 +34,13 @@ const GATE_REQUIRED_ROLES: Record<string, RegExp> = {
   'software architect':  /ARCHITECTURE(?:_REVIEW)?\s*:\s*(?:APPROVED|BLOCKED|CHANGES_REQUESTED)/i,
   'security auditor':    /SECURITY\s*:\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)/i,
   'qa engineer':         /(?:VERDICT|QA)\s*:\s*(?:APPROVED|CHANGES_REQUESTED|BLOCKED)/i,
-  'business analyst':    /ANALYSIS\s*:\s*(?:READY|BLOCKED)/i,
+  'business analyst':    /ANALYSIS\s*:\s*(?:READY|BLOCKED|NOT_APPLICABLE)/i,
   'data engineer':       /DATA\s*:\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)/i,
   'ux designer':         /UX\s*:\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)/i,
   'product manager':     /PRODUCT\s*:\s*(?:READY|BLOCKED|NOT_APPLICABLE)/i,
+  'product owner':       /(?:PRODUCT|BACKLOG)\s*:\s*(?:READY|BLOCKED|PRIORITIZED|NOT_APPLICABLE)/i,
+  'developer':           /IMPLEMENTATION\s*:\s*(?:READY_FOR_REVIEW|BLOCKED|IN_PROGRESS|COMPLETED)/i,
+  'devops engineer':     /RELEASE\s*:\s*(?:SUCCESS|ROLLED_BACK|FAILED|BLOCKED)/i,
 }
 
 /** Tamanho mínimo de resposta por papel (chars) — respostas muito curtas indicam falha */
@@ -94,9 +97,19 @@ export function validateAgentOutput(
   // 4. Gate obrigatório ausente
   const gatePattern = GATE_REQUIRED_ROLES[role]
   if (gatePattern && !gatePattern.test(text)) {
+    const gateExamples: Record<string, string> = {
+      'software architect': '`ARCHITECTURE: APPROVED` ou `ARCHITECTURE: BLOCKED`',
+      'security auditor':   '`SECURITY: APPROVED` ou `SECURITY: NOT_APPLICABLE`',
+      'qa engineer':        '`VERDICT: APPROVED` ou `VERDICT: CHANGES_REQUESTED`',
+      'business analyst':   '`ANALYSIS: READY` ou `ANALYSIS: BLOCKED`',
+      'data engineer':      '`DATA: APPROVED` ou `DATA: NOT_APPLICABLE`',
+      'ux designer':        '`UX: APPROVED` ou `UX: NOT_APPLICABLE`',
+      'product manager':    '`PRODUCT: READY`, `PRODUCT: BLOCKED` ou `PRODUCT: NOT_APPLICABLE`',
+    }
+    const example = gateExamples[role] ?? '`GATE: APPROVED` ou `GATE: BLOCKED`'
     return {
       ok: false,
-      reason: `O agente **${ctx.agentRole}** não emitiu o gate obrigatório na resposta (ex: \`ARCHITECTURE: APPROVED\`, \`SECURITY: APPROVED\`, etc.). A skill pode não ter sido seguida corretamente. Por favor, revise as instruções da coluna e reprocesse.`,
+      reason: `O agente **${ctx.agentRole}** não emitiu o gate obrigatório na resposta. Esperado: ${example}. A skill pode não ter sido seguida corretamente. Por favor, revise as instruções da coluna e reprocesse.`,
     }
   }
 
