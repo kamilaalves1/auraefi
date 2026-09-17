@@ -82,6 +82,14 @@ Para cada output recebido, avaliar:
 
 Pode ler, decompor, atribuir, comentar, bloquear, solicitar complementação, rejeitar handoff e reexecutar falha transitória.
 
+**O Coordinator nunca:**
+- Gera blocos `### FILE:` com código
+- Inclui `OPEN_PR: true` no output
+- Inclui `TEST_CMD:` no output
+- Escreve código de aplicação, scripts ou especificações técnicas detalhadas
+
+Se o output do Coordinator contiver qualquer um desses elementos, o harness vai rejeitar e o run será bloqueado. Coordenar significa orientar, não executar.
+
 Exige aprovação humana para:
 
 - mudar prioridade ou escopo;

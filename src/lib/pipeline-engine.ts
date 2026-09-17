@@ -3075,7 +3075,12 @@ async function startColumn(
         const rejectionMsg = formatHarnessRejection(harnessResult.reason!, agent.name, run.card_key)
         logger.warn({ run_id: run.id, agent: agent.name, role: agent.role, reason: harnessResult.reason }, 'pipeline-engine: harness rejected agent output')
         await postCardComment(run.provider, cfg, secrets, run.card_key, rejectionMsg, run.id)
-        await updateRun(run.id, { status: 'waiting_input', task_id: null })
+        // Atualiza last_comment_ts para NOW para não reler o comentário que causou o loop
+        await updateRun(run.id, {
+          status: 'waiting_input',
+          task_id: null,
+          last_comment_ts: Math.floor(Date.now() / 1000),
+        })
         await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowDone, agent.id])
         // ── Métrica: gate rejeitado ──
         dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_text, stage_name, agent_name, created_at)
@@ -3761,7 +3766,22 @@ async function processInboundComments(
     }
 
     if (isAdvanceCmd) {
+      // "avançar" só funciona quando waiting_input por aprovação humana ou PR
+      // Não retoma runs bloqueados pelo harness — para isso usar "reprocessar"
       if (run.status === 'waiting_input' || hasMention) {
+        // Verifica se o bloqueio foi por harness (não deve avançar de etapa, só reprocessar)
+        const lastMsg = await dbGet<{ body: string }>(
+          `SELECT body FROM pipeline_card_messages WHERE run_id = ? AND direction = 'agent_to_card' ORDER BY created_at DESC LIMIT 1`,
+          [run.id]
+        )
+        const isHarnessBlock = lastMsg?.body?.includes('Intervenção humana necessária') ||
+                               lastMsg?.body?.includes('harness de qualidade')
+        if (isHarnessBlock) {
+          await postCardComment(run.provider, cfg, secrets, run.card_key,
+            `⚠️ O run está bloqueado pelo harness de qualidade. Use \`reprocessar\` para tentar novamente, não \`avançar\`.`)
+          await updateRun(run.id, { last_comment_ts: emSegundos(latestMs) })
+          return
+        }
         await advanceToNextColumn(run, column, cfg, secrets, '')
         await updateRun(run.id, { last_comment_ts: emSegundos(latestMs) })
         return

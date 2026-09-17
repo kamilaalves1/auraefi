@@ -1,77 +1,75 @@
 ---
 name: swe-data-engineering
-description: Projeta e implementa mudanças de dados, schemas, eventos, migrações, backfills e controles de qualidade. Use sempre que dados forem criados, alterados ou transportados.
+description: Verifica se o card envolve alteração de banco de dados ou estrutura de dados. Se envolver, avalia se a mudança é segura, compatível e reversível. Use em qualquer card que passe pela esteira.
 ---
 
-# Executar mudança de dados
+# Avaliar alterações de banco de dados
 
 ## Missão
 
-Preservar integridade, compatibilidade, auditabilidade e capacidade de recuperação.
-
-## Comunicação externa obrigatória
-
-Toda dependência de acesso, autorização de migração, decisão de retenção, indisponibilidade de fonte ou risco de dados deve ser comentada no Jira.
-
-Não executar produção enquanto a ação humana solicitada não estiver registrada.
+Identificar se o card cria, altera ou remove estruturas de dados (tabelas, colunas, índices, constraints, enums, migrations) e, se isso acontecer, garantir que a mudança é segura, compatível com os consumidores existentes e pode ser revertida.
 
 ## Processo
 
-1. Mapear lineage.
-2. Classificar sensibilidade.
-3. Definir ownership.
-4. Definir schema.
-5. Identificar produtores e consumidores.
-6. Definir compatibilidade.
-7. Tratar duplicidade e ordenação.
-8. Planejar migration.
-9. Planejar backfill.
-10. Definir checkpoint.
-11. Definir abortagem.
-12. Definir rollback.
-13. Testar falha parcial.
-14. Instrumentar qualidade.
+### Passo 1 — Verificar se há alteração de dados
 
-## Qualidade
+Inspecionar:
 
-Avaliar:
+- O código commitado ou descrito no card contém arquivos de migration (`.sql`, `*Migration*`, `*migration*`, `schema.prisma`, `flyway`, `liquibase`, `alembic`)?
+- O card menciona criação ou alteração de tabela, coluna, índice ou enum?
+- O endpoint ou serviço descrito persiste dados novos ou altera estrutura existente?
 
-- completude;
-- validade;
-- unicidade;
-- consistência;
-- atualidade;
-- reconciliação.
+Se a resposta for **não** para todas as perguntas acima:
+
+```
+DATA: NOT_APPLICABLE
+Motivo: o card não envolve alteração de estrutura de dados.
+```
+
+Encerrar aqui. Não é necessário análise adicional.
+
+### Passo 2 — Se houver alteração, avaliar
+
+Para cada alteração identificada, verificar:
+
+**Compatibilidade:**
+- A migration é aditiva (adiciona coluna, tabela, índice) ou destrutiva (remove, renomeia, altera tipo)?
+- Migrations aditivas são seguras. Migrations destrutivas exigem atenção.
+- Se há renomeio ou remoção: existe algum consumer (código, job, relatório) que depende do nome antigo?
+
+**Reversibilidade:**
+- Se o deploy precisar ser revertido, o banco pode voltar ao estado anterior?
+- Existe `down migration` ou equivalente?
+- Se não existir: declarar explicitamente que o rollback de banco não é possível neste card.
+
+**Dados existentes:**
+- A migration altera linhas existentes (backfill)?
+- Se sim: qual o volume estimado? Há risco de lock em produção?
+
+**Dados sensíveis:**
+- A nova coluna ou tabela armazena CPF, cartão, senha, token ou qualquer dado classificado como sensível?
+- Se sim: está sendo armazenado com criptografia ou mascaramento adequado?
 
 ## Gate
 
-- `DATA: APPROVED`
-- `DATA: BLOCKED`
-- `DATA: NOT_APPLICABLE` — usar quando o card não envolve criação, alteração, migração ou transporte de dados. Registrar o motivo e passar o card adiante.
+- `DATA: APPROVED` — alteração de dados identificada, analisada e considerada segura.
+- `DATA: APPROVED_WITH_CONDITIONS` — aprovado com ressalvas registradas (ex: "rollback de banco não disponível — aceito conscientemente").
+- `DATA: BLOCKED` — alteração identificada com risco que impede avanço sem decisão humana.
+- `DATA: NOT_APPLICABLE` — card não envolve alteração de estrutura de dados.
 
-## Saída obrigatória
+## Saída obrigatória quando há alteração
 
-- Lineage.
-- Classificação.
-- Schema.
-- Compatibilidade.
-- Produtores.
-- Consumidores.
-- Qualidade.
-- Migration.
-- Backfill.
-- Replay.
-- Segurança.
-- Observabilidade.
-- Evidências.
-- Comentários no Jira.
-- Veredito.
+- O que muda no banco (tabela, coluna, tipo, constraint)
+- Tipo: aditiva ou destrutiva
+- Consumidores afetados (ou "nenhum identificado")
+- Rollback possível: sim / não / parcialmente
+- Dados sensíveis envolvidos: sim / não
+- Risco de lock em produção: sim / não / não se aplica
+- Gate emitido e justificativa
 
 ## Antipadrões
 
-- Migration destrutiva silenciosa.
-- Backfill sem checkpoint.
-- Consumidor desconhecido.
-- Dados sensíveis em logs.
-- Correção manual sem auditoria.
-- Backup sem restore testado.
+- Emitir `DATA: APPROVED` sem ter verificado se há migration no card
+- Aprovar migration destrutiva sem identificar consumidores
+- Não declarar ausência de rollback quando ela existe
+- Inventar estrutura de banco que não foi descrita no card
