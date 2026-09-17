@@ -1,48 +1,73 @@
 ---
 name: aura-engineer-data-change
-description: Projeta e implementa schemas, pipelines, eventos, migrações, backfills, replays e controles de qualidade. Use quando uma entrega criar, alterar, transportar, reconciliar ou corrigir dados.
+description: Verifica se o card envolve alteração de banco de dados ou estrutura de dados. Se envolver, avalia se a mudança é segura, compatível e reversível. Use em qualquer card que passe pela esteira.
 ---
 
-# Projetar e executar mudança de dados
+# Avaliar alterações de banco de dados
+
+Esta skill segue o mesmo processo de `swe-data-engineering`.
 
 ## Missão
 
-Garantir mudanças de dados corretas, compatíveis, auditáveis, reprocessáveis e operáveis, preservando integridade e privacidade.
-
-## Fontes
-
-Ler regras e critérios, contratos, schemas, migrations, produtores/consumidores, volumes, SLAs, lineage, jobs, filas, logs, métricas, incidentes e políticas de retenção/classificação.
-
-## Responsabilidades
-
-Definir modelo, ownership, compatibilidade, qualidade, migração, backfill, replay, deduplicação, ordenação, consistência, retenção, privacidade, observabilidade e recuperação.
-
-## Autoridade
-
-Pode criar alterações versionadas e testes em ambientes autorizados. Exige aprovação para mudança destrutiva, produção, backfill relevante, retenção, acesso sensível e quebra de consumidor. Não utiliza dado real fora do ambiente permitido.
+Identificar se o card cria, altera ou remove estruturas de dados (tabelas, colunas, índices, constraints, enums, migrations) e, se isso acontecer, garantir que a mudança é segura, compatível com os consumidores existentes e pode ser revertida.
 
 ## Processo
 
-1. Mapear fonte → transformação → armazenamento → consumidor.
-2. Classificar dados e identificar sensibilidade.
-3. Definir schema, chaves, constraints, defaults, nulabilidade e versionamento.
-4. Listar produtores/consumidores e janela de compatibilidade.
-5. Planejar expand/migrate/contract quando houver mudança incompatível.
-6. Tratar duplicidade, idempotência, ordenação, atraso, perda, evento parcial e replay.
-7. Definir qualidade: completude, validade, unicidade, consistência, atualidade e reconciliação.
-8. Planejar migração/backfill com lotes, checkpoint, limite, pausa, retry, abortagem e rollback.
-9. Testar volume representativo e falha parcial.
-10. Instrumentar contagem, erro, latência, lag, divergência e DLQ.
+### Passo 1 — Verificar se há alteração de dados
 
-## Gate de dados
+Inspecionar:
 
-Exigir compatibilidade, consumidores identificados, qualidade, migração, rollback/reconciliação, segurança, testes e operação. Finalizar `DATA: APPROVED`, `DATA: BLOCKED` ou `DATA: NOT_APPLICABLE` (usar quando o card não cria, altera nem transporta dados — ex: mudança de UI sem impacto em persistência).
+- O código commitado ou descrito no card contém arquivos de migration (`.sql`, `*Migration*`, `*migration*`, `schema.prisma`, `flyway`, `liquibase`, `alembic`)?
+- O card menciona criação ou alteração de tabela, coluna, índice ou enum?
+- O endpoint ou serviço descrito persiste dados novos ou altera estrutura existente?
 
-## Handoffs e saída
+Se a resposta for **não** para todas as perguntas acima:
 
-Developer recebe contratos; QA recebe massas/cenários; Security recebe classificação; DevOps recebe comandos, duração, métricas e abortagem. Registrar lineage, schema, compatibilidade, qualidade, migração, backfill, replay, segurança, observabilidade, evidências, riscos e veredito.
+```
+DATA: NOT_APPLICABLE
+Motivo: o card não envolve alteração de estrutura de dados.
+```
 
-## Métricas e antipadrões
+Encerrar aqui.
 
-Medir divergência, rejeição, duplicidade, lag, falha de job, reprocessamento e tempo de recuperação. Proibir migration irreversível silenciosa, backfill sem checkpoint, consumidor desconhecido, log com dado sensível, “backup” sem restore testado e correção manual sem auditoria.
+### Passo 2 — Se houver alteração, avaliar
 
+**Compatibilidade:**
+- A migration é aditiva (adiciona coluna, tabela, índice) ou destrutiva (remove, renomeia, altera tipo)?
+- Se há renomeio ou remoção: existe algum consumer que depende do nome antigo?
+
+**Reversibilidade:**
+- Se o deploy precisar ser revertido, o banco pode voltar ao estado anterior?
+- Existe `down migration` ou equivalente?
+- Se não existir: declarar explicitamente que o rollback de banco não é possível.
+
+**Dados existentes:**
+- A migration altera linhas existentes (backfill)? Se sim: volume estimado e risco de lock?
+
+**Dados sensíveis:**
+- A nova estrutura armazena CPF, cartão, senha, token ou dado sensível?
+- Se sim: está com criptografia ou mascaramento adequado?
+
+## Gate
+
+- `DATA: APPROVED` — alteração segura e analisada.
+- `DATA: APPROVED_WITH_CONDITIONS` — aprovado com ressalvas registradas.
+- `DATA: BLOCKED` — risco que impede avanço sem decisão humana.
+- `DATA: NOT_APPLICABLE` — card não envolve alteração de estrutura de dados.
+
+## Saída obrigatória quando há alteração
+
+- O que muda no banco
+- Tipo: aditiva ou destrutiva
+- Consumidores afetados
+- Rollback possível: sim / não / parcialmente
+- Dados sensíveis: sim / não
+- Risco de lock: sim / não / não se aplica
+- Gate e justificativa
+
+## Antipadrões
+
+- Aprovar sem verificar se há migration no card
+- Aprovar migration destrutiva sem identificar consumidores
+- Não declarar ausência de rollback
+- Inventar estrutura não descrita no card

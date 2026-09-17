@@ -35,7 +35,7 @@ const GATE_REQUIRED_ROLES: Record<string, RegExp> = {
   'security auditor':    /SECURITY\s*:\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)/i,
   'qa engineer':         /(?:VERDICT|QA)\s*:\s*(?:APPROVED|CHANGES_REQUESTED|BLOCKED)/i,
   'business analyst':    /ANALYSIS\s*:\s*(?:READY|BLOCKED|NOT_APPLICABLE)/i,
-  'data engineer':       /DATA\s*:\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)/i,
+  'data engineer':       /DATA\s*:\s*(?:APPROVED|APPROVED_WITH_CONDITIONS|BLOCKED|NOT_APPLICABLE)/i,
   'ux designer':         /UX\s*:\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)/i,
   'product manager':     /PRODUCT\s*:\s*(?:READY|BLOCKED|NOT_APPLICABLE)/i,
   'product owner':       /(?:PRODUCT|BACKLOG)\s*:\s*(?:READY|BLOCKED|PRIORITIZED|NOT_APPLICABLE)/i,
@@ -91,6 +91,23 @@ export function validateAgentOutput(
         }
       }
       pattern.lastIndex = 0
+    }
+  }
+
+  // 3b. Papéis de coordenação nunca devem gerar código ou abrir PR
+  const COORDINATION_ROLES = ['orchestrator', 'coordinator', 'scrum master', 'product manager', 'product owner']
+  if (COORDINATION_ROLES.includes(role)) {
+    if (/###\s*(?:FILE|ARQUIVO)\s*:/i.test(text)) {
+      return {
+        ok: false,
+        reason: `O agente **${ctx.agentRole}** gerou blocos de código (\`### FILE:\`) — esse papel não deve implementar código. Apenas agentes com papel **developer**, **software architect** ou **devops engineer** podem gerar arquivos. Revise as instruções da coluna.`,
+      }
+    }
+    if (/^OPEN_PR\s*:\s*true/im.test(text)) {
+      return {
+        ok: false,
+        reason: `O agente **${ctx.agentRole}** tentou abrir um PR (\`OPEN_PR: true\`) — esse papel não deve fazer isso. Apenas agentes com papel **developer** ou **software architect** podem abrir PRs.`,
+      }
     }
   }
 
