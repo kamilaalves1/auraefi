@@ -11,6 +11,9 @@ services:
         required: false
     volumes:
       - vcc-data:/app/.data
+      # Docker socket para sandbox de execução de testes (opcional)
+      # Remova esta linha se não quiser habilitar o sandbox Docker
+      - /var/run/docker.sock:/var/run/docker.sock
     read_only: true
     tmpfs:
       - /tmp

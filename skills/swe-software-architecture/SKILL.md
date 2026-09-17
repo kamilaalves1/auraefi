@@ -623,35 +623,47 @@ Analisar:
 
 ## Rollout
 
-Definir:
+O rollout deve ser **executável por qualquer pessoa do time sem consultar o Arquiteto**. Isso significa que os valores devem ser específicos, não genéricos.
 
-- pré-condições;
-- feature flag;
-- ordem de implantação;
-- compatibilidade entre versões;
-- migrations;
-- configuração;
-- estratégia de ativação;
-- health checks;
-- métricas de sucesso;
-- período de observação;
-- critério de abortagem;
-- responsáveis.
+**Não aceito:**
+- "ativar gradualmente"
+- "monitorar as métricas"
+- "rollback se necessário"
+
+**Obrigatório:**
+
+Definir com valores concretos:
+
+- **Pré-condições:** o que deve ser verdade antes de implantar (migrations aplicadas, feature flag criada, dependência X na versão Y)
+- **Estratégia de ativação:** uma das opções abaixo com justificativa
+  - _Feature flag_: nome da flag, percentual inicial, incrementos e intervalos (ex: `contestacao.v2 → 1% → 10% → 50% → 100%, intervalos de 30min`)
+  - _Canary_: percentual de instâncias, critério de promoção
+  - _Blue-green_: critério de switch do load balancer, tempo de coexistência
+  - _Deploy direto_: justificativa de por que é seguro sem gradual (ex: nova feature sem impacto em produção existente)
+- **Métricas de sucesso:** valores específicos (ex: `taxa de erro do endpoint /v1/pagamentos < 0.3%`, `p99 < 500ms`)
+- **Período de observação:** duração mínima antes de considerar o rollout concluído
+- **Critério de abortagem:** condição objetiva e mensurável (ex: `taxa de erro > 1% por 5 minutos consecutivos no Datadog`)
+- **Responsável pela decisão de abortar:** papel ou nome
+- **Ordem de implantação:** quando há múltiplos serviços, qual vai primeiro e por quê
 
 ## Rollback
 
-Diferenciar:
+Diferenciar explicitamente:
 
-- rollback de código;
-- rollback de configuração;
-- desativação por feature flag;
-- rollback de schema;
-- restauração de dados;
-- compensação de transações;
-- interrupção de processamento;
-- reprocessamento.
+- **Rollback de código:** reverter o deploy (fast, < 5min normalmente)
+- **Rollback de configuração:** desativar feature flag (fastest, < 1min)
+- **Rollback de schema:** só possível se a migration foi escrita de forma evolutiva — declarar se é possível ou não
+- **Restauração de dados:** necessário quando dados foram transformados — declarar se é possível, o procedimento e o tempo estimado
+- **Compensação de transações:** quando dados foram publicados para sistemas externos
+- **Reprocessamento:** quando filas ou eventos precisam ser reprocessados
 
-Não declarar que uma solução possui rollback quando apenas o código pode ser revertido e os dados permanecem alterados.
+**Não declarar que a solução possui rollback quando apenas o código pode ser revertido e os dados permanecem alterados.** Essa é a forma mais comum de rollback falso — e a mais perigosa.
+
+Para cada tipo de rollback aplicável ao card, informar:
+- É possível? Sim/Não/Parcialmente
+- Procedimento em até 3 passos
+- Tempo estimado
+- Perda de dados? Sim/Não/Quais
 
 # Decomposição técnica
 
@@ -724,6 +736,12 @@ Usar quando:
 # Fase 3 — Code review arquitetural
 
 Após a implementação, revisar o código e o Merge Request.
+
+**Verificar idempotência antes de iniciar o review:**
+
+Antes de fazer o code review, verificar no histórico de decisões do run (`## Histórico de decisões deste card`) se já existe uma entrada com gate `ARCHITECTURE_REVIEW: APPROVED` ou `ARCHITECTURE_REVIEW: CHANGES_REQUESTED` para este MR. Se já existe:
+- `APPROVED`: não refazer o review — emitir o gate diretamente com referência à revisão anterior.
+- `CHANGES_REQUESTED`: verificar se os apontamentos foram corrigidos antes de reavaliar. Não repetir os mesmos apontamentos já feitos.
 
 O objetivo é validar se a solução:
 
@@ -883,6 +901,37 @@ Se o MR estiver incompleto a ponto de impedir a análise, registrar `ARCHITECTUR
 - O rollback é realista?
 - A equipe conseguirá diagnosticar falhas?
 - Existe dependência de procedimento manual não documentado?
+
+## Impacto em produção
+
+Durante o code review arquitetural, o Arquiteto deve avaliar o impacto real da mudança em produção — não apenas a correção técnica do código.
+
+**Para cada endpoint, evento ou processo alterado, responder:**
+
+1. **Volume:** qual é o tráfego atual deste endpoint/evento? (req/min, eventos/hora, registros processados/dia). Se desconhecido, declarar explicitamente e apontar onde buscar (Datadog, Prometheus, CloudWatch, logs).
+
+2. **Caminho crítico:** esta mudança está no caminho crítico de alguma operação de negócio? (ex: processamento de pagamento, autenticação, envio de notificação obrigatória). Se sim, o nível de cautela do rollout deve ser máximo.
+
+3. **Risco de degradação:** a mudança pode causar aumento de latência, consumo de memória, conexões ao banco, ou taxa de erro? Indicar o mecanismo pelo qual isso poderia ocorrer — não apenas "pode causar problemas".
+
+4. **Janela de exposição:** quanto tempo o sistema ficará com o comportamento novo antes de ser possível identificar um problema? (relacionado ao período de observação do rollout)
+
+5. **Blast radius:** se esta mudança falhar em produção, quais outros serviços, consumidores ou processos serão afetados? Listar explicitamente.
+
+**Formato de saída obrigatório para mudanças em endpoints/eventos de produção:**
+
+```text
+[IMPACTO EM PRODUÇÃO]
+
+Endpoint/Evento afetado: <identificador>
+Volume estimado: <número ou "desconhecido — verificar em [fonte]">
+Caminho crítico: Sim/Não — <justificativa>
+Risco de degradação: <mecanismo específico ou "Baixo — mudança aditiva sem impacto em performance">
+Blast radius: <serviços/consumidores afetados ou "Isolado — sem consumidores externos">
+Janela de observação recomendada: <duração>
+```
+
+Se não houver impacto em produção (nova feature sem tráfego existente, mudança de infra isolada, etc.), declarar explicitamente: `[IMPACTO EM PRODUÇÃO: Não aplicável — <motivo>]`.
 
 # Classificação dos achados
 
@@ -1058,6 +1107,40 @@ Alterações necessárias:
 Veredito:
 <APPROVED, CHANGES_REQUESTED ou BLOCKED>
 ```
+
+## Second Brain
+
+Antes de desenhar a solução, o sistema injeta automaticamente contexto relevante do Second Brain
+quando disponível. Use esse contexto para:
+
+- Identificar decisões arquiteturais já tomadas no mesmo domínio
+- Reutilizar padrões aprovados pelo time em cards anteriores
+- Evitar repetir erros já documentados
+
+### Gravar aprendizados ao concluir
+
+Ao emitir `ARCHITECTURE: APPROVED` ou `ARCHITECTURE_REVIEW: APPROVED`, o Arquiteto deve produzir um **resumo estruturado para o Second Brain** contendo:
+
+```text
+[SECOND_BRAIN: RECORD]
+
+Domínio: <domínio técnico ou de negócio>
+Card: <chave do Jira>
+Decisão arquitetural: <decisão tomada e justificativa resumida>
+Padrões aplicados: <padrões de código, comunicação ou dados usados>
+Alternativas descartadas: <o que foi considerado e rejeitado, e por quê>
+Débitos registrados: <débitos técnicos criados neste card>
+Lições: <o que esta entrega ensinou que deve influenciar futuras decisões>
+```
+
+## Rastreabilidade obrigatória
+
+Em cada fase (análise, decisão, code review), registrar no Jira:
+
+- skill ativada: `swe-software-architecture`;
+- fontes consultadas (código, contratos, ADRs);
+- decisão tomada e evidência que a sustenta;
+- gate emitido e justificativa.
 
 # Saída obrigatória antes do desenvolvimento
 

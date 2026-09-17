@@ -71,6 +71,7 @@ export async function fetchJiraBacklog(
       Authorization: `Basic ${auth}`,
       Accept: 'application/json',
     },
+    signal: AbortSignal.timeout(15_000),
   })
 
   if (!res.ok) {
@@ -122,6 +123,7 @@ async function resolveJiraStatusId(auth: string, host: string, projectKey: strin
   try {
     const res = await fetch(`${host}/rest/api/3/project/${encodeURIComponent(projectKey)}/statuses`, {
       headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(10_000),
     })
     if (!res.ok) return null
     const data = await res.json() as Array<{ statuses?: Array<{ id: string; name: string }> }>
@@ -158,8 +160,9 @@ export async function fetchJiraIssuesByStatus(
 
   const res = await fetch(url.toString(), {
     headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' },
+    signal: AbortSignal.timeout(15_000),
   })
-  if (!res.ok) throw new Error(`JIRA API ${res.status}: ${(await res.text().catch(() => '')).slice(0, 400)}`)
+  if (!res.ok) throw new Error(`JIRA API ${res.status}: ${(await res.text().catch(() => '')).slice(0, 120)}`)
 
   const data = (await res.json()) as { issues?: Array<Record<string, unknown>> }
   return (data.issues || []).map((issue) => {
@@ -206,8 +209,9 @@ export async function postJiraComment(
       Accept: 'application/json',
     },
     body: JSON.stringify({ body: adfBody }),
+    signal: AbortSignal.timeout(15_000),
   })
-  if (!res.ok) throw new Error(`JIRA comment ${res.status}: ${(await res.text().catch(() => '')).slice(0, 400)}`)
+  if (!res.ok) throw new Error(`JIRA comment ${res.status}: ${(await res.text().catch(() => '')).slice(0, 120)}`)
   const data = (await res.json()) as { id: string }
   return { commentId: String(data.id) }
 }
@@ -232,6 +236,7 @@ export async function getJiraCommentsSince(
 
   const res = await fetch(url, {
     headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' },
+    signal: AbortSignal.timeout(15_000),
   })
   if (!res.ok) throw new Error(`JIRA comments ${res.status}`)
 
@@ -269,6 +274,7 @@ export async function getJiraTransitions(
 
   const res = await fetch(url, {
     headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' },
+    signal: AbortSignal.timeout(10_000),
   })
   if (!res.ok) throw new Error(`JIRA transitions ${res.status}`)
 
@@ -302,6 +308,83 @@ export async function transitionJiraIssue(
       Accept: 'application/json',
     },
     body: JSON.stringify({ transition: { id: match.id } }),
+    signal: AbortSignal.timeout(15_000),
   })
   if (!res.ok) throw new Error(`JIRA transition ${res.status}: ${(await res.text().catch(() => '')).slice(0, 400)}`)
+}
+
+export interface CardAttachment {
+  id: string
+  filename: string
+  mimeType: string
+  /** URL direta para download do conteúdo */
+  contentUrl: string
+  /** Tamanho em bytes */
+  size: number
+}
+
+/**
+ * Busca os anexos de um card Jira.
+ * Retorna apenas imagens (PNG, JPG, GIF, WEBP, SVG) com até 10 MB.
+ */
+export async function fetchJiraAttachments(
+  cfg: WorkPipelineConfigJson,
+  secrets: WorkPipelineSecrets,
+  issueKey: string
+): Promise<CardAttachment[]> {
+  const { auth, host } = buildJiraAuth(cfg, secrets)
+  const url = `${host}/rest/api/3/issue/${encodeURIComponent(issueKey)}?fields=attachment`
+
+  const res = await fetch(url, {
+    headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' },
+    signal: AbortSignal.timeout(15_000),
+  })
+  if (!res.ok) return []
+
+  const data = (await res.json()) as {
+    fields?: {
+      attachment?: Array<{
+        id: string
+        filename: string
+        mimeType: string
+        content: string
+        size: number
+      }>
+    }
+  }
+
+  const IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'])
+  const MAX_SIZE = 10 * 1024 * 1024 // 10 MB
+
+  return (data.fields?.attachment ?? [])
+    .filter(a => IMAGE_MIME.has(a.mimeType) && a.size <= MAX_SIZE)
+    .map(a => ({
+      id: a.id,
+      filename: a.filename,
+      mimeType: a.mimeType,
+      contentUrl: a.content,
+      size: a.size,
+    }))
+}
+
+/**
+ * Baixa o conteúdo binário de um attachment Jira e retorna como base64.
+ */
+export async function downloadJiraAttachment(
+  cfg: WorkPipelineConfigJson,
+  secrets: WorkPipelineSecrets,
+  contentUrl: string
+): Promise<string | null> {
+  const { auth } = buildJiraAuth(cfg, secrets)
+  try {
+    const res = await fetch(contentUrl, {
+      headers: { Authorization: `Basic ${auth}` },
+      signal: AbortSignal.timeout(20_000),
+    })
+    if (!res.ok) return null
+    const buffer = await res.arrayBuffer()
+    return Buffer.from(buffer).toString('base64')
+  } catch {
+    return null
+  }
 }

@@ -49,6 +49,8 @@ services:
     volumes:
       - vcc-data:/app/.data
       - /app/node_modules
+      # Docker socket para sandbox de execução de testes (opcional)
+      - /var/run/docker.sock:/var/run/docker.sock
     depends_on:
       mysql:
         condition: service_healthy

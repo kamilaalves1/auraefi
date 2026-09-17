@@ -112,22 +112,37 @@ export async function GET(request: NextRequest) {
 
     perAgent.sort((a, b) => b.total_output_tokens - a.total_output_tokens)
 
-    const avgCompact   = groups.compact.request_count > 0 ? groups.compact.total_output_tokens / groups.compact.request_count : null
-    const avgStandard  = groups.standard.request_count > 0 ? groups.standard.total_output_tokens / groups.standard.request_count : null
-    const savingsPct   = avgCompact !== null && avgStandard !== null && avgStandard > 0
-      ? ((avgStandard - avgCompact) / avgStandard) * 100 : null
-    const tokensSaved  = avgCompact !== null && avgStandard !== null && groups.compact.request_count > 0
-      ? Math.round((avgStandard - avgCompact) * groups.compact.request_count) : null
+    const avgCompact  = groups.compact.request_count > 0
+      ? groups.compact.total_output_tokens / groups.compact.request_count : null
+    const avgStandard = groups.standard.request_count > 0
+      ? groups.standard.total_output_tokens / groups.standard.request_count : null
+
+    // Só calcula comparação quando ambos os grupos têm dados e padrão tem média > 0
+    const canCompare = avgCompact !== null && avgStandard !== null && avgStandard > 0
+
+    // Limita a [-100, 100] para evitar overflow ao exibir (compacto pode ser maior que padrão)
+    const rawPct     = canCompare ? ((avgStandard! - avgCompact!) / avgStandard!) * 100 : null
+    const savingsPct = rawPct !== null ? Math.min(100, Math.max(-100, rawPct)) : null
+
+    // Tokens poupados: positivo = economizou, negativo = gastou mais — exibe só se economizou
+    const rawTokensSaved = canCompare && groups.compact.request_count > 0
+      ? (avgStandard! - avgCompact!) * groups.compact.request_count : null
+    const tokensSaved = rawTokensSaved !== null && rawTokensSaved > 0
+      ? Math.round(rawTokensSaved) : null
+
+    // Custo poupado: proporcional à fração de tokens economizados sobre o total padrão
+    const costSaved = tokensSaved !== null && avgStandard && avgStandard > 0 && groups.standard.request_count > 0
+      ? (tokensSaved / (avgStandard * groups.standard.request_count)) * groups.standard.total_cost
+      : null
 
     return NextResponse.json({
       days,
       compact:  { ...groups.compact,  avg_output_per_req: avgCompact  !== null ? Math.round(avgCompact)  : null },
       standard: { ...groups.standard, avg_output_per_req: avgStandard !== null ? Math.round(avgStandard) : null },
       savings: {
-        output_tokens_pct:      savingsPct !== null ? Math.round(savingsPct * 10) / 10 : null,
-        output_tokens_saved:    tokensSaved,
-        cost_saved:             tokensSaved !== null && avgStandard
-          ? (tokensSaved / (avgStandard * groups.standard.request_count || 1)) * groups.standard.total_cost : null,
+        output_tokens_pct:   savingsPct !== null ? Math.round(savingsPct * 10) / 10 : null,
+        output_tokens_saved: tokensSaved,
+        cost_saved:          costSaved,
       },
       per_agent: perAgent,
     })

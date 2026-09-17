@@ -22,6 +22,14 @@ O comentário deve conter:
 - critério bloqueado;
 - status `ANALYSIS: BLOCKED`.
 
+**Antes de publicar qualquer dúvida no Jira, verificar obrigatoriamente:**
+
+1. O contexto do Second Brain injetado no prompt — a resposta pode já estar lá de um card anterior do mesmo domínio.
+2. O histórico de decisões do run atual (`## Histórico de decisões deste card`) — o PM ou o Coordinator pode ter respondido isso já neste card.
+3. A descrição completa do card — incluindo comentários existentes no Jira que vieram como `card_description`.
+
+Só publicar a dúvida se não encontrou a resposta em nenhuma dessas fontes. Uma pergunta ao humano que já foi respondida em card anterior é desperdício de atenção do time.
+
 Não escolher a opção “mais provável”.
 
 ## Levantamento
@@ -75,6 +83,22 @@ Evitar “funcionar corretamente”, “validar integração” e “ajustar sis
 
 `ANALYSIS: NOT_APPLICABLE` quando o card for puramente técnico e não requerer análise de negócio.
 
+## Contexto visual — imagens e wireframes do card
+
+Quando o card contiver screenshots, wireframes ou protótipos como anexo no Jira/Azure, o sistema injeta automaticamente uma descrição textual dessas imagens.
+
+**Ao receber contexto visual:**
+
+1. Analise a seção `## 🖼️ Contexto visual` no prompt.
+2. Extraia critérios de aceite visuais específicos: quais componentes aparecem, qual é o fluxo esperado, quais estados são visíveis (vazio, loading, erro, sucesso).
+3. Formalize esses critérios no formato Dado/Quando/Então como critérios verificáveis — não apenas "a tela deve ser igual ao wireframe".
+4. Identifique dúvidas visuais que a imagem não responde (ex: comportamento responsivo, estado mobile, mensagem de erro específica) e registre no Jira.
+
+**O agente BA não deve:**
+- Ignorar informações visuais disponíveis no contexto
+- Assumir que "parecido com o wireframe" é um critério verificável
+- Deixar o Developer adivinhar o layout quando há prints disponíveis
+
 ## Second Brain
 
 Antes de analisar o card, o sistema injeta automaticamente contexto relevante do Second Brain
@@ -84,6 +108,34 @@ Use esse contexto para:
 - Identificar regras de negócio já conhecidas no domínio
 - Evitar perguntas já respondidas em cards anteriores
 - Manter consistência com decisões de negócio anteriores
+
+### Gravar aprendizados ao concluir
+
+Ao emitir `ANALYSIS: READY`, o BA deve produzir um **resumo estruturado para o Second Brain** contendo:
+
+```text
+[SECOND_BRAIN: RECORD]
+
+Domínio: <domínio de negócio identificado>
+Card: <chave do Jira>
+Regras descobertas: <lista de regras novas ou confirmadas>
+Exceções mapeadas: <comportamentos de borda identificados>
+Dúvidas resolvidas: <decisões que foram esclarecidas neste card>
+Integrações: <sistemas envolvidos e como interagem>
+Padrão de critérios: <formato de aceite que funcionou para este domínio>
+```
+
+Esse registro permite que cards futuros do mesmo domínio comecem com contexto rico, reduzindo alucinação e retrabalho.
+
+## Rastreabilidade obrigatória
+
+Ao finalizar a análise, registrar no Jira:
+
+- skill ativada: `swe-business-analysis`;
+- contexto do Second Brain utilizado (se disponível);
+- regras descobertas neste card;
+- dúvidas abertas e responsáveis;
+- gate emitido e justificativa.
 
 ## Saída obrigatória
 

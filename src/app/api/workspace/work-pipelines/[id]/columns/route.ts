@@ -47,6 +47,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       column_name: row.column_name,
       column_order: row.column_order,
       is_trigger: Boolean(row.is_trigger),
+      requires_human_approval: Boolean(row.requires_human_approval),
       assignments: safeParseAssignments(row.assignments_json),
       instructions: row.instructions ?? null,
       // legacy compat
@@ -82,6 +83,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       column_name: string
       column_order?: number
       is_trigger?: boolean
+      requires_human_approval?: boolean
       assignments?: Array<{ role: string; agent_id: number | null; order: number }>
       instructions?: string | null
     }> = Array.isArray(body.columns) ? body.columns : []
@@ -93,15 +95,17 @@ export async function PUT(request: NextRequest, { params }: Params) {
       const assignments = Array.isArray(col.assignments) ? col.assignments : []
       // first agent_id for legacy column
       const firstAgentId = assignments.find(a => a.agent_id != null)?.agent_id ?? null
-      await dbRun(`INSERT INTO pipeline_columns (pipeline_id, workspace_id, column_name, column_order, is_trigger, agent_id, skill_id, instructions, assignments_json)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?)`, [Number(id),
+      await dbRun(`INSERT INTO pipeline_columns (pipeline_id, workspace_id, column_name, column_order, is_trigger, agent_id, skill_id, instructions, assignments_json, requires_human_approval)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`, [Number(id),
         workspaceId,
         String(col.column_name ?? '').slice(0, 200),
         col.column_order ?? i,
         col.is_trigger ? 1 : 0,
         firstAgentId,
         col.instructions ? String(col.instructions).slice(0, 2000) : null,
-        JSON.stringify(assignments),])
+        JSON.stringify(assignments),
+        col.requires_human_approval ? 1 : 0,
+      ])
     }
 
     const saved = await dbGetAll(`SELECT pc.*, a.name as agent_name
@@ -116,6 +120,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         column_name: row.column_name,
         column_order: row.column_order,
         is_trigger: Boolean(row.is_trigger),
+        requires_human_approval: Boolean(row.requires_human_approval),
         assignments: safeParseAssignments(row.assignments_json),
         instructions: row.instructions ?? null,
         agent_id: row.agent_id ?? null,

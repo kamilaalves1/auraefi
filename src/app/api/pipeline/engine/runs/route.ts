@@ -1,11 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireRole } from '@/lib/auth'
-import { listCardRuns, cancelCardRun, getCardMessages, reprocessCardRun } from '@/lib/pipeline-engine'
+import {
+  listCardRuns,
+  cancelCardRun,
+  getCardMessages,
+  reprocessCardRun,
+  getRunSnapshots,
+  rollbackToSnapshot,
+} from '@/lib/pipeline-engine'
 import { logger } from '@/lib/logger'
 
 /**
- * GET /api/pipeline/engine/runs  — list active/recent card runs for the caller's workspace.
- * GET /api/pipeline/engine/runs?id=<runId>&messages=1 — get messages for a specific run.
+ * GET /api/pipeline/engine/runs                        — lista runs ativos/recentes
+ * GET /api/pipeline/engine/runs?id=<id>&messages=1    — mensagens de um run
+ * GET /api/pipeline/engine/runs?id=<id>&snapshots=1   — snapshots de etapas para replay
  */
 export async function GET(request: NextRequest) {
   const auth = await requireRole(request, 'viewer')
@@ -16,6 +24,12 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const runId = searchParams.get('id')
     const showMessages = searchParams.get('messages') === '1'
+    const showSnapshots = searchParams.get('snapshots') === '1'
+
+    if (runId && showSnapshots) {
+      const snapshots = await getRunSnapshots(Number(runId))
+      return NextResponse.json({ snapshots })
+    }
 
     if (runId && showMessages) {
       const messages = await getCardMessages(Number(runId))
@@ -32,8 +46,8 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/pipeline/engine/runs  — control actions on a run.
- * Body: { action: 'cancel', run_id: number }
+ * POST /api/pipeline/engine/runs — ações sobre um run
+ * Body: { action: 'cancel' | 'reprocess' | 'rollback', run_id: number, stage_id?: string }
  */
 export async function POST(request: NextRequest) {
   const auth = await requireRole(request, 'operator')
@@ -43,7 +57,7 @@ export async function POST(request: NextRequest) {
     const body = (await request.json().catch(() => null)) as Record<string, unknown> | null
     if (!body || typeof body !== 'object') return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
 
-    const { action, run_id } = body as { action: string; run_id: number }
+    const { action, run_id, stage_id } = body as { action: string; run_id: number; stage_id?: string }
     if (!action || !run_id) return NextResponse.json({ error: 'action and run_id are required' }, { status: 400 })
 
     if (action === 'cancel') {
@@ -53,6 +67,12 @@ export async function POST(request: NextRequest) {
 
     if (action === 'reprocess') {
       const result = await reprocessCardRun(Number(run_id))
+      return NextResponse.json(result)
+    }
+
+    if (action === 'rollback') {
+      if (!stage_id) return NextResponse.json({ error: 'stage_id is required for rollback' }, { status: 400 })
+      const result = await rollbackToSnapshot(Number(run_id), stage_id)
       return NextResponse.json(result)
     }
 

@@ -35,30 +35,38 @@ Resultado do deploy, rollback ou falha também deve ser publicado no Jira.
 
 ## Pre-flight
 
-1. Confirmar commit e MR.
-2. Confirmar artefato.
-3. Confirmar ambiente.
-4. Validar configuração.
-5. Validar secrets sem expor valores.
-6. Validar migrations.
-7. Validar dependências.
-8. Confirmar health checks.
-9. Confirmar dashboards.
-10. Definir sucesso.
-11. Definir abortagem.
-12. Confirmar rollback.
-13. Confirmar autorização.
+1. **Ler a decisão de rollout do Arquiteto** — o comentário `[ARCHITECTURE: DECISION]` no card deve conter a estratégia de ativação, métricas de sucesso e critério de abortagem com valores específicos. Se não existir, marcar `RELEASE: BLOCKED` e solicitar ao Arquiteto antes de prosseguir.
+2. Confirmar commit e MR.
+3. Confirmar artefato.
+4. Confirmar ambiente.
+5. Validar configuração.
+6. Validar secrets sem expor valores.
+7. Validar migrations.
+8. Validar dependências.
+9. Confirmar health checks.
+10. Confirmar dashboards configurados para as métricas definidas pelo Arquiteto.
+11. Definir sucesso com os valores exatos do Arquiteto (não genéricos).
+12. Definir critério de abortagem com os valores exatos do Arquiteto.
+13. Confirmar rollback — diferenciar: código, configuração, schema, dados.
+14. Confirmar autorização.
 
-## Execução
+## Execução da estratégia definida pelo Arquiteto
 
-- Registrar início.
-- Executar estratégia aprovada.
-- Confirmar cada etapa.
-- Observar erros, latência, tráfego e saturação.
-- Observar métrica de negócio.
-- Interromper ao atingir abortagem.
-- Executar rollback autorizado.
-- Registrar resultado no Jira.
+O DevOps não define a estratégia de rollout — executa a que o Arquiteto especificou. Se a estratégia não estiver clara o suficiente para execução mecânica, bloquear e pedir complementação.
+
+**Para cada estratégia:**
+
+- **Feature flag:** criar a flag no sistema configurado com o percentual inicial exato. Incrementar nos intervalos definidos. Monitorar as métricas definidas entre cada incremento. Não avançar se métricas estiverem fora dos limites.
+- **Canary:** implantar no percentual de instâncias definido. Observar pelo período definido. Promover somente se métricas dentro dos limites.
+- **Blue-green:** implantar no ambiente passivo. Validar health checks. Fazer o switch. Manter o ambiente anterior ativo pelo período de observação definido antes de desligar.
+- **Deploy direto:** executar apenas se o Arquiteto justificou explicitamente por que é seguro sem gradual.
+
+- Registrar início no Jira.
+- Confirmar cada etapa antes de avançar.
+- Observar: erros, latência, tráfego, saturação e a métrica de negócio definida.
+- Interromper **imediatamente** ao atingir o critério de abortagem — sem aguardar confirmação humana se o critério for objetivo.
+- Executar rollback conforme o tipo definido pelo Arquiteto.
+- Registrar resultado completo no Jira.
 
 ## Gate
 

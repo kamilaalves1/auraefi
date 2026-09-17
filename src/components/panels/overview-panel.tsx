@@ -132,9 +132,10 @@ const CustomTooltip = ({ active, payload, label, prefix = '' }: any) => {
 
 // ── Compact Mode Widget ───────────────────────────────────────────────────────
 function fmtTokens(n: number): string {
+  if (!Number.isFinite(n) || Number.isNaN(n)) return '—'
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`
-  return String(n)
+  return String(Math.round(n))
 }
 
 function CompactModeWidget({ data }: { data: CompactModeData }) {

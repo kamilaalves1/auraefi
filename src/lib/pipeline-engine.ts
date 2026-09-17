@@ -13,8 +13,8 @@ import type { WorkPipelineConfigJson, WorkPipelineSecrets } from '@/lib/work-pip
 import { validateAgentOutput, formatHarnessRejection } from '@/lib/agent-harness'
 import { searchKnowledge, addKnowledge, formatKnowledgeContext, inferDomain } from '@/lib/second-brain-client'
 import { calculateTokenCost } from '@/lib/token-pricing'
-import { fetchJiraIssuesByStatus, postJiraComment, getJiraCommentsSince, transitionJiraIssue } from '@/lib/work-pipeline-jira'
-import { fetchAzureWorkItemsByState, postAzureComment, getAzureCommentsSince, moveAzureWorkItem } from '@/lib/work-pipeline-azure'
+import { fetchJiraIssuesByStatus, postJiraComment, getJiraCommentsSince, transitionJiraIssue, fetchJiraAttachments, downloadJiraAttachment } from '@/lib/work-pipeline-jira'
+import { fetchAzureWorkItemsByState, postAzureComment, getAzureCommentsSince, moveAzureWorkItem, fetchAzureAttachments, downloadAzureAttachment } from '@/lib/work-pipeline-azure'
 import { logger } from '@/lib/logger'
 import { eventBus } from '@/lib/event-bus'
 
@@ -36,6 +36,12 @@ export interface PipelineCardRun {
   llm_models: string
   cost_usd: number
   pr_check_json: string | null
+  /** JSON com info de PR aberto para polling de revisão humana (comentários de rejeição) */
+  pr_review_json: string | null
+  /** Resumo acumulado das decisões de cada etapa — injetado no início de cada prompt */
+  context_summary_json: string | null
+  /** Snapshots do estado antes de cada etapa para replay/rollback */
+  stage_snapshots_json: string | null
   created_at: number
   updated_at: number
 }
@@ -64,6 +70,8 @@ interface PipelineColumn {
   agent_id: number | null
   instructions: string | null
   assignments_json: string
+  /** Se 1, o pipeline pausa ao chegar nesta coluna e aguarda aprovação humana antes de executar os agentes */
+  requires_human_approval: number
 }
 
 interface ColumnAssignment {
@@ -160,7 +168,7 @@ async function upsertRun(
   return (await dbGet<PipelineCardRun>('SELECT * FROM pipeline_card_runs WHERE workspace_id = ? AND provider = ? AND card_key = ?', [workspaceId, provider, cardKey])) ?? null
 }
 
-async function updateRun(id: number, patch: Partial<Pick<PipelineCardRun, 'status' | 'current_stage_id' | 'task_id' | 'last_comment_ts'>>): Promise<void> {
+async function updateRun(id: number, patch: Partial<Pick<PipelineCardRun, 'status' | 'current_stage_id' | 'task_id' | 'last_comment_ts' | 'context_summary_json' | 'stage_snapshots_json'>>): Promise<void> {
   const now = Math.floor(Date.now() / 1000)
   const sets: string[] = ['updated_at = ?']
   const vals: unknown[] = [now]
@@ -168,6 +176,8 @@ async function updateRun(id: number, patch: Partial<Pick<PipelineCardRun, 'statu
   if (patch.current_stage_id !== undefined) { sets.push('current_stage_id = ?'); vals.push(patch.current_stage_id) }
   if (patch.task_id !== undefined) { sets.push('task_id = ?'); vals.push(patch.task_id) }
   if (patch.last_comment_ts !== undefined) { sets.push('last_comment_ts = ?'); vals.push(patch.last_comment_ts) }
+  if (patch.context_summary_json !== undefined) { sets.push('context_summary_json = ?'); vals.push(patch.context_summary_json) }
+  if (patch.stage_snapshots_json !== undefined) { sets.push('stage_snapshots_json = ?'); vals.push(patch.stage_snapshots_json) }
   vals.push(id)
   await dbRun(`UPDATE pipeline_card_runs SET ${sets.join(', ')} WHERE id = ?`, [...vals])
 }
@@ -333,7 +343,15 @@ function agentSystemPrompt(agent: AgentFullRow & { _skills?: string }): string {
   return parts.join('\n')
 }
 
+// ── Skills cache — evita readFileSync síncrono a cada agente ─────────────────
+let _skillsCache: { result: string; cachedAt: number } | null = null
+const SKILLS_CACHE_TTL_MS = 30_000
+
 async function loadAgentSkills(workspaceId: number): Promise<string> {
+  const now = Date.now()
+  if (_skillsCache && (now - _skillsCache.cachedAt) < SKILLS_CACHE_TTL_MS) {
+    return _skillsCache.result
+  }
   try {
     // Skills are synced from disk to the skills table by skill-sync.ts.
     // The `path` column points to the skill directory; SKILL.md is inside it.
@@ -341,7 +359,10 @@ async function loadAgentSkills(workspaceId: number): Promise<string> {
       `SELECT name, path FROM skills WHERE path IS NOT NULL ORDER BY name ASC`,
       []
     )
-    if (!rows.length) return ''
+    if (!rows.length) {
+      _skillsCache = { result: '', cachedAt: now }
+      return ''
+    }
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { readFileSync, existsSync } = require('fs') as typeof import('fs')
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -356,7 +377,9 @@ async function loadAgentSkills(workspaceId: number): Promise<string> {
         }
       } catch { /* skip unreadable skill */ }
     }
-    return parts.join('\n\n')
+    const result = parts.join('\n\n')
+    _skillsCache = { result, cachedAt: now }
+    return result
   } catch {
     return ''
   }
@@ -374,7 +397,10 @@ async function callAnthropicLLM(agent: AgentFullRow, prompt: string, apiKey: str
     body: JSON.stringify({ model, max_tokens: 2048, system: agentSystemPrompt(agent), messages: [{ role: 'user', content: prompt }] }),
     signal: AbortSignal.timeout(90_000),
   })
-  if (!response.ok) throw new Error(`Anthropic API error ${response.status}: ${await response.text()}`)
+  if (!response.ok) {
+    const errBody = (await response.text().catch(() => '')).slice(0, 120)
+    throw new Error(`Anthropic API error ${response.status}${errBody ? ': ' + errBody : ''}`)
+  }
 
   const data = await response.json() as {
     content: Array<{ type: string; text: string }>
@@ -406,7 +432,10 @@ async function callGeminiLLM(agent: AgentFullRow, prompt: string, apiKey: string
       signal: AbortSignal.timeout(90_000),
     }
   )
-  if (!response.ok) throw new Error(`Gemini API error ${response.status}: ${await response.text()}`)
+  if (!response.ok) {
+    const errBody = (await response.text().catch(() => '')).slice(0, 120)
+    throw new Error(`Gemini API error ${response.status}${errBody ? ': ' + errBody : ''}`)
+  }
 
   const data = await response.json() as {
     candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>
@@ -486,12 +515,15 @@ async function callOpenAICompatLLM(agent: AgentFullRow, prompt: string, provider
     } else if (response.status === 400 && (errText.includes('"system"') || errText.includes('system_prompt'))) {
       logger.info({ model, provider }, 'Model does not support system role — retrying without it')
       response = await doFetch(buildBody(false, true))
-      if (!response.ok) throw new Error(`${provider} API error ${response.status}: ${(await response.text().catch(() => '')).slice(0, 300)}`)
+      if (!response.ok) throw new Error(`${provider} API error ${response.status}: ${(await response.text().catch(() => '')).slice(0, 120)}`)
     } else {
-      throw new Error(`${provider} API error ${response.status}: ${errText.slice(0, 300)}`)
+      throw new Error(`${provider} API error ${response.status}: ${errText.slice(0, 120)}`)
     }
   }
-  if (!response.ok) throw new Error(`${provider} API error ${response.status}: ${await response.text()}`)
+  if (!response.ok) {
+    const errBody = (await response.text().catch(() => '')).slice(0, 120)
+    throw new Error(`${provider} API error ${response.status}${errBody ? ': ' + errBody : ''}`)
+  }
 
   const data = await response.json() as {
     choices?: Array<{ message?: { content?: string } }>
@@ -522,7 +554,10 @@ async function callOllamaLLM(agent: AgentFullRow, prompt: string, cfg: WorkPipel
     }),
     signal: AbortSignal.timeout(90_000),
   })
-  if (!response.ok) throw new Error(`Ollama API error ${response.status}: ${(await response.text()).slice(0, 300)}`)
+  if (!response.ok) {
+    const errBody = (await response.text().catch(() => '')).slice(0, 120)
+    throw new Error(`Ollama API error ${response.status}${errBody ? ': ' + errBody : ''}`)
+  }
 
   const data = await response.json() as {
     message?: { content?: string }
@@ -1153,16 +1188,68 @@ async function checkGitHubCIStatus(
   const pending = runs.filter(r => r.status !== 'completed')
 
   if (failed.length > 0) {
-    // Fetch output details for each failed check to give context to the dev agent
+    // Fetch output details for each failed check — annotations + job logs para dar contexto real ao agente
     const details: string[] = []
     for (const failedRun of failed.slice(0, 3)) {
       try {
+        // 1. Annotations (mensagens de erro estruturadas)
         const runResp = await fetch(`${apiBase}/check-runs/${failedRun.id}`, { headers, signal: AbortSignal.timeout(10_000) })
         if (runResp.ok) {
-          const runData = await runResp.json() as { output?: { summary?: string; text?: string } }
-          const summary = runData.output?.summary?.slice(0, 600) ?? ''
-          const text = runData.output?.text?.slice(0, 800) ?? ''
-          if (summary || text) details.push(`### ${failedRun.name}\n${summary}\n${text}`.trim())
+          const runData = await runResp.json() as {
+            output?: { summary?: string; text?: string }
+            app?: { slug?: string }
+          }
+          const summary = runData.output?.summary?.slice(0, 400) ?? ''
+          const text = runData.output?.text?.slice(0, 400) ?? ''
+
+          // 2. Job logs via Actions API (stdout/stderr real dos steps) — só para GitHub Actions
+          let jobLog = ''
+          if (runData.app?.slug === 'github-actions') {
+            try {
+              // Busca o job correspondente ao check run
+              const jobsResp = await fetch(
+                `${apiBase}/actions/runs?head_sha=${pr.head.sha}&per_page=10`,
+                { headers, signal: AbortSignal.timeout(10_000) }
+              )
+              if (jobsResp.ok) {
+                const jobsData = await jobsResp.json() as { workflow_runs?: Array<{ id: number; conclusion: string | null }> }
+                const failedWorkflow = jobsData.workflow_runs?.find(r => r.conclusion === 'failure')
+                if (failedWorkflow) {
+                  const stepsResp = await fetch(
+                    `${apiBase}/actions/runs/${failedWorkflow.id}/jobs`,
+                    { headers, signal: AbortSignal.timeout(10_000) }
+                  )
+                  if (stepsResp.ok) {
+                    const stepsData = await stepsResp.json() as {
+                      jobs?: Array<{ id: number; name: string; conclusion: string | null; steps?: Array<{ name: string; conclusion: string | null; number: number }> }>
+                    }
+                    const failedJob = stepsData.jobs?.find(j => j.conclusion === 'failure')
+                    if (failedJob) {
+                      // Busca o log do job (retorna text/plain com o stdout completo)
+                      const logResp = await fetch(
+                        `${apiBase}/actions/jobs/${failedJob.id}/logs`,
+                        { headers, signal: AbortSignal.timeout(15_000) }
+                      )
+                      if (logResp.ok) {
+                        const logText = await logResp.text()
+                        // Pega as últimas 2KB do log — onde geralmente está o erro
+                        const logSlice = logText.length > 2048
+                          ? '...(log truncado)...\n' + logText.slice(-2048)
+                          : logText
+                        jobLog = `**Log do job "${failedJob.name}":**\n\`\`\`\n${logSlice}\n\`\`\``
+                      }
+                    }
+                  }
+                }
+              }
+            } catch { /* best-effort — job logs are optional */ }
+          }
+
+          const parts = [
+            summary || text ? `### ${failedRun.name}\n${summary}\n${text}`.trim() : '',
+            jobLog,
+          ].filter(Boolean)
+          if (parts.length) details.push(parts.join('\n\n'))
         }
       } catch { /* best-effort */ }
     }
@@ -1400,6 +1487,270 @@ async function checkAndAdvancePRCI(
   }
 }
 
+// ─── PR Review feedback loop ──────────────────────────────────────────────────
+//
+// Quando um PR é aberto e o agente não faz CI polling (GitLab, ou repos sem token CI),
+// ainda assim queremos detectar rejeições humanas no PR (comentários com LGTM/APPROVED
+// vs CHANGES REQUESTED / "not approved" / "precisa corrigir") e devolver ao developer.
+//
+
+interface PRReviewInfo {
+  repoId: number
+  stageId: string
+  prNumber: number
+  prUrl: string
+  owner?: string
+  repo?: string
+  checkedAt: number
+}
+
+const PR_REVIEW_REJECTION_PATTERNS = [
+  /CHANGES[_\s]REQUESTED/i,
+  /request(?:ing|ed)?\s+changes/i,
+  /não\s+aprovo/i,
+  /precisa\s+corrig/i,
+  /refazer/i,
+  /não\s+está\s+pronto/i,
+  /bloqueado/i,
+  /blocked/i,
+  /REJECTED/i,
+  /reprovado/i,
+]
+
+const PR_REVIEW_APPROVAL_PATTERNS = [
+  /\bLGTM\b/,
+  /\bAPPROVED\b/i,
+  /looks?\s+good/i,
+  /aprovado/i,
+  /pode\s+merge/i,
+  /can\s+merge/i,
+]
+
+async function checkPRReviewFeedback(
+  run: PipelineCardRun,
+  column: PipelineColumn,
+  cfg: WorkPipelineConfigJson,
+  secrets: WorkPipelineSecrets,
+): Promise<void> {
+  if (!run.pr_review_json) return
+
+  let prInfo: PRReviewInfo
+  try {
+    prInfo = JSON.parse(run.pr_review_json)
+  } catch {
+    return
+  }
+
+  // Só verifica uma vez por tick (evita polling excessivo)
+  const now = Math.floor(Date.now() / 1000)
+  if (now - prInfo.checkedAt < 60) return
+
+  // Atualiza timestamp para não verificar novamente até o próximo tick
+  const updatedInfo: PRReviewInfo = { ...prInfo, checkedAt: now }
+  await dbRun('UPDATE pipeline_card_runs SET pr_review_json = ? WHERE id = ?', [JSON.stringify(updatedInfo), run.id])
+
+  // Busca comentários novos no PR via GitHub API (se disponível) ou via card Jira
+  let prComments: string[] = []
+  if (prInfo.owner && prInfo.repo && prInfo.prNumber) {
+    try {
+      const repoRow = await dbGet<{ access_token: string | null }>(
+        'SELECT access_token FROM git_repositories WHERE id = ?', [prInfo.repoId]
+      )
+      if (repoRow?.access_token) {
+        const response = await fetch(
+          `https://api.github.com/repos/${prInfo.owner}/${prInfo.repo}/pulls/${prInfo.prNumber}/reviews`,
+          { headers: { Authorization: `token ${repoRow.access_token}`, Accept: 'application/vnd.github.v3+json' } }
+        )
+        if (response.ok) {
+          const reviews = await response.json() as Array<{ state: string; body: string }>
+          prComments = reviews.map(r => r.state + ' ' + (r.body ?? ''))
+        }
+      }
+    } catch (err) {
+      logger.warn({ err, run_id: run.id }, 'pipeline-engine: PR review check failed')
+      return
+    }
+  }
+
+  if (!prComments.length) return
+
+  const allText = prComments.join('\n')
+
+  // Verificar aprovação explícita
+  const isApproved = PR_REVIEW_APPROVAL_PATTERNS.some(p => p.test(allText))
+  if (isApproved) {
+    // PR aprovado — limpa pr_review_json e avança
+    await dbRun('UPDATE pipeline_card_runs SET pr_review_json = NULL, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [run.id])
+    const approvedMsg = `✅ **PR aprovado por revisão humana** — avançando para a próxima etapa.`
+    await postCardComment(run.provider, cfg, secrets, run.card_key, approvedMsg)
+    // ── Métrica: PR aprovado ──
+    dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_num, stage_name, created_at)
+           VALUES (?, ?, ?, 'pr_approved', 1, ?, UNIX_TIMESTAMP())`,
+      [run.workspace_id, run.id, run.card_key, column.column_name]
+    ).catch(() => {})
+    await advanceToNextColumn({ ...run, status: 'running' }, column, cfg, secrets, '')
+    return
+  }
+
+  // Verificar rejeição
+  const isRejected = PR_REVIEW_REJECTION_PATTERNS.some(p => p.test(allText))
+  if (!isRejected) return
+
+  // PR rejeitado — fechar o PR e notificar no card. NÃO re-executar o developer automaticamente.
+  // O humano decidiu rejeitar — a decisão do próximo passo é dele.
+  logger.info({ run_id: run.id, card_key: run.card_key }, 'pipeline-engine: PR rejected by human reviewer — closing PR and notifying')
+
+  await dbRun('UPDATE pipeline_card_runs SET pr_review_json = NULL, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [run.id])
+
+  const rejectionContext = prComments.slice(-5).join('\n---\n')
+
+  // Tenta fechar o PR no GitHub (estado: closed)
+  if (prInfo.owner && prInfo.repo && prInfo.prNumber) {
+    try {
+      const repoRow = await dbGet<{ access_token: string | null }>(
+        'SELECT access_token FROM git_repositories WHERE id = ?', [prInfo.repoId]
+      )
+      if (repoRow?.access_token) {
+        await fetch(
+          `https://api.github.com/repos/${prInfo.owner}/${prInfo.repo}/pulls/${prInfo.prNumber}`,
+          {
+            method: 'PATCH',
+            headers: {
+              Authorization: `token ${repoRow.access_token}`,
+              Accept: 'application/vnd.github.v3+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ state: 'closed' }),
+          }
+        )
+        logger.info({ run_id: run.id, pr: prInfo.prNumber }, 'pipeline-engine: PR closed after rejection')
+      }
+    } catch (closeErr) {
+      logger.warn({ closeErr, run_id: run.id }, 'pipeline-engine: failed to close rejected PR')
+    }
+  }
+
+  const rejectionMsg = [
+    `🚫 **PR #${prInfo.prNumber} rejeitado e fechado**`,
+    ``,
+    `**Feedback do revisor:**`,
+    rejectionContext.slice(0, 800),
+    ``,
+    `⏸️ Esteira pausada. Responda com \`reprocessar\` para corrigir e reabrir, ou \`cancelar\` para encerrar.`,
+  ].join('\n')
+  await postCardComment(run.provider, cfg, secrets, run.card_key, rejectionMsg)
+  await updateRun(run.id, { status: 'waiting_input' })
+
+  try {
+    db_helpers.logActivity(
+      'pipeline.pr_review_rejected',
+      'pipeline_card',
+      run.id,
+      'pipeline',
+      `PR #${prInfo.prNumber} rejeitado — ${run.card_key} pausado aguardando decisão humana`,
+      { card_key: run.card_key, card_title: run.card_title, pr_number: prInfo.prNumber },
+      run.workspace_id
+    )
+  } catch { /* non-critical */ }
+}
+
+// ─── Estimativa automática de story points ────────────────────────────────────
+//
+// Chamada de forma não-bloqueante após o arquiteto concluir.
+// Usa o LLM do pipeline para estimar story points e posta no card como comentário
+// informativo. O pipeline continua sem esperar.
+//
+
+async function generateEstimate(
+  run: PipelineCardRun,
+  column: PipelineColumn,
+  cfg: WorkPipelineConfigJson,
+  architect: AgentFullRow,
+  architectOutput: string,
+  repos: Array<{ id: number; name: string; context: string }>,
+): Promise<void> {
+  const estimatePrompt = [
+    `# Estimativa de esforço — ${run.card_key}: ${run.card_title}`,
+    ``,
+    `## Descrição do card`,
+    run.card_description?.slice(0, 1000) || '(sem descrição)',
+    ``,
+    `## Decisão arquitetural`,
+    architectOutput.slice(0, 3000),
+    ``,
+    `## Repositórios envolvidos`,
+    repos.map(r => `- ${r.name}`).join('\n') || '(nenhum)',
+    ``,
+    `## Sua tarefa`,
+    `Você é um estimador técnico especializado em story points (escala Fibonacci: 1, 2, 3, 5, 8, 13).`,
+    ``,
+    `Analise o card e a decisão arquitetural acima e produza uma estimativa objetiva no seguinte formato EXATO:`,
+    ``,
+    `ESTIMATIVA: <número fibonacci>`,
+    `CONFIANÇA: <Alta|Média|Baixa>`,
+    ``,
+    `JUSTIFICATIVA:`,
+    `- Complexidade técnica: <1 linha>`,
+    `- Repositórios afetados: <número e nomes>`,
+    `- Tipo de mudança: <ex: novo endpoint, refatoração, migration, UI nova>`,
+    `- Riscos identificados: <1-2 linhas ou "Nenhum">`,
+    `- Premissas: <o que precisa ser verdade para esta estimativa ser válida>`,
+    ``,
+    `Seja direto e objetivo. Não invente informações que não estejam no card ou na decisão arquitetural.`,
+  ].join('\n')
+
+  const estimateAgent: AgentFullRow = {
+    ...architect,
+    name: 'Estimador',
+    role: 'estimator',
+    soul_content: 'Você é um estimador técnico imparcial. Estime story points com base em evidências concretas, não em suposições.',
+    instructions: null,
+    config: null,
+    _skills: undefined,
+  } as AgentFullRow & { _skills?: string }
+
+  const result = await callAgentLLM(estimateAgent as AgentFullRow, estimatePrompt, cfg, undefined, 'simple')
+
+  // Extrai a estimativa do output
+  const pontsMatch = result.text.match(/ESTIMATIVA:\s*(\d+)/)
+  const confMatch = result.text.match(/CONFIANÇA:\s*(Alta|Média|Baixa)/i)
+  const points = pontsMatch?.[1] ?? '?'
+  const confidence = confMatch?.[1] ?? '?'
+
+  const estimateComment = [
+    `📊 **Estimativa automática — ${run.card_key}**`,
+    ``,
+    `| Story Points | Confiança |`,
+    `|---|---|`,
+    `| **${points}** | ${confidence} |`,
+    ``,
+    result.text
+      .replace(/ESTIMATIVA:.*\n?/, '')
+      .replace(/CONFIANÇA:.*\n?/, '')
+      .trim()
+      .slice(0, 1200),
+    ``,
+    `*Estimativa gerada automaticamente após análise arquitetural — revise se necessário.*`,
+  ].join('\n')
+
+  const commentId = await postCardComment(run.provider, cfg, {}, run.card_key, estimateComment).catch(() => null)
+  if (commentId) {
+    await logMessage(run.id, 'agent_to_card', String(column.id), estimateComment, commentId)
+  }
+
+  // Registra métricas
+  try {
+    await dbRun(
+      `INSERT OR IGNORE INTO pipeline_quality_metrics
+        (workspace_id, run_id, card_key, metric_type, value_num, value_text, stage_name, agent_name, created_at)
+       VALUES (?, ?, ?, 'story_points_estimate', ?, ?, ?, ?, UNIX_TIMESTAMP())`,
+      [run.workspace_id, run.id, run.card_key, Number(points) || null, result.text.slice(0, 2000), column.column_name, architect.name]
+    )
+  } catch { /* non-critical */ }
+
+  logger.info({ run_id: run.id, card_key: run.card_key, points, confidence }, 'pipeline-engine: estimate posted')
+}
+
 // ─── LLM caller ───────────────────────────────────────────────────────────────
 
 async function dispatchLLM(agent: AgentFullRow, prompt: string, cfg: WorkPipelineConfigJson, provider: string, model: string | null): Promise<LLMResult> {
@@ -1507,6 +1858,15 @@ const MANIFEST_HINTS: Record<string, string[]> = {
 // Config/architecture files worth reading regardless of language
 const ARCH_FILES = [
   'README.md', 'README.mdx', 'ARCHITECTURE.md', 'docs/ARCHITECTURE.md',
+  // Design system and agent instructions — read first so agents know the UI contract
+  'AGENTS.md', 'docs/AGENTS.md',
+  'design-system.md', 'DESIGN-SYSTEM.md', 'docs/design-system.md',
+  'design-tokens.md', 'DESIGN-TOKENS.md', 'docs/design-tokens.md',
+  'design-tokens.json', 'tokens.json', 'src/tokens.json',
+  'src/design-tokens.ts', 'src/design-tokens.js',
+  'src/styles/tokens.ts', 'src/styles/tokens.js', 'src/styles/tokens.css',
+  'src/styles/globals.css', 'src/app/globals.css',
+  'tailwind.config.ts', 'tailwind.config.js',
   'package.json', 'tsconfig.json', 'next.config.ts', 'next.config.js',
   'pom.xml', 'build.gradle', 'build.gradle.kts', 'settings.gradle',
   'pyproject.toml', 'requirements.txt', 'go.mod', 'Cargo.toml',
@@ -1825,6 +2185,224 @@ async function buildRepoContextFromTree(
   return parts.join('\n')
 }
 
+// ─── Screenshot-to-code: busca e descreve imagens do card ────────────────────
+//
+// Quando o card do Jira/Azure tem screenshots ou wireframes como attachments,
+// o LLM de visão os descreve em texto estruturado. Essa descrição é injetada
+// no prompt do Developer e do BA como especificação visual da tela.
+//
+
+/**
+ * Baixa até MAX_VISION_IMAGES imagens do card e usa o LLM configurado no pipeline
+ * (mesmo provider/modelo do agente que está executando) para descrever cada uma.
+ * Retorna um bloco markdown pronto para injetar no prompt.
+ *
+ * Nenhum provider ou modelo é hardcoded — tudo vem de cfg + assignmentModel,
+ * exatamente como qualquer chamada de agente no pipeline.
+ */
+const MAX_VISION_IMAGES = 3  // limite para não explodir o contexto
+
+async function describeAttachmentImages(
+  cardProvider: string,       // 'jira' | 'azure_devops' — provedor do card (Jira/Azure)
+  cfg: WorkPipelineConfigJson,
+  secrets: WorkPipelineSecrets,
+  cardKey: string,
+  agent: AgentFullRow,        // agente executor — define o LLM a usar
+  assignmentModel?: string,   // modelo configurado no dropdown da coluna
+): Promise<string> {
+  // 1. Busca attachments do provedor do card
+  type Att = { id: string; filename: string; mimeType: string; contentUrl: string; size: number }
+  let attachments: Att[] = []
+  try {
+    if (cardProvider === 'jira') {
+      attachments = await fetchJiraAttachments(cfg, secrets, cardKey)
+    } else if (cardProvider === 'azure_devops') {
+      attachments = await fetchAzureAttachments(cfg, secrets, cardKey)
+    }
+  } catch (err) {
+    logger.warn({ err, cardKey }, 'pipeline-engine: failed to fetch card attachments')
+    return ''
+  }
+
+  if (!attachments.length) return ''
+
+  // 2. Resolve provider/modelo via configuração do pipeline — sem hardcode
+  const { provider: llmProvider, model: llmModel } = resolveProviderAndModel(cfg, assignmentModel, 'simple')
+  const apiKey = await resolveApiKey(llmProvider).catch(() => null)
+
+  if (!apiKey && llmProvider !== 'ollama') {
+    // Sem chave configurada: lista os arquivos para o agente acessar manualmente
+    return [
+      `## 🖼️ Imagens/wireframes anexados ao card`,
+      ``,
+      `> ⚠️ Nenhuma chave de API configurada para o provider **${llmProvider}** — as imagens não puderam ser descritas automaticamente.`,
+      `> Acesse o card e analise manualmente os seguintes anexos antes de implementar:`,
+      ``,
+      ...attachments.map(a => `- **${a.filename}** (${(a.size / 1024).toFixed(0)} KB)`),
+    ].join('\n')
+  }
+
+  const toDescribe = attachments.slice(0, MAX_VISION_IMAGES)
+  const descriptions: string[] = []
+
+  for (const att of toDescribe) {
+    // 3. Baixa a imagem como base64
+    let base64: string | null = null
+    try {
+      if (cardProvider === 'jira') {
+        base64 = await downloadJiraAttachment(cfg, secrets, att.contentUrl)
+      } else if (cardProvider === 'azure_devops') {
+        base64 = await downloadAzureAttachment(cfg, secrets, att.contentUrl)
+      }
+    } catch (err) {
+      logger.warn({ err, filename: att.filename }, 'pipeline-engine: failed to download attachment')
+      continue
+    }
+    if (!base64) continue
+
+    // 4. Monta o agente de visão com system prompt especializado
+    //    Usa o mesmo agente executor mas com instruções de visão UI
+    const visionSystemPrompt = `Você é um especialista em UI/UX que descreve telas e wireframes para desenvolvedores.
+Ao analisar uma imagem de UI, descreva:
+1. Layout geral (header, sidebar, main content, footer)
+2. Componentes presentes (botões, inputs, tabelas, cards, modais)
+3. Hierarquia visual e agrupamento
+4. Textos e labels visíveis
+5. Estados (loading, vazio, erro, sucesso) se visíveis
+6. Cores predominantes e padrão visual
+Seja específico e objetivo. Use linguagem técnica de frontend.`
+
+    const visionAgent: AgentFullRow = {
+      ...agent,
+      soul_content: visionSystemPrompt,
+      instructions: null,
+      config: null,
+    }
+
+    // 5. Monta o prompt com a imagem no formato que o provider aceita
+    //    Providers que suportam visão nativamente: anthropic, openai, google/gemini
+    //    Para os demais: envia só o texto com nome do arquivo
+    const visionTextPrompt = `Descreva esta imagem de UI/wireframe (arquivo: ${att.filename}) para um desenvolvedor frontend implementar a tela. Seja detalhado e preciso.`
+
+    // Verifica se o provider suporta visão (imagem em base64)
+    const supportsVision = ['anthropic', 'openai', 'openrouter', 'gemini'].includes(llmProvider)
+
+    try {
+      let description = ''
+
+      if (supportsVision) {
+        // Chama direto a API para enviar imagem — dispatchLLM só aceita texto
+        // Usamos a mesma chave/base já resolvida
+        if (llmProvider === 'anthropic') {
+          const model = llmModel || 'claude-3-5-sonnet-20241022'
+          const res = await fetch('https://api.anthropic.com/v1/messages', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey!, 'anthropic-version': '2023-06-01' },
+            body: JSON.stringify({
+              model,
+              max_tokens: 1024,
+              system: visionSystemPrompt,
+              messages: [{
+                role: 'user',
+                content: [
+                  { type: 'image', source: { type: 'base64', media_type: att.mimeType, data: base64 } },
+                  { type: 'text', text: visionTextPrompt },
+                ],
+              }],
+            }),
+            signal: AbortSignal.timeout(30_000),
+          })
+          if (res.ok) {
+            const data = await res.json() as { content: Array<{ type: string; text: string }> }
+            description = data.content.filter(b => b.type === 'text').map(b => b.text).join('\n')
+          }
+        } else if (['openai', 'openrouter'].includes(llmProvider)) {
+          const base = llmProvider === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://api.openai.com/v1'
+          const model = llmModel || 'gpt-4o'
+          const res = await fetch(`${base}/chat/completions`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+            body: JSON.stringify({
+              model,
+              max_tokens: 1024,
+              messages: [
+                { role: 'system', content: visionSystemPrompt },
+                {
+                  role: 'user',
+                  content: [
+                    { type: 'image_url', image_url: { url: `data:${att.mimeType};base64,${base64}` } },
+                    { type: 'text', text: visionTextPrompt },
+                  ],
+                },
+              ],
+            }),
+            signal: AbortSignal.timeout(30_000),
+          })
+          if (res.ok) {
+            const data = await res.json() as { choices: Array<{ message: { content: string } }> }
+            description = data.choices?.[0]?.message?.content ?? ''
+          }
+        } else if (llmProvider === 'gemini') {
+          const model = llmModel || 'gemini-1.5-flash'
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey! },
+              body: JSON.stringify({
+                system_instruction: { parts: [{ text: visionSystemPrompt }] },
+                contents: [{
+                  role: 'user',
+                  parts: [
+                    { inline_data: { mime_type: att.mimeType, data: base64 } },
+                    { text: visionTextPrompt },
+                  ],
+                }],
+              }),
+              signal: AbortSignal.timeout(30_000),
+            }
+          )
+          if (res.ok) {
+            const data = await res.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }
+            description = data.candidates?.[0]?.content?.parts?.map(p => p.text ?? '').join('') ?? ''
+          }
+        }
+      } else {
+        // Provider sem suporte a visão (ollama, deepseek, etc.) —
+        // envia o nome do arquivo como contexto textual
+        const result = await dispatchLLM(
+          visionAgent,
+          `${visionTextPrompt}\n\n[Nota: a imagem "${att.filename}" está anexada ao card mas o modelo atual não suporta visão. Informe ao Developer que ele deve analisar a imagem manualmente antes de implementar.]`,
+          cfg,
+          llmProvider,
+          llmModel
+        )
+        description = result.text
+      }
+
+      if (description.trim()) {
+        descriptions.push(`### 🖼️ ${att.filename}\n\n${description.trim()}`)
+      }
+    } catch (err) {
+      logger.warn({ err, filename: att.filename, provider: llmProvider }, 'pipeline-engine: vision description failed')
+    }
+  }
+
+  if (!descriptions.length) return ''
+
+  const omitted = attachments.length - toDescribe.length
+  return [
+    `## 🖼️ Contexto visual — imagens do card (${toDescribe.length} de ${attachments.length})`,
+    ``,
+    `> As imagens abaixo foram analisadas automaticamente com o modelo **${llmProvider}${llmModel ? ':' + llmModel : ''}**.`,
+    `> Use-as como especificação visual da tela a implementar.`,
+    `> Siga o \`design-system.md\` do repositório ao escolher componentes e tokens de cor.`,
+    ``,
+    descriptions.join('\n\n---\n\n'),
+    omitted > 0 ? `\n> ⚠️ ${omitted} imagem(ns) adicional(is) não descritas (limite de ${MAX_VISION_IMAGES} por execução).` : '',
+  ].filter(Boolean).join('\n')
+}
+
 function buildPrompt(
   card: { card_key: string; card_title: string; card_description: string; card_url: string },
   column: PipelineColumn,
@@ -2045,6 +2623,209 @@ async function moveCard(
   }
 }
 
+// ─── Context summary (memória de execução por run) ───────────────────────────
+
+interface ContextEntry {
+  stage: string
+  agent: string
+  role: string
+  decision: string // primeira linha não-vazia do output — resume a decisão
+  gate: string | null // ex: ANALYSIS: READY, ARCHITECTURE: APPROVED
+  timestamp: number
+}
+
+/** Acumula a decisão de um agente no context_summary_json do run */
+async function appendContextSummary(
+  runId: number,
+  stageName: string,
+  agentName: string,
+  agentRole: string,
+  output: string,
+): Promise<void> {
+  try {
+    const existing = (await dbGet<{ context_summary_json: string | null }>(
+      'SELECT context_summary_json FROM pipeline_card_runs WHERE id = ?', [runId]
+    ))?.context_summary_json
+
+    const entries: ContextEntry[] = existing ? JSON.parse(existing) : []
+
+    // Extrai gate do output (ex: ANALYSIS: READY, ARCHITECTURE: APPROVED, VERDICT: APPROVED)
+    const gateMatch = output.match(/\b(ANALYSIS|ARCHITECTURE|ARCHITECTURE_REVIEW|IMPLEMENTATION|VERDICT|QA):\s*(\w+)/i)
+    const gate = gateMatch ? `${gateMatch[1].toUpperCase()}: ${gateMatch[2].toUpperCase()}` : null
+
+    // Primeira linha significativa do output como resumo
+    const decision = output.split('\n').map(l => l.trim()).find(l => l.length > 20 && !l.startsWith('#')) ?? output.slice(0, 120)
+
+    entries.push({ stage: stageName, agent: agentName, role: agentRole, decision: decision.slice(0, 200), gate, timestamp: Math.floor(Date.now() / 1000) })
+
+    // Mantém apenas as últimas 20 entradas para não explodir o contexto
+    const trimmed = entries.slice(-20)
+    await updateRun(runId, { context_summary_json: JSON.stringify(trimmed) })
+  } catch { /* non-critical */ }
+}
+
+/** Formata o context_summary_json como bloco de texto para injetar no prompt */
+function formatContextSummary(summaryJson: string | null): string {
+  if (!summaryJson) return ''
+  try {
+    const entries: ContextEntry[] = JSON.parse(summaryJson)
+    if (!entries.length) return ''
+    const lines = entries.map(e =>
+      `- **${e.stage}** (${e.agent}, ${e.role})${e.gate ? ` → ${e.gate}` : ''}: ${e.decision}`
+    )
+    return `## Histórico de decisões deste card\n\n${lines.join('\n')}\n`
+  } catch { return '' }
+}
+
+// ─── Stage snapshots (replay/rollback) ───────────────────────────────────────
+
+interface StageSnapshot {
+  stage_id: string
+  stage_name: string
+  card_key: string
+  card_title: string
+  card_description: string
+  status_before: string
+  messages_count: number
+  timestamp: number
+}
+
+/** Salva snapshot do estado antes de iniciar uma etapa */
+async function saveStageSnapshot(run: PipelineCardRun, column: PipelineColumn): Promise<void> {
+  try {
+    const existing = (await dbGet<{ stage_snapshots_json: string | null }>(
+      'SELECT stage_snapshots_json FROM pipeline_card_runs WHERE id = ?', [run.id]
+    ))?.stage_snapshots_json
+
+    const snapshots: StageSnapshot[] = existing ? JSON.parse(existing) : []
+
+    const msgCount = (await dbGet<{ n: number }>(
+      'SELECT COUNT(*) as n FROM pipeline_card_messages WHERE run_id = ?', [run.id]
+    ))?.n ?? 0
+
+    snapshots.push({
+      stage_id: String(column.id),
+      stage_name: column.column_name,
+      card_key: run.card_key,
+      card_title: run.card_title,
+      card_description: run.card_description?.slice(0, 500) ?? '',
+      status_before: run.status,
+      messages_count: msgCount,
+      timestamp: Math.floor(Date.now() / 1000),
+    })
+
+    // Mantém os últimos 10 snapshots
+    const trimmed = snapshots.slice(-10)
+    await updateRun(run.id, { stage_snapshots_json: JSON.stringify(trimmed) })
+  } catch { /* non-critical */ }
+}
+
+/** Retorna os snapshots de um run para a API de replay */
+export async function getRunSnapshots(runId: number): Promise<StageSnapshot[]> {
+  try {
+    const raw = (await dbGet<{ stage_snapshots_json: string | null }>(
+      'SELECT stage_snapshots_json FROM pipeline_card_runs WHERE id = ?', [runId]
+    ))?.stage_snapshots_json
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+
+// ─── Loop detection (detecção de loop semântico) ─────────────────────────────
+
+const LOOP_STAGE_THRESHOLD = 3   // mesma etapa N vezes = suspeita de loop
+const LOOP_SIMILARITY_CHARS = 100 // primeiros N chars do output para comparar
+
+/** Detecta se o run está em loop semântico na etapa atual */
+async function detectSemanticLoop(
+  runId: number,
+  stageId: string,
+  currentOutput: string,
+): Promise<boolean> {
+  try {
+    // Conta quantas vezes já executou esta etapa
+    const { n: stageCount } = (await dbGet<{ n: number }>(
+      `SELECT COUNT(*) as n FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND direction = 'agent_to_card' AND body LIKE '🤖 **%'`,
+      [runId, stageId]
+    )) ?? { n: 0 }
+
+    if (stageCount < LOOP_STAGE_THRESHOLD) return false
+
+    // Pega os últimos outputs desta etapa
+    const lastOutputs = await dbGetAll<{ body: string }>(
+      `SELECT body FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND direction = 'agent_to_card' AND body LIKE '🤖 **%' ORDER BY created_at DESC LIMIT 3`,
+      [runId, stageId]
+    )
+
+    // Compara os primeiros chars de cada output — se forem muito similares, é loop
+    const currentPrefix = currentOutput.slice(0, LOOP_SIMILARITY_CHARS).toLowerCase().trim()
+    const similarCount = lastOutputs.filter(r =>
+      r.body.slice(0, LOOP_SIMILARITY_CHARS + 50).toLowerCase().includes(currentPrefix.slice(0, 50))
+    ).length
+
+    return similarCount >= 2
+  } catch { return false }
+}
+
+// ─── Sandbox Docker (execução de testes antes do PR) ─────────────────────────
+
+import { extractTestCommand, detectSandboxImage, runInSandbox, cloneRepoToTemp, isSandboxAvailable } from './sandbox-runner'
+
+/**
+ * Executa os testes do repositório num container Docker efêmero.
+ * Chamado após push de código e antes de abrir o PR.
+ * Retorna mensagem formatada para postar no card.
+ */
+async function runSandboxTests(
+  agentOutput: string,
+  repoId: number,
+  repoContext: string,
+  cardKey: string,
+): Promise<{ passed: boolean; message: string } | null> {
+  // Verifica se o sandbox está disponível
+  if (!(await isSandboxAvailable())) {
+    logger.info({ cardKey }, 'sandbox-runner: Docker not available, skipping tests')
+    return null
+  }
+
+  // Extrai comando do output do agente
+  const testCmd = extractTestCommand(agentOutput)
+  if (!testCmd) return null
+
+  const repo = await dbGet<{ repo_url: string; access_token: string | null; branch: string }>(
+    'SELECT repo_url, access_token, branch FROM git_repositories WHERE id = ?', [repoId]
+  )
+  if (!repo?.access_token) return null
+
+  const image = detectSandboxImage(repoContext, agentOutput)
+  let cloned: { path: string; cleanup: () => Promise<void> } | null = null
+
+  try {
+    cloned = await cloneRepoToTemp(repo.repo_url, repo.access_token, repo.branch || 'main')
+    const result = await runInSandbox(testCmd, cloned.path, image)
+
+    const icon = result.ok ? '✅' : '❌'
+    const status = result.ok ? 'passaram' : 'falharam'
+    const duration = (result.durationMs / 1000).toFixed(1)
+
+    const message = [
+      `${icon} **Testes ${status}** — \`${testCmd}\` (${duration}s, imagem: \`${image}\`)`,
+      ``,
+      result.stdout ? `**Output:**\n\`\`\`\n${result.stdout.slice(0, 2000)}\n\`\`\`` : '',
+      result.stderr && !result.ok ? `**Erros:**\n\`\`\`\n${result.stderr.slice(0, 1000)}\n\`\`\`` : '',
+    ].filter(Boolean).join('\n')
+
+    return { passed: result.ok, message }
+  } catch (err: any) {
+    logger.warn({ err, cardKey }, 'sandbox-runner: test execution failed')
+    return {
+      passed: false,
+      message: `⚠️ **Falha ao executar sandbox de testes**: ${err.message ?? String(err)}`,
+    }
+  } finally {
+    await cloned?.cleanup()
+  }
+}
+
 // ─── Stage lifecycle ──────────────────────────────────────────────────────────
 
 async function startColumn(
@@ -2055,6 +2836,7 @@ async function startColumn(
 ): Promise<void> {
   // Guard: if this run has been reprocessed too many times, give up to avoid infinite loops
   const MAX_RUN_ATTEMPTS = 10
+  const stageStartedAt = Math.floor(Date.now() / 1000) // para calcular duração da etapa
   if ((run.run_count ?? 1) > MAX_RUN_ATTEMPTS) {
     const msg = `🛑 **${run.card_key}** — execução cancelada após ${run.run_count} tentativas sem sucesso.`
     logger.error({ run_id: run.id, card_key: run.card_key, run_count: run.run_count }, 'pipeline-engine: run exceeded max attempts, cancelling')
@@ -2128,6 +2910,9 @@ async function startColumn(
   await updateRun(run.id, { current_stage_id: stageId, status: 'running' })
   eventBus.broadcast('pipeline.stage_started', { run_id: run.id, card_key: run.card_key, stage: column.column_name, agent: pendingAgents[0].name })
 
+  // Snapshot do estado antes de iniciar (para replay/rollback)
+  await saveStageSnapshot(run, column)
+
   // Carry forward output from already-completed agents as context
   const outputParts: string[] = (await dbGetAll(`SELECT body FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND body LIKE '🤖 **%' ORDER BY created_at ASC`, [run.id, stageId]) as { body: string }[]).map(r => r.body)
 
@@ -2187,13 +2972,19 @@ async function startColumn(
       [rid, run.workspace_id]
     )
     if (!repoRow) continue
-    const ctx = await fetchRepoContext(repoRow.id)
+    const ctx = await Promise.race([
+      fetchRepoContext(repoRow.id),
+      new Promise<string>((resolve) => setTimeout(() => resolve(''), 5 * 60 * 1000)),
+    ])
     stageRepos.push({ id: repoRow.id, name: repoRow.name, context: ctx })
   }
 
   // Fallback: if no linked repos resolved, try workspace default
   if (stageRepos.length === 0 && stageRepoId) {
-    const ctx = await fetchRepoContext(stageRepoId)
+    const ctx = await Promise.race([
+      fetchRepoContext(stageRepoId),
+      new Promise<string>((resolve) => setTimeout(() => resolve(''), 5 * 60 * 1000)),
+    ])
     const repoRow = await dbGet<{ name: string }>(
       'SELECT name FROM git_repositories WHERE id = ?', [stageRepoId]
     )
@@ -2226,6 +3017,28 @@ async function startColumn(
         logger.info({ run_id: run.id, agent: agent.name, domain, entries: sbEntries.length }, 'second-brain: context injected')
       }
     }
+
+    // Inject visual context (screenshots/wireframes from card attachments) for Developer and BA
+    // Only roles that implement UI or write requirements benefit from visual context
+    const visualRoles = ['developer', 'business analyst', 'frontend', 'fullstack', 'ui', 'ux']
+    let visualContext = ''
+    if (visualRoles.some(r => agent.role.toLowerCase().includes(r))) {
+      try {
+        visualContext = await describeAttachmentImages(
+          run.provider,
+          cfg,
+          secrets,
+          run.card_key,
+          agent,
+          assignment.llm_model,
+        )
+        if (visualContext) {
+          logger.info({ run_id: run.id, agent: agent.name }, 'pipeline-engine: visual context injected from card attachments')
+        }
+      } catch (err) {
+        logger.warn({ err, run_id: run.id }, 'pipeline-engine: visual context injection failed (non-critical)')
+      }
+    }
     // Use the agent's own repo_id if valid and has token, otherwise fall back to stageRepoId
     // (assignment.repo_id may reference a deleted repo — always validate against the DB)
     let effectiveRepoId: number | null = null
@@ -2237,7 +3050,12 @@ async function startColumn(
       effectiveRepoId = valid?.id ?? null
     }
     if (!effectiveRepoId) effectiveRepoId = stageRepoId ?? null
-    const prompt = contextSoFar + (secondBrainContext ? secondBrainContext + '\n\n' : '') + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepos, hasRepo)
+    const contextSummary = formatContextSummary(run.context_summary_json)
+    const prompt = contextSoFar
+      + (contextSummary ? contextSummary + '\n\n' : '')
+      + (secondBrainContext ? secondBrainContext + '\n\n' : '')
+      + (visualContext ? visualContext + '\n\n' : '')
+      + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepos, hasRepo)
     const taskId = await createAgentTask(run, column, agent, prompt, false, assignment.llm_model)
     await updateRun(run.id, { task_id: taskId ?? undefined })
 
@@ -2259,8 +3077,18 @@ async function startColumn(
         await postCardComment(run.provider, cfg, secrets, run.card_key, rejectionMsg, run.id)
         await updateRun(run.id, { status: 'waiting_input', task_id: null })
         await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowDone, agent.id])
+        // ── Métrica: gate rejeitado ──
+        dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_text, stage_name, agent_name, created_at)
+               VALUES (?, ?, ?, 'gate_rejected', ?, ?, ?, UNIX_TIMESTAMP())`,
+          [run.workspace_id, run.id, run.card_key, harnessResult.reason ?? 'unknown', column.column_name, agent.name]
+        ).catch(() => {})
         return // stop processing this stage — wait for human intervention
       }
+      // ── Métrica: gate aprovado ──
+      dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_text, stage_name, agent_name, created_at)
+             VALUES (?, ?, ?, 'gate_passed', ?, ?, ?, UNIX_TIMESTAMP())`,
+        [run.workspace_id, run.id, run.card_key, 'ok', column.column_name, agent.name]
+      ).catch(() => {})
       // ── End harness ──────────────────────────────────────────────────────────
 
       try {
@@ -2282,16 +3110,61 @@ async function startColumn(
       await dbRun(`UPDATE agents SET status = 'idle', last_activity = ?, updated_at = ? WHERE id = ?`, [`Concluiu ${run.card_key} — ${column.column_name}`, nowDone, agent.id])
 
       // Post each agent's structured output as a separate Jira comment immediately
+      // Jira has a ~32KB limit per comment — truncate at 30K to be safe
+      const MAX_COMMENT_CHARS = 30_000
+      const outputForComment = llmResult.text.length > MAX_COMMENT_CHARS
+        ? llmResult.text.slice(0, MAX_COMMENT_CHARS) + `\n\n[...output truncado — ${llmResult.text.length - MAX_COMMENT_CHARS} chars omitidos. Veja o histórico completo no AURA.]`
+        : llmResult.text
       const agentComment = [
         `🤖 **${agent.name}** *(${agent.role})* — **${column.column_name}**`,
         '',
-        llmResult.text,
+        outputForComment,
         '',
         `---`,
         `*Modelo: ${llmResult.model} | Tokens: ${llmResult.inputTokens} in / ${llmResult.outputTokens} out${llmResult.costUsd > 0 ? ` | Custo: $${llmResult.costUsd.toFixed(4)}` : ''}*`,
       ].join('\n')
       const agentCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, agentComment)
       await logMessage(run.id, 'agent_to_card', stageId, agentComment, agentCommentId ?? undefined)
+
+      // Detecta loop semântico — se o run está ciclando na mesma etapa com outputs similares
+      const isLoop = await detectSemanticLoop(run.id, stageId, llmResult.text)
+      if (isLoop) {
+        const loopMsg = [
+          `🔄 **Loop detectado em "${column.column_name}"**`,
+          ``,
+          `Esta etapa foi executada ${LOOP_STAGE_THRESHOLD}+ vezes com outputs similares.`,
+          `O pipeline foi pausado para evitar ciclo infinito. Intervenção humana necessária.`,
+          ``,
+          `Responda com \`reprocessar\` para tentar novamente ou \`cancelar\` para encerrar.`,
+        ].join('\n')
+        await postCardComment(run.provider, cfg, secrets, run.card_key, loopMsg)
+        await updateRun(run.id, { status: 'waiting_input', task_id: null })
+        await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowDone, agent.id])
+        db_helpers.logActivity(
+          'pipeline.loop_detected', 'pipeline_card', run.id, agent.name,
+          `Loop semântico detectado em "${column.column_name}" — ${run.card_key}`,
+          { card_key: run.card_key, stage: column.column_name, agent: agent.name },
+          run.workspace_id
+        )
+        return
+      }
+
+      // Acumula decisão no context summary para etapas seguintes
+      await appendContextSummary(run.id, column.column_name, agent.name, agent.role, llmResult.text)
+
+      // Broadcast SSE para observabilidade em tempo real
+      eventBus.broadcast('pipeline.agent_output', {
+        run_id: run.id,
+        card_key: run.card_key,
+        stage: column.column_name,
+        agent: agent.name,
+        role: agent.role,
+        output_preview: llmResult.text.slice(0, 300),
+        tokens_in: llmResult.inputTokens,
+        tokens_out: llmResult.outputTokens,
+        model: llmResult.model,
+        workspace_id: run.workspace_id,
+      })
 
       try {
         db_helpers.logActivity(
@@ -2337,6 +3210,12 @@ async function startColumn(
           const mergeErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, mergeErrMsg).catch(() => null)
           if (mergeErrId) await logMessage(run.id, 'agent_to_card', stageId, mergeErrMsg, mergeErrId)
         }
+
+        // ── Estimativa automática — posta story points após o arquiteto, sem bloquear ──
+        // Executa em background (não-bloqueante) para não atrasar a esteira
+        generateEstimate(run, column, cfg, agent, llmResult.text, stageRepos).catch(err =>
+          logger.warn({ err, run_id: run.id }, 'pipeline-engine: estimate generation failed (non-critical)')
+        )
       }
 
       // Push code for any role with a repo when FILE/ARQUIVO blocks are present
@@ -2379,6 +3258,32 @@ async function startColumn(
         }
       }
 
+      // Sandbox: roda testes antes de abrir PR (se TEST_CMD presente no output)
+      if (effectiveRepoId && extractTestCommand(llmResult.text)) {
+        try {
+          const repoCtx = stageRepos.find(r => r.id === effectiveRepoId)?.context ?? ''
+          const sandboxResult = await runSandboxTests(llmResult.text, effectiveRepoId, repoCtx, run.card_key)
+          if (sandboxResult) {
+            const sandboxCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, sandboxResult.message)
+            if (sandboxCommentId) await logMessage(run.id, 'agent_to_card', stageId, sandboxResult.message, sandboxCommentId)
+            if (!sandboxResult.passed) {
+              // Testes falharam — não abre PR, pausa para o agente corrigir
+              await updateRun(run.id, { status: 'waiting_input', task_id: null })
+              await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowDone, agent.id])
+              db_helpers.logActivity(
+                'pipeline.sandbox_failed', 'pipeline_card', run.id, agent.name,
+                `Testes falharam no sandbox — ${run.card_key} pausado antes de abrir PR`,
+                { card_key: run.card_key, stage: column.column_name, agent: agent.name },
+                run.workspace_id
+              )
+              return
+            }
+          }
+        } catch (sandboxErr) {
+          logger.warn({ sandboxErr, run_id: run.id }, 'pipeline-engine: sandbox test failed (non-critical, continuing)')
+        }
+      }
+
       // Open PR/MR if agent signalled OPEN_PR: true
       if (effectiveRepoId && /^OPEN_PR:\s*true/im.test(llmResult.text)) {
         try {
@@ -2389,7 +3294,7 @@ async function startColumn(
           const prCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, prMsg)
           if (prCommentId) await logMessage(run.id, 'agent_to_card', stageId, prMsg, prCommentId)
 
-          // Store PR info for CI polling (GitHub only)
+          // Store PR info for CI polling (GitHub only) AND for PR review feedback loop
           if (prResult.ok && prResult.prNumber) {
             const repoRow = await dbGet<{ repo_url: string; access_token: string }>(
               'SELECT repo_url, access_token FROM git_repositories WHERE id = ?', [effectiveRepoId]
@@ -2405,6 +3310,21 @@ async function startColumn(
                 await dbRun('UPDATE pipeline_card_runs SET pr_check_json = ? WHERE id = ?', [JSON.stringify(prCheckInfo), run.id])
               }
             }
+
+            // pr_review_json: armazena info do PR para polling de aprovação/rejeição humana
+            const prReviewInfo: PRReviewInfo = {
+              repoId: effectiveRepoId,
+              stageId,
+              prNumber: prResult.prNumber,
+              prUrl: prResult.url ?? '',
+              ...((() => {
+                const repoUrl = (repoRow?.repo_url ?? '')
+                const m = repoUrl.match(/github\.com\/([^/]+)\/([^/.]+)/)
+                return m ? { owner: m[1], repo: m[2] } : {}
+              })()),
+              checkedAt: 0, // force check on next tick
+            }
+            await dbRun('UPDATE pipeline_card_runs SET pr_review_json = ? WHERE id = ?', [JSON.stringify(prReviewInfo), run.id])
           }
         } catch (prErr: any) {
           logger.error({ prErr, run_id: run.id }, 'pipeline-engine: open PR failed')
@@ -2416,7 +3336,7 @@ async function startColumn(
       // If the card was deleted from Jira/Azure, the run is already cancelled — don't overwrite
       if (err instanceof CardNotFoundError) throw err
       const nowFail = Math.floor(Date.now() / 1000)
-      await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowFail, agent.id])
+      await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowFail, agent.id]).catch(() => {})
       logger.error({ err, run_id: run.id, column_id: column.id, agent_id: agent.id }, 'pipeline-engine: LLM call failed')
       await updateRun(run.id, { status: 'failed' })
       const errMsg = err instanceof Error ? err.message : String(err)
@@ -2433,6 +3353,12 @@ async function startColumn(
         )
       } catch { /* non-critical */ }
       return
+    } finally {
+      // Safety net: garante que o agente nunca fica preso em 'busy' após qualquer saída do bloco
+      dbRun(
+        `UPDATE agents SET status = 'idle', updated_at = UNIX_TIMESTAMP() WHERE id = ? AND status = 'busy'`,
+        [agent.id]
+      ).catch(() => {})
     }
   }
 
@@ -2490,12 +3416,28 @@ async function startColumn(
       await moveCard(run.provider, cfg, secrets, run.card_key, devColumn.column_name)
       const reworkRun: PipelineCardRun = { ...run, current_stage_id: String(devColumn.id), task_id: null, status: 'running' }
       await updateRun(run.id, { current_stage_id: String(devColumn.id), task_id: null, status: 'running' })
+      // ── Métrica: QA reprovado + rework ──
+      dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_text, stage_name, created_at)
+             VALUES (?, ?, ?, 'qa_rejected', ?, ?, UNIX_TIMESTAMP())`,
+        [run.workspace_id, run.id, run.card_key, `Retornado para ${devColumn.column_name}`, column.column_name]
+      ).catch(() => {})
+      dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_text, stage_name, created_at)
+             VALUES (?, ?, ?, 'rework_triggered', ?, ?, UNIX_TIMESTAMP())`,
+        [run.workspace_id, run.id, run.card_key, column.column_name, devColumn.column_name]
+      ).catch(() => {})
       await startColumn(reworkRun, devColumn, cfg, secrets)
       return
     }
   }
 
   await advanceToNextColumn(run, column, cfg, secrets, outputParts.join('\n\n---\n\n'))
+
+  // ── Métrica: duração da etapa ──
+  const stageDurationSec = Math.floor(Date.now() / 1000) - stageStartedAt
+  dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_num, stage_name, created_at)
+         VALUES (?, ?, ?, 'stage_duration_sec', ?, ?, UNIX_TIMESTAMP())`,
+    [run.workspace_id, run.id, run.card_key, stageDurationSec, column.column_name]
+  ).catch(() => {})
 }
 
 async function advanceToNextColumn(
@@ -2510,7 +3452,7 @@ async function advanceToNextColumn(
   if (!nextColumn) {
     await updateRun(run.id, { status: 'done', task_id: null })
     const doneMsg = `✅ **Esteira concluída** — todos os estágios de _${run.card_key}_ foram processados com sucesso.`
-    await postCardComment(run.provider, cfg, secrets, run.card_key, doneMsg)
+    await postCardComment(run.provider, cfg, secrets, run.card_key, doneMsg, run.id)
     eventBus.broadcast('pipeline.run_completed', { run_id: run.id, card_key: run.card_key })
 
     // Capture knowledge in Second Brain when run completes
@@ -2542,12 +3484,37 @@ async function advanceToNextColumn(
   await updateRun(run.id, { current_stage_id: String(nextColumn.id), task_id: null, status: 'running' })
 
   if (hasAgents(nextColumn)) {
+    // Gate de aprovação humana: se a próxima coluna exige aprovação, pausar e aguardar
+    if (nextColumn.requires_human_approval === 1) {
+      const approvalMsg = [
+        `⏸️ **Aprovação necessária — ${nextColumn.column_name}**`,
+        ``,
+        `A etapa **${nextColumn.column_name}** requer aprovação humana antes de prosseguir.`,
+        ``,
+        `Responda com \`avançar\` para iniciar esta etapa ou \`cancelar\` para encerrar a esteira.`,
+      ].join('\n')
+      const approvalId = await postCardComment(run.provider, cfg, secrets, run.card_key, approvalMsg)
+      await logMessage(run.id, 'agent_to_card', String(nextColumn.id), approvalMsg, approvalId ?? undefined)
+      await updateRun(run.id, { status: 'waiting_input', current_stage_id: String(nextColumn.id) })
+      try {
+        db_helpers.logActivity(
+          'pipeline.awaiting_approval',
+          'pipeline_card',
+          run.id,
+          'pipeline',
+          `${run.card_key} aguardando aprovação humana — "${nextColumn.column_name}"`,
+          { card_key: run.card_key, card_title: run.card_title, stage: nextColumn.column_name },
+          run.workspace_id
+        )
+      } catch { /* non-critical */ }
+      return
+    }
     await startColumn(updatedRun, nextColumn, cfg, secrets)
   } else if (!(await getNextColumn(nextColumn))) {
     // Last column with no agents — auto-complete the run
     await updateRun(run.id, { status: 'done', task_id: null })
     const doneMsg = `✅ **Esteira concluída** — todos os estágios de _${run.card_key}_ foram processados com sucesso.`
-    await postCardComment(run.provider, cfg, secrets, run.card_key, doneMsg)
+    await postCardComment(run.provider, cfg, secrets, run.card_key, doneMsg, run.id)
     eventBus.broadcast('pipeline.run_completed', { run_id: run.id, card_key: run.card_key })
     try {
       db_helpers.logActivity(
@@ -2597,6 +3564,12 @@ async function checkRunningRuns(
       if (run.status === 'waiting_input' && run.pr_check_json) {
         await checkAndAdvancePRCI(run, column, cfg, secrets)
         return
+      }
+
+      // Poll PR reviews: se um PR foi aberto, verifica aprovação/rejeição humana
+      if (run.pr_review_json) {
+        await checkPRReviewFeedback(run, column, cfg, secrets)
+        // Não retorna: processa comentários normais também (usuário pode querer comandar)
       }
 
       if (run.status === 'running' && run.task_id) {
@@ -2795,6 +3768,7 @@ async function processInboundComments(
     }
 
     if (isReprocessCmd) {
+      await dbRun('UPDATE pipeline_card_runs SET run_count = COALESCE(run_count, 1) + 1, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [run.id])
       await updateRun(run.id, { status: 'running', task_id: null, last_comment_ts: emSegundos(latestMs) })
       await postCardComment(run.provider, cfg, secrets, run.card_key, `🔄 **Reprocessando etapa "${column.column_name}"** a pedido do usuário.`)
       await startColumn({ ...run, status: 'running', task_id: null }, column, cfg, secrets)
@@ -2804,14 +3778,100 @@ async function processInboundComments(
     if (isReprocessAll) {
       const allCols = await dbGetAll<PipelineColumn>('SELECT * FROM pipeline_columns WHERE pipeline_id = ? ORDER BY column_order ASC', [column.pipeline_id])
       const firstCol = allCols.find(c => hasAgents(c)) ?? column
+      await dbRun('UPDATE pipeline_card_runs SET run_count = COALESCE(run_count, 1) + 1, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [run.id])
       await updateRun(run.id, { status: 'running', task_id: null, current_stage_id: String(firstCol.id), last_comment_ts: emSegundos(latestMs) })
       await postCardComment(run.provider, cfg, secrets, run.card_key, `🔄 **Reiniciando esteira completa** a partir de "${firstCol.column_name}".`)
       await startColumn({ ...run, status: 'running', task_id: null, current_stage_id: String(firstCol.id) }, firstCol, cfg, secrets)
       return
     }
 
-    // ── @menção com instrução livre → executa LLM com contexto do usuário ─────
+    // ── @menção com instrução livre → verifica se menciona agente específico ──
     if (hasMention && instruction.length > 0) {
+      // Detecta @nomeDoAgente no início da instrução (ex: "@pedro analise o risco")
+      const agentMentionMatch = instruction.match(/^@([\w\-]+)\s*(.*)/i)
+      if (agentMentionMatch) {
+        const mentionedAgentName = agentMentionMatch[1].toLowerCase()
+        const agentInstruction = agentMentionMatch[2].trim() || instruction
+
+        // Busca o agente pelo nome em qualquer coluna do pipeline
+        const allCols = await dbGetAll<PipelineColumn>(
+          'SELECT * FROM pipeline_columns WHERE pipeline_id = ? ORDER BY column_order ASC',
+          [column.pipeline_id]
+        )
+        let targetAgent: AgentFullRow | null = null
+        let targetAssignment: ColumnAssignment | null = null
+        let targetColumn: PipelineColumn = column
+
+        for (const col of allCols) {
+          const assignments = parseAssignments(col)
+          for (const a of assignments) {
+            const agents = await getAgentsByIds([a.agent_id])
+            if (agents[0]?.name.toLowerCase().includes(mentionedAgentName)) {
+              targetAgent = agents[0]
+              targetAssignment = a
+              targetColumn = col
+              break
+            }
+          }
+          if (targetAgent) break
+        }
+
+        if (targetAgent && targetAssignment) {
+          const ackMsg = [
+            `🤖 **${targetAgent.name}** foi mencionado diretamente`,
+            ``,
+            `> ${agentInstruction}`,
+            ``,
+            `⏳ Processando...`,
+          ].join('\n')
+          await postCardComment(run.provider, cfg, secrets, run.card_key, ackMsg)
+          await updateRun(run.id, { status: 'running', task_id: null })
+
+          // Executa o agente mencionado com o contexto da instrução
+          const prevMsgs = await getLastAgentMessages(run.id)
+          const contextSummary = formatContextSummary(run.context_summary_json)
+          const mentionPrompt = [
+            contextSummary,
+            `# Instrução direta via @${mentionedAgentName} no card ${run.card_key}`,
+            ``,
+            `O usuário mencionou você diretamente:`,
+            ``,
+            `> **${agentInstruction}**`,
+            ``,
+            `Responda especificamente a esta instrução.`,
+            ``,
+            buildPrompt(run, targetColumn, prevMsgs, targetAgent.name, targetAgent.role),
+          ].filter(Boolean).join('\n')
+
+          const taskId = await createAgentTask(run, targetColumn, targetAgent, mentionPrompt, true, targetAssignment.llm_model)
+          await updateRun(run.id, { task_id: taskId ?? undefined })
+
+          try {
+            const agentWithSkills = { ...targetAgent, _skills: await loadAgentSkills(run.workspace_id) } as AgentFullRow & { _skills?: string }
+            const result = await callAgentLLM(agentWithSkills as AgentFullRow, mentionPrompt, cfg, targetAssignment.llm_model)
+            const now = Math.floor(Date.now() / 1000)
+            const replyComment = [
+              `🤖 **${targetAgent.name}** *(${targetAgent.role})* — resposta à menção`,
+              '',
+              result.text,
+              '',
+              `---`,
+              `*Modelo: ${result.model} | Tokens: ${result.inputTokens} in / ${result.outputTokens} out*`,
+            ].join('\n')
+            const replyId = await postCardComment(run.provider, cfg, secrets, run.card_key, replyComment)
+            if (replyId) await logMessage(run.id, 'agent_to_card', String(targetColumn.id), replyComment, replyId)
+            if (taskId) await dbRun(`UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?`, [now, taskId])
+            await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [now, targetAgent.id])
+            await appendContextSummary(run.id, targetColumn.column_name, targetAgent.name, targetAgent.role, result.text)
+          } catch (err) {
+            logger.warn({ err, agent: targetAgent.name }, 'pipeline-engine: agent mention execution failed')
+          }
+          await updateRun(run.id, { last_comment_ts: emSegundos(latestMs), status: 'waiting_input', task_id: null })
+          return
+        }
+      }
+
+      // @mention genérico (@pipeline ou @aura) → executa LLM com contexto do usuário
       await executeMentionInstruction(run, column, cfg, secrets, instruction)
       await updateRun(run.id, { last_comment_ts: emSegundos(latestMs) })
       return
@@ -2986,6 +4046,25 @@ export async function tickPipelineEngine(): Promise<{ ok: boolean; message: stri
     logger.warn({ err }, 'pipeline-engine: stale run cleanup failed')
   }
 
+  // Cancel runs stuck in 'waiting_input' with pr_check_json or pr_review_json for more than 7 days.
+  // This handles cases where GitHub tokens expire or PRs are abandoned — the run would otherwise
+  // stay in waiting_input indefinitely with no way to advance automatically.
+  try {
+    const staleWaitingThreshold = Math.floor(Date.now() / 1000) - 7 * 24 * 60 * 60
+    const staleWaiting = await dbRun(
+      `UPDATE pipeline_card_runs SET status = 'failed', updated_at = UNIX_TIMESTAMP()
+       WHERE status = 'waiting_input'
+         AND (pr_check_json IS NOT NULL OR pr_review_json IS NOT NULL)
+         AND updated_at < ?`,
+      [staleWaitingThreshold]
+    )
+    if (staleWaiting.affectedRows > 0) {
+      logger.warn({ count: staleWaiting.affectedRows }, 'pipeline-engine: cancelled stale waiting_input runs with pending PR (token may have expired)')
+    }
+  } catch (err) {
+    logger.warn({ err }, 'pipeline-engine: stale waiting_input cleanup failed')
+  }
+
   const pipelines = await getActivePipelines()
 
   if (pipelines.length === 0) {
@@ -3073,6 +4152,7 @@ export async function reprocessCardRun(runId: number): Promise<{ ok: boolean; me
     if (!column) return { ok: false, message: 'Não foi possível resolver a etapa atual — verifique a configuração das colunas' }
 
     await updateRun(run.id, { status: 'running', task_id: null })
+    await dbRun('UPDATE pipeline_card_runs SET run_count = COALESCE(run_count, 1) + 1, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [run.id])
     await postCardComment(run.provider, pipeline.cfg, pipeline.secrets, run.card_key,
       `🔄 **Reprocessando etapa "${column.column_name}"** a pedido do usuário (via interface).`)
     await startColumn({ ...run, status: 'running', task_id: null }, column, pipeline.cfg, pipeline.secrets)
@@ -3080,6 +4160,73 @@ export async function reprocessCardRun(runId: number): Promise<{ ok: boolean; me
     return { ok: true, message: `Reprocessamento iniciado para ${run.card_key}` }
   } catch (err) {
     logger.error({ err, run_id: runId }, 'pipeline-engine: reprocess failed')
+    return { ok: false, message: err instanceof Error ? err.message : String(err) }
+  } finally {
+    _running = false
+  }
+}
+
+/**
+ * Rollback para o estado anterior a uma etapa específica.
+ * Restaura current_stage_id, limpa mensagens da etapa alvo em diante,
+ * e reinicia a partir do snapshot escolhido.
+ */
+export async function rollbackToSnapshot(
+  runId: number,
+  targetStageId: string,
+): Promise<{ ok: boolean; message: string }> {
+  if (_running) return { ok: false, message: 'Engine busy — tente novamente em instantes' }
+  _running = true
+  try {
+    const run = await dbGet('SELECT * FROM pipeline_card_runs WHERE id = ?', [runId]) as PipelineCardRun | undefined
+    if (!run) return { ok: false, message: `Run ${runId} não encontrado` }
+
+    const snapshots = await getRunSnapshots(runId)
+    const snapshot = snapshots.find(s => s.stage_id === targetStageId)
+    if (!snapshot) return { ok: false, message: `Snapshot da etapa ${targetStageId} não encontrado` }
+
+    const column = await getColumnById(parseInt(targetStageId, 10))
+    if (!column) return { ok: false, message: `Etapa ${targetStageId} não encontrada` }
+
+    const pipelines = await getActivePipelines()
+    const pipeline = pipelines.find(p => p.workspaceId === run.workspace_id)
+    if (!pipeline) return { ok: false, message: 'Nenhum pipeline ativo encontrado' }
+
+    // Limpa mensagens a partir da etapa alvo (inclusive)
+    // Busca todas as etapas com column_order >= etapa alvo
+    const laterStages = await dbGetAll<{ id: number }>(
+      `SELECT id FROM pipeline_columns WHERE pipeline_id = ? AND column_order >= ?`,
+      [column.pipeline_id, column.column_order]
+    )
+    if (laterStages.length > 0) {
+      const stageIds = laterStages.map(s => String(s.id))
+      const placeholders = stageIds.map(() => '?').join(',')
+      await dbRun(
+        `DELETE FROM pipeline_card_messages WHERE run_id = ? AND stage_id IN (${placeholders})`,
+        [runId, ...stageIds]
+      )
+    }
+
+    // Restaura context_summary removendo entradas a partir da etapa alvo
+    try {
+      const existing = run.context_summary_json ? JSON.parse(run.context_summary_json) as { stage: string }[] : []
+      const trimmed = existing.filter(e => e.stage !== snapshot.stage_name)
+      await updateRun(runId, { context_summary_json: JSON.stringify(trimmed) })
+    } catch { /* non-critical */ }
+
+    // Restaura stage e reinicia
+    await updateRun(runId, { current_stage_id: targetStageId, status: 'running', task_id: null })
+
+    await postCardComment(
+      run.provider, pipeline.cfg, pipeline.secrets, run.card_key,
+      `⏪ **Rollback para "${snapshot.stage_name}"** — reprocessando a partir desta etapa.`
+    )
+
+    await startColumn({ ...run, current_stage_id: targetStageId, status: 'running', task_id: null }, column, pipeline.cfg, pipeline.secrets)
+
+    return { ok: true, message: `Rollback para "${snapshot.stage_name}" iniciado` }
+  } catch (err) {
+    logger.error({ err, run_id: runId }, 'pipeline-engine: rollback failed')
     return { ok: false, message: err instanceof Error ? err.message : String(err) }
   } finally {
     _running = false

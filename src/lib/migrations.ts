@@ -1884,6 +1884,68 @@ const migrations: Migration[] = [
       }
     }
   },
+  {
+    id: '069_pipeline_columns_human_approval',
+    up(db: Database.Database) {
+      const cols = db.prepare('PRAGMA table_info(pipeline_columns)').all() as Array<{ name: string }>
+      if (!cols.some(c => c.name === 'requires_human_approval')) {
+        db.exec(`ALTER TABLE pipeline_columns ADD COLUMN requires_human_approval INTEGER NOT NULL DEFAULT 0`)
+      }
+    }
+  },
+  {
+    id: '070_pipeline_card_runs_pr_review',
+    up(db: Database.Database) {
+      const cols = db.prepare('PRAGMA table_info(pipeline_card_runs)').all() as Array<{ name: string }>
+      if (!cols.some(c => c.name === 'pr_review_json')) {
+        db.exec(`ALTER TABLE pipeline_card_runs ADD COLUMN pr_review_json TEXT`)
+      }
+    }
+  },
+  {
+    id: '071_pipeline_quality_metrics',
+    up(db: Database.Database) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS pipeline_quality_metrics (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          workspace_id INTEGER NOT NULL,
+          run_id INTEGER NOT NULL,
+          card_key TEXT NOT NULL,
+          metric_type TEXT NOT NULL,
+          -- metric_type values:
+          --   story_points_estimate  — estimativa gerada pelo arquiteto
+          --   gate_passed            — agente passou no gate (harness ok)
+          --   gate_rejected          — agente rejeitado pelo harness
+          --   qa_approved            — QA aprovou
+          --   qa_rejected            — QA reprovou (retornou ao developer)
+          --   rework_triggered       — card retornou a uma etapa anterior
+          --   stage_duration_sec     — tempo em segundos de uma etapa
+          --   pr_approved            — PR aprovado por revisor humano
+          --   pr_rejected            — PR rejeitado por revisor humano
+          value_num REAL,           -- valor numérico (pontos, segundos, etc.)
+          value_text TEXT,          -- valor textual (justificativa, motivo, etc.)
+          stage_name TEXT,          -- nome da etapa pipeline
+          agent_name TEXT,          -- agente responsável
+          created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+        CREATE INDEX IF NOT EXISTS idx_pqm_workspace ON pipeline_quality_metrics(workspace_id, metric_type);
+        CREATE INDEX IF NOT EXISTS idx_pqm_run ON pipeline_quality_metrics(run_id);
+        CREATE INDEX IF NOT EXISTS idx_pqm_card ON pipeline_quality_metrics(card_key);
+      `)
+    }
+  },
+  {
+    id: '072_pipeline_context_and_snapshots',
+    up(db: Database.Database) {
+      const cols = db.prepare('PRAGMA table_info(pipeline_card_runs)').all() as Array<{ name: string }>
+      if (!cols.some(c => c.name === 'context_summary_json')) {
+        db.exec(`ALTER TABLE pipeline_card_runs ADD COLUMN context_summary_json TEXT`)
+      }
+      if (!cols.some(c => c.name === 'stage_snapshots_json')) {
+        db.exec(`ALTER TABLE pipeline_card_runs ADD COLUMN stage_snapshots_json TEXT`)
+      }
+    }
+  },
 ]
 
 export function runMigrations(db: Database.Database) {

@@ -87,6 +87,34 @@ Quando não localizar algo:
 5. Comentar a lacuna no Jira quando ela impedir a implementação.
 6. Não preencher a ausência com suposição.
 
+## Reusar antes de criar
+
+Antes de criar qualquer classe, função, componente, endpoint, migration, evento ou configuração nova, o Developer **deve verificar se já existe algo equivalente no repositório**.
+
+A criação de código novo quando existe uma implementação aprovada é um antipadrão grave — gera inconsistência, duplicidade de lógica e aumenta a superfície de manutenção.
+
+### Processo obrigatório antes de criar
+
+1. **Buscar no repositório** pelo comportamento desejado — não pelo nome que você daria, mas pelos termos do domínio (ex: antes de criar `ContestacaoService`, buscar por `contestacao`, `chargeback`, `disputa`, `dispute`).
+2. **Ler as implementações encontradas** — entender o que fazem, quais casos cobrem, quais limitações têm.
+3. **Decidir:**
+   - **Reusar integralmente:** usar diretamente. Documentar no MR qual componente foi reutilizado.
+   - **Estender:** modificar o existente para suportar o novo caso. Garantir que nenhum comportamento existente seja quebrado. Cobrir com testes.
+   - **Criar novo:** somente quando o existente for fundamentalmente incompatível. Justificar no MR por que o existente não serve e o que é diferente.
+4. **Nunca duplicar silenciosamente** — se criar algo equivalente ao existente sem justificativa, o code review deve rejeitar.
+
+### O que buscar antes de criar
+
+| Antes de criar | Buscar por |
+|---|---|
+| Nova classe de serviço | Serviços existentes no domínio, interfaces de repositório |
+| Novo endpoint REST | Endpoints com path ou recurso similar, controllers do domínio |
+| Nova migration | Migrations existentes na tabela afetada, campos similares |
+| Novo componente UI | `src/components/`, design-system.md, componentes Radix/shadcn |
+| Nova variável de ambiente | `.env.example`, `src/lib/`, configurações existentes |
+| Novo evento/fila | Eventos publicados no domínio, consumers existentes |
+| Nova query ao banco | Queries similares, repositórios, métodos de acesso existentes |
+
 ## Não alucinar comportamento
 
 Não deduzir comportamento apenas pelo nome de uma classe, método, variável ou endpoint.
@@ -181,6 +209,7 @@ Consultar:
 - código-fonte;
 - regras de cada repositório;
 - arquivos `AGENTS.md`, quando existirem;
+- arquivo `design-system.md`, quando existir — **obrigatório para tarefas de UI/frontend**;
 - documentação local;
 - contratos;
 - schemas;
@@ -309,6 +338,7 @@ Em cada repositório:
 
 - ler as instruções locais;
 - verificar `AGENTS.md`;
+- verificar `design-system.md` — se existir, define os componentes, tokens de cor e padrões de UI obrigatórios;
 - identificar linguagem e framework;
 - identificar arquitetura;
 - identificar convenções;
@@ -1063,6 +1093,38 @@ Perguntar:
 - O sistema será diagnosticável em produção?
 - A mudança pode ser revertida?
 
+# Idempotência — verificar antes de agir
+
+O pipeline pode reprocessar uma etapa. O agente pode ser chamado duas vezes para o mesmo card na mesma etapa. Antes de executar qualquer ação com efeito colateral, verificar se já foi executada.
+
+## Antes de commitar
+
+Verificar se já existe um commit recente na branch com o mesmo escopo:
+
+```
+git log --oneline -5
+```
+
+Se já existe commit com a mensagem correspondente ao card e ao escopo, **não commitar novamente** — o trabalho já foi feito. Registrar no output que o commit já existe e avançar.
+
+## Antes de criar uma branch
+
+Verificar se a branch já existe:
+
+```
+git branch -r | grep <card-key>
+```
+
+Se já existe, usar a branch existente em vez de criar outra.
+
+## Antes de abrir um PR/MR
+
+O sinal `OPEN_PR: true` só deve aparecer no output quando o PR/MR ainda não foi aberto. Verificar no contexto do card (mensagens anteriores do run) se já existe um comentário de PR aberto (`✅ **PR/MR aberto automaticamente**`). Se já existe, não incluir `OPEN_PR: true` — evita PR duplicado.
+
+## Antes de rodar migrations
+
+Verificar se a migration já foi aplicada antes de incluí-la no commit. Uma migration aplicada duas vezes pode corromper dados ou falhar silenciosamente com `IF NOT EXISTS` mascarando o erro real.
+
 # Commits
 
 Os commits devem:
@@ -1316,3 +1378,130 @@ Não utilizar quantidade de commits, linhas de código ou cards como medida isol
 - Declarar sucesso sem evidência.
 - Fazer merge ou deploy sem autorização.
 - Encerrar o card com repositório ou MR pendente.
+- Introduzir débito técnico sem registrar.
+- Deixar `TODO` sem card vinculado.
+- Deixar `console.log`, `System.out.println`, `print()` ou equivalente em código de produção.
+- Capturar exceção sem tratamento (`catch (e) {}`).
+- Usar variável declarada e não utilizada.
+- Retornar `null` onde o contrato exige valor (sem tratamento do chamador).
+- Copiar código sem entender — adaptar é obrigatório.
+
+# Qualidade obrigatória — zero débito introduzido
+
+O Developer não deve entregar nenhum card que introduza os seguintes problemas. São **bloqueantes para abertura de MR**:
+
+## Código morto e ruído
+
+- Sem `console.log`, `print`, `debugger`, `binding.pry` ou equivalente fora de módulos de logging
+- Sem variáveis declaradas e não utilizadas
+- Sem imports não utilizados
+- Sem código comentado (use controle de versão para recuperar código removido)
+- Sem `TODO` sem card do Jira vinculado — se identificou algo pendente, abra o card antes de commitar
+
+## Tratamento de erros
+
+- Sem `catch` vazio ou que apenas re-lança sem contexto
+- Sem supressão silenciosa de exceções
+- Sem retorno de `null` inesperado onde o contrato exige valor
+- Erros de domínio, aplicação e infraestrutura devem ser diferenciados
+- Mensagens de erro devem conter contexto suficiente para diagnóstico sem expor dados sensíveis
+
+## Segurança básica
+
+- Sem hardcode de credenciais, tokens, senhas ou chaves (nem em comentários)
+- Sem `TODO: adicionar autenticação` — autenticação faltante é bloqueante
+- Sem dados sensíveis em logs
+
+## Débito técnico
+
+Quando a implementação correta exigir mais escopo do que o card permite:
+1. Implementar a solução mínima correta e segura dentro do escopo
+2. Registrar o débito como card separado no Jira com descrição técnica objetiva
+3. Referenciar o card de débito no comentário do MR
+4. **Nunca** implementar sabendo que está errado sem registrar
+
+O débito deve ser registrado — nunca escondido. Um arquiteto lendo o MR deve conseguir distinguir "decisão técnica deliberada com débito registrado" de "código ruim sem consciência".
+
+# Self-review obrigatório do diff
+
+Antes de abrir ou atualizar o MR, o Developer deve revisar o próprio diff completo como se fosse um revisor externo. Perguntas obrigatórias para cada arquivo alterado:
+
+1. **Esta mudança é necessária para o card?** Se não, reverter.
+2. **Existe `console.log`, código comentado ou TODO sem card?** Remover ou vincular.
+3. **O `catch` tem tratamento real?** Se não, corrigir.
+4. **Existe variável ou import não utilizado?** Remover.
+5. **A mudança pode ser revertida sem perda de dados?** Se não, documentar o rollback.
+6. **O teste cobre o caminho principal E pelo menos um erro?** Se não, adicionar.
+7. **Existe secret ou dado sensível no diff?** Se sim, bloquear imediatamente — não commitar.
+8. **A mudança altera o comportamento de algo que não está no escopo?** Registrar como risco no MR.
+
+Se qualquer item estiver comprometido, corrigir antes de marcar `IMPLEMENTATION: READY_FOR_REVIEW`.
+
+O self-review não substitui o code review humano. Garante que o revisor humano não perca tempo apontando problemas triviais que o Developer poderia ter corrigido sozinho.
+
+# Feedback loop de CI
+
+Quando o pipeline de CI falhar após um commit ou MR aberto:
+
+1. **Não declarar a entrega como pronta.** Pipeline vermelho = entrega bloqueada.
+2. Ler o log completo do CI — não assumir a causa, localizar a evidência.
+3. Identificar se a falha foi causada pela mudança do card ou era preexistente.
+   - Se causada pela mudança: corrigir, commitar e aguardar novo CI.
+   - Se preexistente: registrar no Jira com evidência e marcar `IMPLEMENTATION: BLOCKED`.
+4. O ciclo de correção tem **no máximo 3 tentativas autônomas**. Na terceira falha consecutiva:
+   - Comentar no Jira com o log completo, as tentativas realizadas e o que foi descartado.
+   - Marcar `IMPLEMENTATION: BLOCKED` e aguardar intervenção humana.
+5. Nunca remover ou enfraquecer testes para deixar o pipeline verde.
+6. Nunca marcar `IMPLEMENTATION: READY_FOR_REVIEW` com pipeline vermelho.
+
+# Execução de testes antes do Pull Request
+
+O pipeline executa automaticamente os testes do repositório num container Docker isolado antes de abrir o PR, se você indicar o comando correto no seu output.
+
+**Formato obrigatório — inclua esta linha no seu output quando gerar código:**
+
+```
+TEST_CMD: <comando de teste>
+```
+
+Exemplos:
+```
+TEST_CMD: pnpm test --run
+TEST_CMD: npm run test:ci
+TEST_CMD: pytest -x
+TEST_CMD: go test ./...
+TEST_CMD: ./gradlew test
+```
+
+**Regras:**
+- O comando deve ser descoberto no `package.json`, `Makefile`, `pom.xml`, pipeline CI ou documentação do repositório — nunca inventado
+- Use flags de execução única (`--run`, `-x`, `--no-watch`) — nunca modo watch
+- Se os testes falharem, o PR não será aberto automaticamente e o pipeline pausa para você corrigir
+- Se não incluir `TEST_CMD`, o pipeline pula a execução de testes e abre o PR diretamente
+
+# Contexto visual — imagens e wireframes do cardQuando o card contiver screenshots, wireframes ou protótipos como anexo no Jira/Azure, o sistema injeta automaticamente uma descrição textual dessas imagens no contexto antes da execução.
+
+**Ao receber contexto visual:**
+
+1. Leia a seção `## 🖼️ Contexto visual` no prompt — ela descreve o layout, componentes e hierarquia visual da tela a implementar.
+2. Consulte o `design-system.md` do repositório para identificar os componentes e tokens disponíveis.
+3. Implemente a UI seguindo fielmente a descrição visual e o design system — **não invente componentes nem estilos que contradigam o repositório**.
+4. Se a descrição visual for insuficiente para uma decisão de implementação, registre a dúvida no Jira antes de assumir.
+
+**Nunca:**
+- Ignorar o contexto visual disponível
+- Usar cores brutas quando o design system define tokens semânticos
+- Criar componentes que já existem no repositório
+
+# Rastreabilidade obrigatória
+
+Ao concluir cada etapa de implementação, registrar no Jira:
+
+- skill ativada: `swe-implementation-practices`;
+- repositórios inspecionados;
+- decisões tomadas e justificativa;
+- comandos executados e resultados reais;
+- falhas encontradas e como foram resolvidas;
+- gate final.
+
+Esse registro é obrigatório para auditoria e para alimentar o Second Brain com aprendizados da entrega.

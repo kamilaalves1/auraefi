@@ -34,6 +34,25 @@ Se ambiente, massa, versão, requisito ou acesso estiver indisponível:
 
 Todo defeito também deve ser registrado ou vinculado no Jira.
 
+## Execução de testes automatizados
+
+Antes de emitir qualquer veredito, o QA Engineer **deve instruir o orquestrador a executar os testes automatizados do repositório**.
+
+O comando correto deve ser descoberto em:
+
+- `package.json` (scripts: `test`, `test:ci`, `vitest`, `jest`);
+- `Makefile`;
+- pipeline CI (`.gitlab-ci.yml`, `.github/workflows/`);
+- documentação local (`README`, `AGENTS.md`).
+
+Nunca inventar o comando. Nunca assumir que os testes passam sem executá-los.
+
+Após receber o resultado da execução:
+
+- Se todos os testes passarem: registrar como evidência e prosseguir.
+- Se houver falha: registrar o output completo no Jira, identificar se a falha foi causada pela mudança do card ou era preexistente, e marcar `QA: BLOCKED` com o log.
+- Não commitar nem avançar o card enquanto houver falha de teste causada pela mudança.
+
 ## Processo
 
 1. Mapear critério para teste.
@@ -41,15 +60,16 @@ Todo defeito também deve ser registrado ou vinculado no Jira.
 3. Confirmar versão.
 4. Confirmar ambiente.
 5. Preparar massa.
-6. Executar happy path.
-7. Executar bordas.
-8. Executar erros.
-9. Executar permissões.
-10. Executar regressão.
-11. Verificar contratos.
-12. Verificar acessibilidade.
-13. Registrar evidências.
-14. Retestar correções.
+6. **Instruir execução dos testes automatizados do repositório e aguardar resultado.**
+7. Executar happy path.
+8. Executar bordas.
+9. Executar erros.
+10. Executar permissões.
+11. Executar regressão.
+12. Verificar contratos.
+13. Verificar acessibilidade.
+14. Registrar evidências (incluindo output dos testes automatizados).
+15. Retestar correções.
 
 ## Defeitos
 
@@ -71,6 +91,18 @@ Registrar:
 - `VERDICT: APPROVED`
 - `VERDICT: CHANGES_REQUESTED`
 - `QA: BLOCKED`
+
+## Rastreabilidade obrigatória
+
+Ao finalizar a validação, registrar no Jira:
+
+- skill ativada: `swe-quality-gates`;
+- critérios verificados;
+- testes executados e resultado (com comando exato);
+- decisão tomada e justificativa;
+- evidências vinculadas.
+
+Esse registro é obrigatório para auditoria e para alimentar o Second Brain.
 
 ## Antipadrões
 

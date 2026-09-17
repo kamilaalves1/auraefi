@@ -62,6 +62,7 @@ export async function fetchAzureBacklog(
       Authorization: auth,
     },
     body: JSON.stringify(wiqlBody),
+    signal: AbortSignal.timeout(15_000),
   })
 
   if (!wiqlRes.ok) {
@@ -78,10 +79,10 @@ export async function fetchAzureBacklog(
   const idsParam = ids.join(',')
   const detailUrl = `${apiBase}/${encodeURIComponent(project)}/_apis/wit/workitems?ids=${idsParam}&api-version=7.1&$expand=all`
 
-  const detailRes = await fetch(detailUrl, { headers: { Authorization: auth } })
-  if (!detailRes.ok) {
-    const t = await detailRes.text().catch(() => '')
-    throw new Error(`Azure work items ${detailRes.status}: ${t.slice(0, 400)}`)
+  const detailRes = await fetch(detailUrl, { headers: { Authorization: auth }, signal: AbortSignal.timeout(15_000) })
+  if (!res.ok) {
+    const t = await res.text().catch(() => '')
+    throw new Error(`Azure WIQL ${res.status}: ${t.slice(0, 120)}`)
   }
 
   const detailJson = (await detailRes.json()) as {
@@ -147,15 +148,16 @@ export async function fetchAzureWorkItemsByState(
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({ query }),
+    signal: AbortSignal.timeout(15_000),
   })
-  if (!wiqlRes.ok) throw new Error(`Azure WIQL ${wiqlRes.status}: ${(await wiqlRes.text().catch(() => '')).slice(0, 400)}`)
+  if (!wiqlRes.ok) throw new Error(`Azure WIQL ${wiqlRes.status}: ${(await wiqlRes.text().catch(() => '')).slice(0, 120)}`)
 
   const wiqlJson = (await wiqlRes.json()) as { workItems?: Array<{ id: number }> }
   const ids = (wiqlJson.workItems || []).slice(0, top).map((w) => w.id)
   if (ids.length === 0) return []
 
   const detailUrl = `${apiBase}/${encodeURIComponent(project)}/_apis/wit/workitems?ids=${ids.join(',')}&api-version=7.1&$expand=all`
-  const detailRes = await fetch(detailUrl, { headers: { Authorization: auth } })
+  const detailRes = await fetch(detailUrl, { headers: { Authorization: auth }, signal: AbortSignal.timeout(15_000) })
   if (!detailRes.ok) throw new Error(`Azure work items ${detailRes.status}`)
 
   const detailJson = (await detailRes.json()) as { value?: Array<Record<string, unknown>> }
@@ -188,8 +190,9 @@ export async function postAzureComment(
     method: 'POST',
     headers: { Authorization: auth, 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ text: body }),
+    signal: AbortSignal.timeout(15_000),
   })
-  if (!res.ok) throw new Error(`Azure comment ${res.status}: ${(await res.text().catch(() => '')).slice(0, 400)}`)
+  if (!res.ok) throw new Error(`Azure comment ${res.status}: ${(await res.text().catch(() => '')).slice(0, 120)}`)
   const data = (await res.json()) as { id: number }
   return { commentId: String(data.id) }
 }
@@ -211,7 +214,7 @@ export async function getAzureCommentsSince(
   const { apiBase, project, auth } = buildAzureCtx(cfg, secrets)
   const url = `${apiBase}/${encodeURIComponent(project)}/_apis/wit/workitems/${encodeURIComponent(workItemId)}/comments?api-version=7.1-preview.3&$top=50`
 
-  const res = await fetch(url, { headers: { Authorization: auth, Accept: 'application/json' } })
+  const res = await fetch(url, { headers: { Authorization: auth, Accept: 'application/json' }, signal: AbortSignal.timeout(15_000) })
   if (!res.ok) throw new Error(`Azure comments ${res.status}`)
 
   const data = (await res.json()) as { comments?: Array<{ id: number; text: string; createdDate: string; createdBy: { displayName?: string } }> }
@@ -243,6 +246,96 @@ export async function moveAzureWorkItem(
     method: 'PATCH',
     headers: { Authorization: auth, 'Content-Type': 'application/json-patch+json', Accept: 'application/json' },
     body: JSON.stringify([{ op: 'replace', path: '/fields/System.State', value: newState }]),
+    signal: AbortSignal.timeout(15_000),
   })
-  if (!res.ok) throw new Error(`Azure move ${res.status}: ${(await res.text().catch(() => '')).slice(0, 400)}`)
+  if (!res.ok) throw new Error(`Azure move ${res.status}: ${(await res.text().catch(() => '')).slice(0, 120)}`)
+}
+
+export interface CardAttachment {
+  id: string
+  filename: string
+  mimeType: string
+  contentUrl: string
+  size: number
+}
+
+/**
+ * Busca anexos de imagem de um Azure DevOps work item.
+ * Usa $expand=relations para obter os attachments vinculados.
+ * Retorna apenas imagens (PNG, JPG, GIF, WEBP) com até 10 MB.
+ */
+export async function fetchAzureAttachments(
+  cfg: WorkPipelineConfigJson,
+  secrets: WorkPipelineSecrets,
+  workItemId: string
+): Promise<CardAttachment[]> {
+  const { apiBase, project, auth } = buildAzureCtx(cfg, secrets)
+  const url = `${apiBase}/${encodeURIComponent(project)}/_apis/wit/workitems/${encodeURIComponent(workItemId)}?$expand=relations&api-version=7.1`
+
+  try {
+    const res = await fetch(url, {
+      headers: { Authorization: auth, Accept: 'application/json' },
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!res.ok) return []
+
+    const data = (await res.json()) as {
+      relations?: Array<{
+        rel: string
+        url: string
+        attributes?: { name?: string; resourceSize?: number; comment?: string }
+      }>
+    }
+
+    const IMAGE_EXTS = /\.(png|jpg|jpeg|gif|webp)$/i
+    const MAX_SIZE = 10 * 1024 * 1024 // 10 MB
+
+    const attachments: CardAttachment[] = []
+    for (const rel of data.relations ?? []) {
+      if (rel.rel !== 'AttachedFile') continue
+      const name = rel.attributes?.name ?? rel.url.split('/').pop() ?? 'attachment'
+      const size = rel.attributes?.resourceSize ?? 0
+      if (!IMAGE_EXTS.test(name)) continue
+      if (size > MAX_SIZE) continue
+
+      const ext = name.split('.').pop()?.toLowerCase() ?? 'png'
+      const mimeMap: Record<string, string> = {
+        png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+        gif: 'image/gif', webp: 'image/webp',
+      }
+
+      attachments.push({
+        id: rel.url,
+        filename: name,
+        mimeType: mimeMap[ext] ?? 'image/png',
+        contentUrl: rel.url,
+        size,
+      })
+    }
+    return attachments
+  } catch {
+    return []
+  }
+}
+
+/**
+ * Baixa o conteúdo binário de um attachment Azure e retorna como base64.
+ */
+export async function downloadAzureAttachment(
+  cfg: WorkPipelineConfigJson,
+  secrets: WorkPipelineSecrets,
+  contentUrl: string
+): Promise<string | null> {
+  const { auth } = buildAzureCtx(cfg, secrets)
+  try {
+    const res = await fetch(contentUrl, {
+      headers: { Authorization: auth },
+      signal: AbortSignal.timeout(20_000),
+    })
+    if (!res.ok) return null
+    const buffer = await res.arrayBuffer()
+    return Buffer.from(buffer).toString('base64')
+  } catch {
+    return null
+  }
 }
