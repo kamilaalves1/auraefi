@@ -39,6 +39,17 @@ export type EventType =
   | 'pipeline.stage_started'
   | 'pipeline.run_completed'
   | 'pipeline.run_failed'
+  | 'pipeline.agent_output'
+  | 'pipeline.agent_completed'
+  | 'pipeline.card_done'
+  | 'pipeline.card_failed'
+  | 'pipeline.awaiting_approval'
+  | 'pipeline.loop_detected'
+  | 'pipeline.sandbox_failed'
+  | 'pipeline.ci_passed'
+  | 'pipeline.ci_failed'
+  | 'pipeline.ci_fix_attempt'
+  | 'pipeline.pr_review_rejected'
 
 class ServerEventBus extends EventEmitter {
   private static instance: ServerEventBus | null = null

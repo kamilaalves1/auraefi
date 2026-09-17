@@ -80,9 +80,9 @@ export async function fetchAzureBacklog(
   const detailUrl = `${apiBase}/${encodeURIComponent(project)}/_apis/wit/workitems?ids=${idsParam}&api-version=7.1&$expand=all`
 
   const detailRes = await fetch(detailUrl, { headers: { Authorization: auth }, signal: AbortSignal.timeout(15_000) })
-  if (!res.ok) {
-    const t = await res.text().catch(() => '')
-    throw new Error(`Azure WIQL ${res.status}: ${t.slice(0, 120)}`)
+  if (!detailRes.ok) {
+    const t = await detailRes.text().catch(() => '')
+    throw new Error(`Azure work items ${detailRes.status}: ${t.slice(0, 120)}`)
   }
 
   const detailJson = (await detailRes.json()) as {
