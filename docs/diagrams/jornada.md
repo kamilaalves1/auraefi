@@ -19,8 +19,8 @@ docker run --rm -v $(pwd):/data plantuml/plantuml -tsvg /data/docs/diagrams/jorn
 
 | # | Fase | Agente de IA | Quando é ativado | Gate de saída |
 |---|---|---|---|---|
-| 1 | Entrada da demanda | — | Sempre | Card criado |
-| 2 | Orquestração | **01 · Coordinator (Aegis)** | Sempre — coordena toda a esteira | — |
+| 1 | Entrada da demanda pelo JIRA| — | Sempre | Card criado |
+| 2 | Orquestração | **01 · Coordinator (Aegis)** | Direciona os cards, fica buscando na coluna gatilho | — |
 | 3 | Clareza de produto | **02 · Product Manager** | Card sem outcome claro ou métrica de sucesso | `PRODUCT: READY` |
 | 4 | Priorização | **03 · Product Owner (Backlog)** | Disputa de prioridade ou planejamento de sprint | `BACKLOG: PRIORITIZED` |
 | 5 | Fluxo de entrega | **04 · Scrum Master (Flow)** | WIP alto, card parado ou risco de prazo | `FLOW: OK` |
