@@ -37,7 +37,7 @@ const GATE_REQUIRED_ROLES: Record<string, RegExp> = {
   'business analyst':    /ANALYSIS\s*:\s*(?:READY|BLOCKED)/i,
   'data engineer':       /DATA\s*:\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)/i,
   'ux designer':         /UX\s*:\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)/i,
-  'product manager':     /PRODUCT\s*:\s*(?:READY|BLOCKED)/i,
+  'product manager':     /PRODUCT\s*:\s*(?:READY|BLOCKED|NOT_APPLICABLE)/i,
 }
 
 /** Tamanho mínimo de resposta por papel (chars) — respostas muito curtas indicam falha */

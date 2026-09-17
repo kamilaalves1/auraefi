@@ -119,7 +119,7 @@ async function upsertRun(
 ): Promise<PipelineCardRun | null> {
   const now = Math.floor(Date.now() / 1000)
   const descricao = cardDescription.slice(0, 4000)
-  const ESTADOS_TERMINAIS = ['done', 'failed', 'cancelled', 'waiting_input']
+  const ESTADOS_TERMINAIS = ['done', 'failed', 'cancelled']
 
   // Tres caminhos explicitos, em vez de INSERT ... ON DUPLICATE KEY UPDATE ... WHERE.
   //
@@ -3612,8 +3612,14 @@ async function executeMentionInstruction(
     return
   }
 
+  // Instrução livre via @mention → responde apenas o primeiro agente da coluna (order ASC).
+  // Chamar todos os agentes para uma instrução de usuário gera respostas redundantes e alucinação.
+  const assignment = assignments[0]
+  const agent = agentMap.get(assignment.agent_id)
+  if (!agent) return
+
   const ackMsg = [
-    `🤖 **Instrução recebida** via menção na etapa "${column.column_name}"`,
+    `🤖 **Instrução recebida** — **${agent.name}** responderá`,
     '',
     `> ${userInstruction}`,
     '',
@@ -3622,68 +3628,63 @@ async function executeMentionInstruction(
   await postCardComment(run.provider, cfg, secrets, run.card_key, ackMsg)
   await updateRun(run.id, { status: 'running', task_id: null })
 
-  for (const assignment of assignments) {
-    const agent = agentMap.get(assignment.agent_id)
-    if (!agent) continue
+  const nowBusy = Math.floor(Date.now() / 1000)
+  await dbRun(`UPDATE agents SET status = 'busy', last_activity = ?, last_seen = ?, updated_at = ? WHERE id = ?`, [`Pipeline mention: ${run.card_key}`, nowBusy, nowBusy, agent.id])
 
-    const nowBusy = Math.floor(Date.now() / 1000)
-    await dbRun(`UPDATE agents SET status = 'busy', last_activity = ?, last_seen = ?, updated_at = ? WHERE id = ?`, [`Pipeline mention: ${run.card_key}`, nowBusy, nowBusy, agent.id])
+  const previousMessages = await getLastAgentMessages(run.id)
+  const prompt = [
+    `# Instrução do usuário via @menção`,
+    ``,
+    `O usuário enviou a seguinte instrução diretamente para você no card ${run.card_key}:`,
+    ``,
+    `> **${userInstruction}**`,
+    ``,
+    `Responda **especificamente** a esta instrução, usando o contexto do card abaixo.`,
+    ``,
+    buildPrompt(run, column, previousMessages, agent.name, agent.role),
+  ].join('\n')
 
-    const previousMessages = await getLastAgentMessages(run.id)
-    const prompt = [
-      `# Instrução do usuário via @menção`,
-      ``,
-      `O usuário enviou a seguinte instrução diretamente para você no card ${run.card_key}:`,
-      ``,
-      `> **${userInstruction}**`,
-      ``,
-      `Responda **especificamente** a esta instrução, usando o contexto do card abaixo.`,
-      ``,
-      buildPrompt(run, column, previousMessages, agent.name, agent.role),
-    ].join('\n')
+  const taskId = await createAgentTask(run, column, agent, prompt, true, assignment.llm_model)
+  await updateRun(run.id, { task_id: taskId ?? undefined })
 
-    const taskId = await createAgentTask(run, column, agent, prompt, true, assignment.llm_model)
-    await updateRun(run.id, { task_id: taskId ?? undefined })
+  try {
+    const llmResult = await callAgentLLM(agent, prompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
+    const nowDone = Math.floor(Date.now() / 1000)
 
     try {
-      const llmResult = await callAgentLLM(agent, prompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
-      const nowDone = Math.floor(Date.now() / 1000)
+      await dbRun(`INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, cost_usd, agent_name, task_id, created_at, workspace_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [llmResult.model, `pipeline-mention-${run.id}-${agent.id}`, llmResult.inputTokens, llmResult.outputTokens, llmResult.costUsd, agent.name, taskId ?? null, nowDone, run.workspace_id])
+      await dbRun(`UPDATE pipeline_card_runs SET cost_usd = COALESCE(cost_usd, 0) + ?, updated_at = ? WHERE id = ?`, [llmResult.costUsd, nowDone, run.id])
+      const cur2 = (await dbGet('SELECT llm_models FROM pipeline_card_runs WHERE id = ?', [run.id]) as { llm_models: string } | null)?.llm_models ?? ''
+      const modelSet2 = new Set(cur2 ? cur2.split(',') : [])
+      modelSet2.add(llmResult.model)
+      await dbRun('UPDATE pipeline_card_runs SET llm_models = ? WHERE id = ?', [[...modelSet2].join(','), run.id])
+    } catch { /* ignore token log errors */ }
 
-      try {
-        await dbRun(`INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, cost_usd, agent_name, task_id, created_at, workspace_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, [llmResult.model, `pipeline-mention-${run.id}-${agent.id}`, llmResult.inputTokens, llmResult.outputTokens, llmResult.costUsd, agent.name, taskId ?? null, nowDone, run.workspace_id])
-        await dbRun(`UPDATE pipeline_card_runs SET cost_usd = COALESCE(cost_usd, 0) + ?, updated_at = ? WHERE id = ?`, [llmResult.costUsd, nowDone, run.id])
-        const cur2 = (await dbGet('SELECT llm_models FROM pipeline_card_runs WHERE id = ?', [run.id]) as { llm_models: string } | null)?.llm_models ?? ''
-        const modelSet2 = new Set(cur2 ? cur2.split(',') : [])
-        modelSet2.add(llmResult.model)
-        await dbRun('UPDATE pipeline_card_runs SET llm_models = ? WHERE id = ?', [[...modelSet2].join(','), run.id])
-      } catch { /* ignore token log errors */ }
-
-      if (taskId) {
-        await dbRun(`UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?`, [nowDone, taskId])
-        await dbRun(`INSERT INTO comments (task_id, author, content, created_at, workspace_id) VALUES (?, ?, ?, ?, ?)`, [taskId, agent.name, llmResult.text, nowDone, run.workspace_id])
-      }
-      await dbRun(`UPDATE agents SET status = 'idle', last_activity = ?, updated_at = ? WHERE id = ?`, [`Respondeu menção em ${run.card_key}`, nowDone, agent.id])
-
-      const resultComment = [
-        `🤖 **${agent.name}** *(${agent.role})* — resposta à instrução`,
-        '',
-        llmResult.text,
-        '',
-        `---`,
-        `*${llmResult.model} | ${llmResult.inputTokens} in / ${llmResult.outputTokens} out${llmResult.costUsd > 0 ? ` | $${llmResult.costUsd.toFixed(4)}` : ''}*`,
-      ].join('\n')
-      const stageId = String(column.id)
-      const cid = await postCardComment(run.provider, cfg, secrets, run.card_key, resultComment)
-      await logMessage(run.id, 'agent_to_card', stageId, resultComment, cid ?? undefined)
-
-    } catch (err) {
-      const nowFail = Math.floor(Date.now() / 1000)
-      await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowFail, agent.id])
-      logger.error({ err, run_id: run.id, agent_id: agent.id }, 'pipeline-engine: mention instruction LLM failed')
-      await postCardComment(run.provider, cfg, secrets, run.card_key,
-        `❌ Falha ao executar instrução via "${agent.name}": ${err instanceof Error ? err.message : String(err)}`)
+    if (taskId) {
+      await dbRun(`UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?`, [nowDone, taskId])
+      await dbRun(`INSERT INTO comments (task_id, author, content, created_at, workspace_id) VALUES (?, ?, ?, ?, ?)`, [taskId, agent.name, llmResult.text, nowDone, run.workspace_id])
     }
+    await dbRun(`UPDATE agents SET status = 'idle', last_activity = ?, updated_at = ? WHERE id = ?`, [`Respondeu menção em ${run.card_key}`, nowDone, agent.id])
+
+    const resultComment = [
+      `🤖 **${agent.name}** *(${agent.role})* — resposta à instrução`,
+      '',
+      llmResult.text,
+      '',
+      `---`,
+      `*${llmResult.model} | ${llmResult.inputTokens} in / ${llmResult.outputTokens} out${llmResult.costUsd > 0 ? ` | $${llmResult.costUsd.toFixed(4)}` : ''}*`,
+    ].join('\n')
+    const stageId = String(column.id)
+    const cid = await postCardComment(run.provider, cfg, secrets, run.card_key, resultComment)
+    await logMessage(run.id, 'agent_to_card', stageId, resultComment, cid ?? undefined)
+
+  } catch (err) {
+    const nowFail = Math.floor(Date.now() / 1000)
+    await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowFail, agent.id])
+    logger.error({ err, run_id: run.id, agent_id: agent.id }, 'pipeline-engine: mention instruction LLM failed')
+    await postCardComment(run.provider, cfg, secrets, run.card_key,
+      `❌ Falha ao executar instrução via "${agent.name}": ${err instanceof Error ? err.message : String(err)}`)
   }
 
   // Restore previous status after handling the mention
