@@ -2715,8 +2715,8 @@ async function appendContextSummary(
 
     const entries: ContextEntry[] = existing ? JSON.parse(existing) : []
 
-    // Extrai gate do output (ex: ANALYSIS: READY, ARCHITECTURE: APPROVED, VERDICT: APPROVED)
-    const gateMatch = output.match(/\b(ANALYSIS|ARCHITECTURE|ARCHITECTURE_REVIEW|IMPLEMENTATION|VERDICT|QA):\s*(\w+)/i)
+    // Extrai gate do output — cobre todos os papéis do pipeline
+    const gateMatch = output.match(/\b(ANALYSIS|ARCHITECTURE|ARCHITECTURE_REVIEW|IMPLEMENTATION|VERDICT|QA|SECURITY|DATA|UX|PRODUCT|PRIORITY|FLOW|RELEASE|DISCOVERY|COORDINATION):\s*(\w+)/i)
     const gate = gateMatch ? `${gateMatch[1].toUpperCase()}: ${gateMatch[2].toUpperCase()}` : null
 
     // Primeira linha significativa do output como resumo
@@ -3070,6 +3070,33 @@ async function startColumn(
 
     const previousMessages = await getLastAgentMessages(run.id)
     const contextSoFar = outputParts.length ? `## Outputs anteriores nesta etapa\n${outputParts.join('\n---\n')}\n\n` : ''
+
+    // ── Contexto corretivo: injeta motivo da última rejeição pelo harness nesta etapa ──
+    // Permite que o agente saiba exatamente por que foi bloqueado e corrija no retry.
+    let correctionContext = ''
+    try {
+      const lastRejection = await dbGet<{ value_text: string; agent_name: string; created_at: number }>(
+        `SELECT value_text, agent_name, created_at
+         FROM pipeline_quality_metrics
+         WHERE run_id = ? AND stage_name = ? AND metric_type = 'gate_rejected' AND agent_name = ?
+         ORDER BY created_at DESC LIMIT 1`,
+        [run.id, column.column_name, agent.name]
+      )
+      if (lastRejection?.value_text) {
+        correctionContext = [
+          `## ⚠️ Contexto de rejeição anterior`,
+          ``,
+          `Na tentativa anterior, o harness de qualidade bloqueou sua resposta pelo seguinte motivo:`,
+          ``,
+          `> ${lastRejection.value_text}`,
+          ``,
+          `Corrija este problema específico na sua próxima resposta.`,
+          ``,
+        ].join('\n')
+        logger.info({ run_id: run.id, agent: agent.name, stage: column.column_name }, 'pipeline-engine: correction context injected from previous harness rejection')
+      }
+    } catch { /* non-critical — não bloqueia execução */ }
+
     const agentSkills = await loadAgentSkills(run.workspace_id)
 
     // Inject Second Brain context for BA and PM agents
@@ -3150,6 +3177,7 @@ async function startColumn(
     const contextSummary = formatContextSummary(run.context_summary_json)
     const prompt = contextSoFar
       + (contextSummary ? contextSummary + '\n\n' : '')
+      + (correctionContext ? correctionContext + '\n\n' : '')
       + (secondBrainContext ? secondBrainContext + '\n\n' : '')
       + (knowledgeContext ? knowledgeContext + '\n\n' : '')
       + (visualContext ? visualContext + '\n\n' : '')
@@ -3535,9 +3563,50 @@ async function startColumn(
     }
   }
 
-  await advanceToNextColumn(run, column, cfg, secrets, outputParts.join('\n\n---\n\n'))
+  // ── Gate BLOCKED: se qualquer agente emitiu BLOCKED, pausar antes de avançar ──
+  // Impede que o pipeline avance para a próxima coluna quando um agente registrou
+  // explicitamente que o trabalho está bloqueado (ex: ANALYSIS: BLOCKED, ARCHITECTURE: BLOCKED).
+  // NOT_APPLICABLE e APPROVED passam normalmente. Só o valor BLOCKED retém o card.
+  const BLOCKED_GATE_PATTERN = /\b(?:ANALYSIS|ARCHITECTURE|ARCHITECTURE_REVIEW|IMPLEMENTATION|VERDICT|QA|SECURITY|DATA|UX|PRODUCT|PRIORITY|FLOW|RELEASE|DISCOVERY|COORDINATION)\s*:\s*BLOCKED\b/i
+  const combinedOutput = outputParts.join('\n')
+  if (BLOCKED_GATE_PATTERN.test(combinedOutput)) {
+    // Extrai qual gate foi bloqueado para informar o usuário
+    const blockedMatch = combinedOutput.match(BLOCKED_GATE_PATTERN)
+    const blockedGate = blockedMatch ? blockedMatch[0].trim().toUpperCase() : 'GATE: BLOCKED'
 
-  // ── Métrica: duração da etapa ──
+    // Identifica o agente que emitiu o bloqueio
+    const blockedAgentOutput = outputParts.find(p => BLOCKED_GATE_PATTERN.test(p))
+    const blockedAgentMatch = blockedAgentOutput?.match(/^🤖 \*\*(.+?)\*\*/)
+    const blockedAgentName = blockedAgentMatch ? blockedAgentMatch[1] : 'um agente'
+
+    const gateBlockMsg = [
+      `⛔ **Etapa bloqueada — ${column.column_name}**`,
+      ``,
+      `O agente **${blockedAgentName}** emitiu \`${blockedGate}\`.`,
+      `O pipeline foi pausado — o card não avançará até que o bloqueio seja resolvido.`,
+      ``,
+      `**O que fazer:**`,
+      `- Leia o output do agente acima para entender o motivo do bloqueio`,
+      `- Resolva a pendência (informação, decisão, acesso ou ajuste no card)`,
+      `- Responda \`@pipeline reprocessar\` para tentar novamente após a correção`,
+      `- Ou responda \`@pipeline avançar\` para pular esta etapa manualmente (use com cautela)`,
+    ].join('\n')
+
+    const gateBlockId = await postCardComment(run.provider, cfg, secrets, run.card_key, gateBlockMsg, run.id)
+    await logMessage(run.id, 'agent_to_card', stageId, gateBlockMsg, gateBlockId ?? undefined)
+    await updateRun(run.id, { status: 'waiting_input', task_id: null })
+
+    dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_text, stage_name, created_at)
+           VALUES (?, ?, ?, 'gate_blocked_advance', ?, ?, UNIX_TIMESTAMP())`,
+      [run.workspace_id, run.id, run.card_key, blockedGate, column.column_name]
+    ).catch(() => {})
+
+    logger.info({ run_id: run.id, card_key: run.card_key, stage: column.column_name, gate: blockedGate, agent: blockedAgentName }, 'pipeline-engine: gate BLOCKED — advance suppressed')
+    return
+  }
+  // ── Fim gate BLOCKED ──────────────────────────────────────────────────────
+
+  await advanceToNextColumn(run, column, cfg, secrets, outputParts.join('\n\n---\n\n'))
   const stageDurationSec = Math.floor(Date.now() / 1000) - stageStartedAt
   dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_num, stage_name, created_at)
          VALUES (?, ?, ?, 'stage_duration_sec', ?, ?, UNIX_TIMESTAMP())`,

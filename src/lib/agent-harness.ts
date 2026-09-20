@@ -76,16 +76,17 @@ function loadHarnessConfig(skillPath: string | null | undefined): HarnessFileCon
 // ─── Defaults por papel (usados quando harness.json não existe) ───────────────
 
 const DEFAULT_GATE_REQUIRED_ROLES: Record<string, RegExp> = {
-  'software architect':  /ARCHITECTURE(?:_REVIEW)?\s*:\s*(?:APPROVED|BLOCKED|CHANGES_REQUESTED)/i,
+  'software architect':  /ARCHITECTURE(?:_REVIEW)?\s*:\s*(?:APPROVED|APPROVED_WITH_CONDITIONS|BLOCKED|CHANGES_REQUESTED|NOT_APPLICABLE)/i,
   'security auditor':    /SECURITY\s*:\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)/i,
-  'qa engineer':         /(?:VERDICT|QA)\s*:\s*(?:APPROVED|CHANGES_REQUESTED|BLOCKED)/i,
+  'qa engineer':         /(?:VERDICT|QA)\s*:\s*(?:APPROVED|CHANGES_REQUESTED|BLOCKED|NOT_APPLICABLE)/i,
   'business analyst':    /ANALYSIS\s*:\s*(?:READY|BLOCKED|NOT_APPLICABLE)/i,
   'data engineer':       /DATA\s*:\s*(?:APPROVED|APPROVED_WITH_CONDITIONS|BLOCKED|NOT_APPLICABLE)/i,
   'ux designer':         /UX\s*:\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)/i,
   'product manager':     /PRODUCT\s*:\s*(?:READY|BLOCKED|NOT_APPLICABLE)/i,
-  'product owner':       /(?:PRODUCT|BACKLOG)\s*:\s*(?:READY|BLOCKED|PRIORITIZED|NOT_APPLICABLE)/i,
+  'product owner':       /PRIORITY\s*:\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)/i,
   'developer':           /IMPLEMENTATION\s*:\s*(?:READY_FOR_REVIEW|BLOCKED|IN_PROGRESS|COMPLETED)/i,
-  'devops engineer':     /RELEASE\s*:\s*(?:SUCCESS|ROLLED_BACK|FAILED|BLOCKED)/i,
+  'devops engineer':     /RELEASE\s*:\s*(?:SUCCESS|ROLLED_BACK|FAILED|BLOCKED|NOT_APPLICABLE)/i,
+  'scrum master':        /FLOW\s*:\s*(?:HEALTHY|AT_RISK|BLOCKED|NOT_APPLICABLE)/i,
   'discovery':           /DISCOVERY\s*:\s*(?:READY|BLOCKED|NOT_APPLICABLE)/i,
 }
 
@@ -231,17 +232,18 @@ function buildGateExample(role: string, skillPath?: string | null): string {
   }
 
   const examples: Record<string, string> = {
-    'software architect': '`ARCHITECTURE: APPROVED` ou `ARCHITECTURE: BLOCKED`',
-    'security auditor':   '`SECURITY: APPROVED` ou `SECURITY: NOT_APPLICABLE`',
-    'qa engineer':        '`VERDICT: APPROVED` ou `VERDICT: CHANGES_REQUESTED`',
-    'business analyst':   '`ANALYSIS: READY` ou `ANALYSIS: BLOCKED`',
-    'data engineer':      '`DATA: APPROVED` ou `DATA: NOT_APPLICABLE`',
-    'ux designer':        '`UX: APPROVED` ou `UX: NOT_APPLICABLE`',
+    'software architect': '`ARCHITECTURE: APPROVED`, `ARCHITECTURE: APPROVED_WITH_CONDITIONS`, `ARCHITECTURE: BLOCKED` ou `ARCHITECTURE: NOT_APPLICABLE`',
+    'security auditor':   '`SECURITY: APPROVED`, `SECURITY: BLOCKED` ou `SECURITY: NOT_APPLICABLE`',
+    'qa engineer':        '`VERDICT: APPROVED`, `VERDICT: CHANGES_REQUESTED`, `QA: BLOCKED` ou `QA: NOT_APPLICABLE`',
+    'business analyst':   '`ANALYSIS: READY`, `ANALYSIS: BLOCKED` ou `ANALYSIS: NOT_APPLICABLE`',
+    'data engineer':      '`DATA: APPROVED`, `DATA: APPROVED_WITH_CONDITIONS`, `DATA: BLOCKED` ou `DATA: NOT_APPLICABLE`',
+    'ux designer':        '`UX: APPROVED`, `UX: BLOCKED` ou `UX: NOT_APPLICABLE`',
     'product manager':    '`PRODUCT: READY`, `PRODUCT: BLOCKED` ou `PRODUCT: NOT_APPLICABLE`',
-    'product owner':      '`BACKLOG: PRIORITIZED` ou `PRODUCT: NOT_APPLICABLE`',
-    'developer':          '`IMPLEMENTATION: READY_FOR_REVIEW` ou `IMPLEMENTATION: BLOCKED`',
-    'devops engineer':    '`RELEASE: SUCCESS` ou `RELEASE: BLOCKED`',
-    'discovery':          '`DISCOVERY: READY` ou `DISCOVERY: BLOCKED`',
+    'product owner':      '`PRIORITY: APPROVED`, `PRIORITY: BLOCKED` ou `PRIORITY: NOT_APPLICABLE`',
+    'developer':          '`IMPLEMENTATION: READY_FOR_REVIEW`, `IMPLEMENTATION: BLOCKED` ou `IMPLEMENTATION: COMPLETED`',
+    'devops engineer':    '`RELEASE: SUCCESS`, `RELEASE: ROLLED_BACK`, `RELEASE: FAILED`, `RELEASE: BLOCKED` ou `RELEASE: NOT_APPLICABLE`',
+    'scrum master':       '`FLOW: HEALTHY`, `FLOW: AT_RISK`, `FLOW: BLOCKED` ou `FLOW: NOT_APPLICABLE`',
+    'discovery':          '`DISCOVERY: READY`, `DISCOVERY: BLOCKED` ou `DISCOVERY: NOT_APPLICABLE`',
   }
   return examples[role] ?? '`GATE: APPROVED` ou `GATE: BLOCKED`'
 }

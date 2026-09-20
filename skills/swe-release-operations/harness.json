@@ -1,7 +1,7 @@
 {
-  "description": "DevOps/Release — execução de releases",
-  "min_response_length": 100,
-  "gate_pattern": "RELEASE\\s*:\\s*(?:SUCCESS|ROLLED_BACK|FAILED|BLOCKED)",
+  "description": "DevOps/Release — execução de releases, rollout e rollback",
+  "min_response_length": 150,
+  "gate_pattern": "RELEASE\\s*:\\s*(?:SUCCESS|ROLLED_BACK|FAILED|BLOCKED|NOT_APPLICABLE)",
   "is_coordination_role": false,
-  "notes": "Gate obrigatório: RELEASE: SUCCESS, RELEASE: ROLLED_BACK, RELEASE: FAILED ou RELEASE: BLOCKED"
+  "notes": "Gate obrigatório: RELEASE: SUCCESS, ROLLED_BACK, FAILED, BLOCKED ou NOT_APPLICABLE (card sem artefato deployável)."
 }

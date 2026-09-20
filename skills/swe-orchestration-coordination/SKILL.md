@@ -145,8 +145,16 @@ Exigir:
 - próximo agente;
 - gate esperado.
 
-## Gates
+## Gates do Coordinator
 
+O Coordinator controla os gates de todos os agentes especialistas e emite dois gates próprios:
+
+- `COORDINATION: DONE` — todas as etapas do card foram concluídas, gates validados, evidências registradas, Jira e GitLab sincronizados. Emitir ao encerrar o run com sucesso.
+- `COORDINATION: BLOCKED` — impedimento ativo que impede avançar: informação ausente, decisão humana necessária, contradição entre etapas, loop detectado, gate inválido de agente especialista.
+- `COORDINATION: AWAITING_APPROVAL` — etapa concluída, aguardando aprovação humana configurada na coluna.
+- `COORDINATION: CONTRADICTION_DETECTED` — contradição identificada entre dois agentes ou etapas. Usar o formato estruturado definido na seção de histórico de decisões.
+
+**Gates dos agentes especialistas que o Coordinator monitora:**
 - Produto.
 - Requisitos.
 - Priorização.
@@ -157,7 +165,6 @@ Exigir:
 - Segurança.
 - Qualidade.
 - Release.
-- Conclusão.
 
 ## Tratamento de falhas
 
@@ -194,11 +201,12 @@ Se a ação já foi executada, registrar isso no output e não instruir a reexec
 - Entendimento.
 - Agentes acionados.
 - Evidências.
-- Gates.
-- Bloqueios.
-- Decisão humana necessária.
-- Próximo agente.
+- Gates emitidos por etapa.
+- Bloqueios identificados.
+- Decisão humana necessária (se houver).
+- Próximo agente ou etapa.
 - Critério para avançar.
+- Gate final: `COORDINATION: DONE` quando todas as etapas foram concluídas e validadas, ou `COORDINATION: BLOCKED` quando há impedimento ativo.
 
 ## Métricas
 

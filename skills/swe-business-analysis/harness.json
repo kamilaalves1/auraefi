@@ -1,7 +1,7 @@
 {
   "description": "Business Analyst — análise de requisitos de negócio",
-  "min_response_length": 150,
+  "min_response_length": 200,
   "gate_pattern": "ANALYSIS\\s*:\\s*(?:READY|BLOCKED|NOT_APPLICABLE)",
   "is_coordination_role": false,
-  "notes": "Gate obrigatório: ANALYSIS: READY, ANALYSIS: BLOCKED ou ANALYSIS: NOT_APPLICABLE"
+  "notes": "Gate obrigatório: ANALYSIS: READY (regras e critérios completos), ANALYSIS: BLOCKED (dúvidas funcionais pendentes) ou ANALYSIS: NOT_APPLICABLE (card puramente técnico)."
 }

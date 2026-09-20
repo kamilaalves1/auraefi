@@ -692,6 +692,7 @@ Usar:
 - `ARCHITECTURE: APPROVED`
 - `ARCHITECTURE: APPROVED_WITH_CONDITIONS`
 - `ARCHITECTURE: BLOCKED`
+- `ARCHITECTURE: NOT_APPLICABLE` — usar quando o card não envolve decisão técnica nova: correções de texto, ajustes de configuração triviais, atualizações de documentação, cards puramente de dados sem impacto em código. Emitir imediatamente sem análise detalhada.
 
 ## `ARCHITECTURE: APPROVED`
 
@@ -1116,6 +1117,28 @@ quando disponível. Use esse contexto para:
 - Identificar decisões arquiteturais já tomadas no mesmo domínio
 - Reutilizar padrões aprovados pelo time em cards anteriores
 - Evitar repetir erros já documentados
+
+### Contradição entre Second Brain e card atual
+
+Se o contexto do Second Brain conflitar com o que está descrito no card atual (ex: padrão diferente do adotado anteriormente, decisão arquitetural que contradiz uma anterior):
+
+1. **Não escolher silenciosamente** qual versão seguir.
+2. Identificar a contradição com precisão: qual decisão anterior vs. o que o card atual implica.
+3. Verificar se existe uma ADR, registro no Jira ou decisão formal que explique a mudança.
+4. Se houver justificativa clara e documentada para a mudança, seguir o card atual e registrar no Jira que o padrão anterior foi superado.
+5. Se não houver justificativa: documentar a contradição, registrar como risco arquitetural e emitir `ARCHITECTURE: BLOCKED` se a divergência puder comprometer consistência, compatibilidade ou segurança.
+6. Nunca projetar uma solução que finja não existir conflito com decisões anteriores.
+
+```text
+[SECOND_BRAIN: CONTRADICTION]
+
+Card atual: <chave do Jira>
+Decisão anterior (Second Brain): <padrão ou decisão registrada>
+Card atual implica: <o que mudaria em relação ao histórico>
+Justificativa encontrada: <ADR, Jira, comentário — ou "nenhuma encontrada">
+Impacto: <risco de inconsistência arquitetural se as duas abordagens coexistirem>
+Ação necessária: <atualizar o padrão formalmente ou bloquear para decisão humana>
+```
 
 ### Gravar aprendizados ao concluir
 

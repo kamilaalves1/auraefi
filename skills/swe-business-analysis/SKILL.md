@@ -109,6 +109,27 @@ Use esse contexto para:
 - Evitar perguntas já respondidas em cards anteriores
 - Manter consistência com decisões de negócio anteriores
 
+### Contradição entre Second Brain e card atual
+
+Se o contexto do Second Brain conflitar com o que está descrito no card atual:
+
+1. **Não escolher silenciosamente** qual versão obedecer.
+2. Identificar a contradição com precisão: o que o Second Brain diz vs. o que o card diz.
+3. Verificar se o card atual tem data ou versão que indica ser mais recente.
+4. Se o card atual for claramente mais recente e vir de uma fonte confiável (PO, PM, stakeholder), seguir o card e registrar a contradição no Jira para atualizar o Second Brain.
+5. Se não for possível determinar qual versão é correta, publicar a contradição no Jira, marcar `ANALYSIS: BLOCKED` e aguardar decisão humana.
+6. Nunca silenciar a contradição para não parecer inconsistente — ela é uma informação valiosa para o time.
+
+```text
+[SECOND_BRAIN: CONTRADICTION]
+
+Card atual: <chave do Jira>
+Contexto histórico: <o que o Second Brain registra>
+Card atual diz: <o que o card descreve de diferente>
+Impacto: <qual regra, fluxo ou critério está em conflito>
+Decisão necessária: <qual versão deve prevalecer e por quê>
+```
+
 ### Gravar aprendizados ao concluir
 
 Ao emitir `ANALYSIS: READY`, o BA deve produzir um **resumo estruturado para o Second Brain** contendo:
@@ -164,26 +185,29 @@ Ao finalizar a análise, registrar no Jira:
 
 ## Fontes de conhecimento
 
-Configure abaixo as fontes externas que este agente deve consultar antes de analisar qualquer card. O AURA buscará automaticamente o conteúdo de cada fonte e injetará no contexto antes da execução.
+Configure as fontes externas que este agente deve consultar antes de analisar qualquer card. O AURA buscará automaticamente o conteúdo e injetará no contexto antes da execução.
+
+**Como configurar:** edite esta seção da skill na tela de Agentes e substitua pelos dados do seu projeto.
 
 ```
 ## Fontes de conhecimento
 - Jira: histórico de cards concluídos da mesma épica e cards similares
-- Miro: https://miro.com/app/board/SEU_BOARD_ID/
-- Confluence: https://suaempresa.atlassian.net/wiki/spaces/SEU_ESPACO
-- SharePoint: https://suaempresa.sharepoint.com/sites/seu-site/docs
+- Miro: https://miro.com/app/board/<ID_DO_BOARD>/
+- Confluence: https://<sua-empresa>.atlassian.net/wiki/spaces/<ESPACO>
+- SharePoint: https://<sua-empresa>.sharepoint.com/sites/<site>/docs
 ```
 
-**Instruções de configuração:**
-1. Remova as linhas que não se aplicam a este squad
-2. Substitua as URLs pelas do seu projeto
+**Instruções:**
+1. Remova as linhas que não se aplicam a este squad.
+2. Substitua os valores entre `< >` pelos do seu projeto.
 3. Configure os tokens correspondentes na tela de **Integrações** do AURA:
    - Miro: `MIRO_TOKEN`
    - Confluence: `CONFLUENCE_TOKEN`
    - SharePoint: `SHAREPOINT_TOKEN`
+4. Enquanto as URLs não estiverem configuradas, o AURA não buscará conteúdo externo — apenas o Jira histórico será consultado automaticamente.
 
 **Como usar o contexto recebido:**
-- As informações das fontes chegam na seção `## 📚 Contexto de conhecimento externo` do seu prompt
-- Use esse contexto para identificar regras já mapeadas, decisões anteriores e padrões do domínio
-- Não repita perguntas que já foram respondidas em cards anteriores
-- Se houver contradição entre o contexto histórico e o card atual, registre no Jira antes de prosseguir
+- As informações das fontes chegam na seção `## 📚 Contexto de conhecimento externo` do seu prompt.
+- Use esse contexto para identificar regras já mapeadas, decisões anteriores e padrões do domínio.
+- Não repita perguntas que já foram respondidas em cards anteriores.
+- Se houver contradição entre o contexto histórico e o card atual, siga o protocolo `[SECOND_BRAIN: CONTRADICTION]` definido acima.
