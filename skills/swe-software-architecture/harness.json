@@ -1,0 +1,7 @@
+{
+  "description": "Software Architect — decisões técnicas e code review arquitetural",
+  "min_response_length": 400,
+  "gate_pattern": "ARCHITECTURE(?:_REVIEW)?\\s*:\\s*(?:APPROVED|BLOCKED|CHANGES_REQUESTED)",
+  "is_coordination_role": false,
+  "notes": "Gate obrigatório: ARCHITECTURE: APPROVED, ARCHITECTURE: BLOCKED ou ARCHITECTURE_REVIEW: CHANGES_REQUESTED"
+}

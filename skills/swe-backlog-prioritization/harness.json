@@ -1,0 +1,7 @@
+{
+  "description": "Product Owner (Backlog) — priorização do backlog",
+  "min_response_length": 50,
+  "gate_pattern": "(?:PRODUCT|BACKLOG)\\s*:\\s*(?:READY|BLOCKED|PRIORITIZED|NOT_APPLICABLE)",
+  "is_coordination_role": true,
+  "notes": "Gate obrigatório: BACKLOG: PRIORITIZED ou PRODUCT: NOT_APPLICABLE para cards técnicos"
+}

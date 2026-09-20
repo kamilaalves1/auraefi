@@ -1,0 +1,7 @@
+{
+  "description": "Security Auditor — revisão de segurança",
+  "min_response_length": 300,
+  "gate_pattern": "SECURITY\\s*:\\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)",
+  "is_coordination_role": false,
+  "notes": "Gate obrigatório: SECURITY: APPROVED, SECURITY: BLOCKED ou SECURITY: NOT_APPLICABLE"
+}

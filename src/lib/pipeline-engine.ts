@@ -11,7 +11,7 @@ import { dbGet, dbGetAll, dbRun } from '@/lib/db-pool'
 import { getWorkPipelineRow, decryptPipelineSecrets } from '@/lib/work-pipeline-config'
 import type { WorkPipelineConfigJson, WorkPipelineSecrets } from '@/lib/work-pipeline-types'
 import { validateAgentOutput, formatHarnessRejection } from '@/lib/agent-harness'
-import { searchKnowledge, addKnowledge, formatKnowledgeContext, inferDomain } from '@/lib/second-brain-client'
+import { buildKnowledgeContext, parseKnowledgeSources } from '@/lib/knowledge-context'
 import { calculateTokenCost } from '@/lib/token-pricing'
 import { fetchJiraIssuesByStatus, postJiraComment, getJiraCommentsSince, transitionJiraIssue, fetchJiraAttachments, downloadJiraAttachment } from '@/lib/work-pipeline-jira'
 import { fetchAzureWorkItemsByState, postAzureComment, getAzureCommentsSince, moveAzureWorkItem, fetchAzureAttachments, downloadAzureAttachment } from '@/lib/work-pipeline-azure'
@@ -346,6 +346,71 @@ function agentSystemPrompt(agent: AgentFullRow & { _skills?: string }): string {
 // ── Skills cache — evita readFileSync síncrono a cada agente ─────────────────
 let _skillsCache: { result: string; cachedAt: number } | null = null
 const SKILLS_CACHE_TTL_MS = 30_000
+
+/** Mapa de nome-de-skill → path — usado para resolver skillPath no harness */
+let _skillPathCache: { map: Map<string, string>; cachedAt: number } | null = null
+
+async function loadSkillPathMap(): Promise<Map<string, string>> {
+  const now = Date.now()
+  if (_skillPathCache && (now - _skillPathCache.cachedAt) < SKILLS_CACHE_TTL_MS) {
+    return _skillPathCache.map
+  }
+  try {
+    const rows = await dbGetAll<{ name: string; path: string }>(
+      `SELECT name, path FROM skills WHERE path IS NOT NULL ORDER BY name ASC`, []
+    )
+    const map = new Map<string, string>()
+    for (const row of rows) {
+      map.set(row.name.toLowerCase(), row.path)
+    }
+    _skillPathCache = { map, cachedAt: now }
+    return map
+  } catch {
+    return new Map()
+  }
+}
+
+/**
+ * Resolve o skillPath para um agente pelo seu role.
+ * Busca a skill cujo nome contém o role ou vice-versa.
+ * Ex: role "business analyst" → skills/swe-business-analysis
+ */
+async function resolveSkillPathForRole(role: string): Promise<string | null> {
+  const map = await loadSkillPathMap()
+  const roleLower = role.toLowerCase().trim()
+
+  // Mapeamento direto role → nome de skill
+  const ROLE_TO_SKILL: Record<string, string> = {
+    'business analyst':    'swe-business-analysis',
+    'software architect':  'swe-software-architecture',
+    'developer':           'swe-implementation-practices',
+    'qa engineer':         'swe-quality-gates',
+    'security auditor':    'swe-security-review',
+    'data engineer':       'swe-data-engineering',
+    'product manager':     'swe-product-management',
+    'product owner':       'swe-backlog-prioritization',
+    'ux designer':         'swe-ux-research',
+    'scrum master':        'swe-flow-management',
+    'devops engineer':     'swe-release-operations',
+    'orchestrator':        'swe-orchestration-coordination',
+    'coordinator':         'swe-orchestration-coordination',
+    'discovery':           'swe-discovery-practices',
+  }
+
+  const skillName = ROLE_TO_SKILL[roleLower]
+  if (skillName && map.has(skillName)) {
+    return map.get(skillName) ?? null
+  }
+
+  // Fallback: busca por match parcial no nome da skill
+  for (const [name, path] of map.entries()) {
+    if (name.includes(roleLower.replace(/\s+/g, '-')) || roleLower.includes(name.replace(/-/g, ' '))) {
+      return path
+    }
+  }
+
+  return null
+}
 
 async function loadAgentSkills(workspaceId: number): Promise<string> {
   const now = Date.now()
@@ -3018,6 +3083,37 @@ async function startColumn(
       }
     }
 
+    // Inject Knowledge Context — fontes externas configuradas na skill do agente
+    // (Jira histórico, Miro, Confluence, SharePoint)
+    // Ativado para BA, PM, PO, Arquiteto e UX — papéis que precisam de contexto de negócio/produto
+    const knowledgeRoles = ['business analyst', 'product manager', 'product owner', 'software architect', 'ux designer', 'discovery']
+    let knowledgeContext = ''
+    if (knowledgeRoles.some(r => agent.role.toLowerCase().includes(r))) {
+      try {
+        // Lê a skill do agente para encontrar as fontes configuradas
+        const agentSkillContent = agentSkills  // já carregado acima
+        const sources = parseKnowledgeSources(agentSkillContent)
+        if (sources.length > 0) {
+          knowledgeContext = await buildKnowledgeContext(
+            agentSkillContent,
+            cfg,
+            secrets,
+            run.card_key,
+            run.card_title,
+            run.card_description ?? '',
+          )
+          if (knowledgeContext) {
+            logger.info(
+              { run_id: run.id, agent: agent.name, sources: sources.map(s => s.type) },
+              'knowledge-context: external context injected'
+            )
+          }
+        }
+      } catch (err) {
+        logger.warn({ err, run_id: run.id, agent: agent.name }, 'knowledge-context: failed (non-critical)')
+      }
+    }
+
     // Inject visual context (screenshots/wireframes from card attachments) for Developer and BA
     // Only roles that implement UI or write requirements benefit from visual context
     const visualRoles = ['developer', 'business analyst', 'frontend', 'fullstack', 'ui', 'ux']
@@ -3054,6 +3150,7 @@ async function startColumn(
     const prompt = contextSoFar
       + (contextSummary ? contextSummary + '\n\n' : '')
       + (secondBrainContext ? secondBrainContext + '\n\n' : '')
+      + (knowledgeContext ? knowledgeContext + '\n\n' : '')
       + (visualContext ? visualContext + '\n\n' : '')
       + buildPrompt(run, column, previousMessages, agent.name, agent.role, stageRepos, hasRepo)
     const taskId = await createAgentTask(run, column, agent, prompt, false, assignment.llm_model)
@@ -3065,11 +3162,13 @@ async function startColumn(
       const nowDone = Math.floor(Date.now() / 1000)
 
       // ── Harness validation ──────────────────────────────────────────────────
+      const skillPath = await resolveSkillPathForRole(agent.role)
       const harnessResult = validateAgentOutput(llmResult.text, {
         agentRole: agent.role,
         cardKey: run.card_key,
         hasRepo: hasRepo,
         columnInstructions: column.instructions,
+        skillPath,
       })
       if (!harnessResult.ok) {
         const rejectionMsg = formatHarnessRejection(harnessResult.reason!, agent.name, run.card_key)

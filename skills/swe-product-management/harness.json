@@ -1,0 +1,7 @@
+{
+  "description": "Product Manager — definição de produto e outcomes",
+  "min_response_length": 50,
+  "gate_pattern": "PRODUCT\\s*:\\s*(?:READY|BLOCKED|NOT_APPLICABLE)",
+  "is_coordination_role": true,
+  "notes": "is_coordination_role=true bloqueia FILE: e OPEN_PR:. Gate obrigatório: PRODUCT: READY, PRODUCT: BLOCKED ou PRODUCT: NOT_APPLICABLE"
+}

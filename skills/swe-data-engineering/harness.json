@@ -1,0 +1,7 @@
+{
+  "description": "Data Engineer — avaliação de alterações de banco de dados",
+  "min_response_length": 50,
+  "gate_pattern": "DATA\\s*:\\s*(?:APPROVED|APPROVED_WITH_CONDITIONS|BLOCKED|NOT_APPLICABLE)",
+  "is_coordination_role": false,
+  "notes": "Gate obrigatório: DATA: APPROVED, DATA: APPROVED_WITH_CONDITIONS, DATA: BLOCKED ou DATA: NOT_APPLICABLE"
+}
