@@ -12,6 +12,7 @@ import { getWorkPipelineRow, decryptPipelineSecrets } from '@/lib/work-pipeline-
 import type { WorkPipelineConfigJson, WorkPipelineSecrets } from '@/lib/work-pipeline-types'
 import { validateAgentOutput, formatHarnessRejection } from '@/lib/agent-harness'
 import { buildKnowledgeContext, parseKnowledgeSources } from '@/lib/knowledge-context'
+import { searchKnowledge, addKnowledge, formatKnowledgeContext, inferDomain } from '@/lib/second-brain-client'
 import { calculateTokenCost } from '@/lib/token-pricing'
 import { fetchJiraIssuesByStatus, postJiraComment, getJiraCommentsSince, transitionJiraIssue, fetchJiraAttachments, downloadJiraAttachment } from '@/lib/work-pipeline-jira'
 import { fetchAzureWorkItemsByState, postAzureComment, getAzureCommentsSince, moveAzureWorkItem, fetchAzureAttachments, downloadAzureAttachment } from '@/lib/work-pipeline-azure'
