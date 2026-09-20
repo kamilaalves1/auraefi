@@ -96,9 +96,6 @@ const endpoints: Endpoint[] = [
   { path: '/api/cron', methods: ['GET', 'POST', 'PATCH', 'DELETE'], description: 'Cron job management', tag: 'Cron', auth: 'viewer/operator' },
   { path: '/api/scheduler', methods: ['POST'], description: 'Scheduler tick (internal)', tag: 'Cron', auth: 'operator' },
 
-  // ── Spawn ─────────────────────────────────────────
-  { path: '/api/spawn', methods: ['POST'], description: 'Spawn agent — resolves {{placeholders}} in task/label (delivery flow defaults + workspace parameters + optional body.parameters)', tag: 'Spawn', auth: 'operator' },
-
   // ── Memory ────────────────────────────────────────
   { path: '/api/memory', methods: ['GET', 'POST', 'PUT', 'DELETE'], description: 'Memory browser — list, read, write, delete', tag: 'Memory', auth: 'viewer/operator' },
 
