@@ -3779,7 +3779,10 @@ async function checkRunningRuns(
         }
       }
 
-      await processInboundComments(run, column, cfg, secrets)
+      // Relê o run do banco antes de processar comentários — garante last_comment_ts atualizado.
+      // O objeto `run` em memória pode ter timestamp stale se foi atualizado em iterações anteriores.
+      const freshRun = await dbGet<PipelineCardRun>('SELECT * FROM pipeline_card_runs WHERE id = ?', [run.id])
+      await processInboundComments(freshRun ?? run, column, cfg, secrets)
     } catch (err) {
       logger.warn({ err, run_id: run.id }, 'pipeline-engine: error processing run')
     }
