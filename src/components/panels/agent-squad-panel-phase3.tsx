@@ -1719,7 +1719,7 @@ function AgentSkillTab({
 
   useEffect(() => {
     if (!skillName) { setSkillLoading(false); return }
-    fetch(`/api/skills?mode=content&source=user-agents&name=${encodeURIComponent(skillName)}`)
+    fetch(`/api/project-skills?name=${encodeURIComponent(skillName)}`)
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         const text = data?.content ?? ''
@@ -1759,10 +1759,10 @@ function AgentSkillTab({
       }
 
       if (skillChanged && skillName) {
-        const res = await fetch('/api/skills', {
+        const res = await fetch('/api/project-skills', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ source: 'user-agents', name: skillName, content: skillDraft }),
+          body: JSON.stringify({ name: skillName, content: skillDraft }),
         })
         if (!res.ok) {
           errors.push('Erro ao salvar skill')
