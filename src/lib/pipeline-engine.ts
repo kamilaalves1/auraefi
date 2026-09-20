@@ -2628,10 +2628,27 @@ async function postCardComment(
   try {
     if (provider === 'jira') {
       const r = await postJiraComment(cfg, secrets, cardKey, body)
+      // Auto-registra o ID no banco para que o filtro ecoProprio funcione corretamente.
+      // Sem esse registro, o motor pode reler o próprio comentário na próxima rodada e
+      // entrar em loop. Qualquer comentário postado pelo AURA precisa ter seu ID salvo.
+      if (r.commentId && runId) {
+        dbRun(
+          `INSERT IGNORE INTO pipeline_card_messages (run_id, direction, stage_id, body, external_comment_id, created_at)
+           VALUES (?, 'agent_to_card', '0', ?, ?, UNIX_TIMESTAMP())`,
+          [runId, body.slice(0, 10000), r.commentId]
+        ).catch(() => {})
+      }
       return r.commentId
     }
     if (provider === 'azure_devops') {
       const r = await postAzureComment(cfg, secrets, cardKey, body)
+      if (r.commentId && runId) {
+        dbRun(
+          `INSERT IGNORE INTO pipeline_card_messages (run_id, direction, stage_id, body, external_comment_id, created_at)
+           VALUES (?, 'agent_to_card', '0', ?, ?, UNIX_TIMESTAMP())`,
+          [runId, body.slice(0, 10000), r.commentId]
+        ).catch(() => {})
+      }
       return r.commentId
     }
   } catch (err: any) {
@@ -3799,11 +3816,8 @@ async function executeMentionInstruction(
     '',
     `⏳ Processando...`,
   ].join('\n')
-  const ackCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, ackMsg)
-  // Salva o ID do ack no banco para que o filtro ecoProprio o ignore nas próximas rodadas
-  if (ackCommentId) {
-    await logMessage(run.id, 'agent_to_card', String(column.id), ackMsg, ackCommentId)
-  }
+  const ackCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, ackMsg, run.id)
+  void ackCommentId // postCardComment com runId já registra automaticamente
   // Avança o last_comment_ts para NOW antes de chamar o LLM — evita que o motor
   // releia o comentário do usuário enquanto o LLM está processando (pode demorar até 90s)
   const mentionNowTs = Math.floor(Date.now() / 1000)
@@ -3937,7 +3951,7 @@ async function processInboundComments(
     // ── Comandos (com ou sem @menção) ─────────────────────────────────────────
     if (isCancelCmd) {
       await updateRun(run.id, { status: 'cancelled', last_comment_ts: emSegundos(latestMs) })
-      await postCardComment(run.provider, cfg, secrets, run.card_key, '🛑 Esteira cancelada a pedido do usuário.')
+      await postCardComment(run.provider, cfg, secrets, run.card_key, '🛑 Esteira cancelada a pedido do usuário.', run.id)
       return
     }
 
@@ -3954,7 +3968,7 @@ async function processInboundComments(
                                lastMsg?.body?.includes('harness de qualidade')
         if (isHarnessBlock) {
           await postCardComment(run.provider, cfg, secrets, run.card_key,
-            `⚠️ O run está bloqueado pelo harness de qualidade. Use \`reprocessar\` para tentar novamente, não \`avançar\`.`)
+            `⚠️ O run está bloqueado pelo harness de qualidade. Use \`reprocessar\` para tentar novamente, não \`avançar\`.`, run.id)
           await updateRun(run.id, { last_comment_ts: emSegundos(latestMs) })
           return
         }
@@ -3967,7 +3981,7 @@ async function processInboundComments(
     if (isReprocessCmd) {
       await dbRun('UPDATE pipeline_card_runs SET run_count = COALESCE(run_count, 1) + 1, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [run.id])
       await updateRun(run.id, { status: 'running', task_id: null, last_comment_ts: emSegundos(latestMs) })
-      await postCardComment(run.provider, cfg, secrets, run.card_key, `🔄 **Reprocessando etapa "${column.column_name}"** a pedido do usuário.`)
+      await postCardComment(run.provider, cfg, secrets, run.card_key, `🔄 **Reprocessando etapa "${column.column_name}"** a pedido do usuário.`, run.id)
       await startColumn({ ...run, status: 'running', task_id: null }, column, cfg, secrets)
       return
     }
@@ -3977,7 +3991,7 @@ async function processInboundComments(
       const firstCol = allCols.find(c => hasAgents(c)) ?? column
       await dbRun('UPDATE pipeline_card_runs SET run_count = COALESCE(run_count, 1) + 1, updated_at = UNIX_TIMESTAMP() WHERE id = ?', [run.id])
       await updateRun(run.id, { status: 'running', task_id: null, current_stage_id: String(firstCol.id), last_comment_ts: emSegundos(latestMs) })
-      await postCardComment(run.provider, cfg, secrets, run.card_key, `🔄 **Reiniciando esteira completa** a partir de "${firstCol.column_name}".`)
+      await postCardComment(run.provider, cfg, secrets, run.card_key, `🔄 **Reiniciando esteira completa** a partir de "${firstCol.column_name}".`, run.id)
       await startColumn({ ...run, status: 'running', task_id: null, current_stage_id: String(firstCol.id) }, firstCol, cfg, secrets)
       return
     }
@@ -4021,11 +4035,8 @@ async function processInboundComments(
             ``,
             `⏳ Processando...`,
           ].join('\n')
-          const ackId = await postCardComment(run.provider, cfg, secrets, run.card_key, ackMsg)
-          // Salva o ID do ack para que o filtro ecoProprio o ignore nas próximas rodadas
-          if (ackId) {
-            await logMessage(run.id, 'agent_to_card', String(targetColumn.id), ackMsg, ackId)
-          }
+          const ackId = await postCardComment(run.provider, cfg, secrets, run.card_key, ackMsg, run.id)
+          void ackId // postCardComment com runId já registra automaticamente
           // Avança last_comment_ts imediatamente para evitar reler o comentário do usuário
           const agentMentionTs = Math.floor(Date.now() / 1000)
           await updateRun(run.id, { status: 'running', task_id: null, last_comment_ts: agentMentionTs })
