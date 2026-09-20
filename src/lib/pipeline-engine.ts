@@ -4080,15 +4080,74 @@ async function processInboundComments(
       return
     }
 
-    // ── Resposta comum sem @menção → encaminha como contexto ao agente ────────
+    // ── Resposta comum sem @menção → executa o agente da coluna com o contexto do humano ──
+    // O humano pode escrever qualquer coisa: perguntas, contexto adicional, correções,
+    // instruções específicas. O agente da coluna atual responde diretamente.
     if (!hasMention && hasAgents(column)) {
-      const assignments = parseAssignments(column)
+      const assignments = parseAssignments(column).sort((a, b) => a.order - b.order)
       const agents = await getAgentsByIds(assignments.map(a => a.agent_id))
       const agent = agents[0]
-      if (agent) {
+      const assignment = assignments[0]
+      if (agent && assignment) {
+        // Avança o timestamp imediatamente antes de processar para evitar loop
+        await updateRun(run.id, { last_comment_ts: emSegundos(latestMs) })
+
+        const humanAckMsg = `💬 **${agent.name}** recebeu sua mensagem e está processando...`
+        const humanAckId = await postCardComment(run.provider, cfg, secrets, run.card_key, humanAckMsg)
+        if (humanAckId) await logMessage(run.id, 'agent_to_card', String(column.id), humanAckMsg, humanAckId)
+
+        await updateRun(run.id, { status: 'running', task_id: null })
+
         const prevMsgs = await getLastAgentMessages(run.id)
-        const replyDesc = `O usuário respondeu no card ${run.card_key}:\n\n"${comment.body}"\n\n${buildPrompt(run, column, prevMsgs, agent.name, agent.role)}`
-        await createAgentTask(run, column, agent, replyDesc, true, assignments[0]?.llm_model)
+        const contextSummary = formatContextSummary(run.context_summary_json)
+        const humanPrompt = [
+          contextSummary,
+          `# Mensagem do usuário no card ${run.card_key}`,
+          ``,
+          `O usuário enviou a seguinte mensagem diretamente no card (sem @menção):`,
+          ``,
+          `> **${comment.body}**`,
+          ``,
+          `Responda diretamente a esta mensagem. Pode ser uma pergunta, uma instrução, contexto adicional ou uma correção.`,
+          `Se for uma pergunta sobre o card, responda com base no que você sabe.`,
+          `Se for uma instrução, siga-a e registre o que fez.`,
+          `Se for contexto adicional, incorpore e confirme o entendimento.`,
+          ``,
+          buildPrompt(run, column, prevMsgs, agent.name, agent.role),
+        ].filter(Boolean).join('\n')
+
+        const agentSkills = await loadAgentSkills(run.workspace_id)
+        const agentWithSkills = { ...agent, _skills: agentSkills }
+        try {
+          const llmResult = await callAgentLLM(agentWithSkills as AgentFullRow, humanPrompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
+          const now = Math.floor(Date.now() / 1000)
+
+          const replyComment = [
+            `🤖 **${agent.name}** *(${agent.role})* — resposta à mensagem`,
+            '',
+            llmResult.text,
+            '',
+            `---`,
+            `*Modelo: ${llmResult.model} | Tokens: ${llmResult.inputTokens} in / ${llmResult.outputTokens} out${llmResult.costUsd > 0 ? ` | $${llmResult.costUsd.toFixed(4)}` : ''}*`,
+          ].join('\n')
+
+          const replyCid = await postCardComment(run.provider, cfg, secrets, run.card_key, replyComment)
+          if (replyCid) await logMessage(run.id, 'agent_to_card', String(column.id), replyComment, replyCid)
+
+          await dbRun(`INSERT INTO token_usage (model, session_id, input_tokens, output_tokens, cost_usd, agent_name, created_at, workspace_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [llmResult.model, `pipeline-human-reply-${run.id}-${agent.id}`, llmResult.inputTokens, llmResult.outputTokens, llmResult.costUsd, agent.name, now, run.workspace_id]
+          ).catch(() => {})
+
+          await appendContextSummary(run.id, column.column_name, agent.name, agent.role, llmResult.text)
+          logger.info({ run_id: run.id, agent: agent.name, card_key: run.card_key }, 'pipeline-engine: human reply processed')
+        } catch (err) {
+          logger.warn({ err, run_id: run.id, agent: agent.name }, 'pipeline-engine: human reply LLM failed')
+          await postCardComment(run.provider, cfg, secrets, run.card_key,
+            `⚠️ **${agent.name}** não conseguiu processar a mensagem: ${err instanceof Error ? err.message : String(err)}`)
+        }
+
+        await updateRun(run.id, { status: run.status, task_id: null })
       }
     }
   }
