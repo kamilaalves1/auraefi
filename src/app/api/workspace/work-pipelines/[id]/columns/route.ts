@@ -129,6 +129,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
     })
   } catch (err) {
     logger.error({ err }, 'PUT /api/workspace/work-pipelines/[id]/columns error')
-    return NextResponse.json({ error: 'Failed to save columns' }, { status: 500 })
+    const detail = err instanceof Error ? err.message : String(err)
+    return NextResponse.json({ error: `Failed to save columns: ${detail}` }, { status: 500 })
   }
 }

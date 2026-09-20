@@ -727,7 +727,8 @@ CREATE TABLE IF NOT EXISTS pipeline_columns (
   instructions TEXT,
   created_at INT NOT NULL DEFAULT (UNIX_TIMESTAMP()),
   updated_at INT NOT NULL DEFAULT (UNIX_TIMESTAMP()),
-  assignments_json TEXT NOT NULL
+  assignments_json TEXT NOT NULL,
+  requires_human_approval TINYINT(1) NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS workspace_delivery_flows (
@@ -812,7 +813,23 @@ CREATE TABLE IF NOT EXISTS pipeline_card_runs (
   run_count INT NOT NULL DEFAULT 1,
   llm_models VARCHAR(500) NOT NULL DEFAULT '',
   pr_check_json TEXT,
+  pr_review_json TEXT,
+  context_summary_json TEXT,
+  stage_snapshots_json TEXT,
   UNIQUE KEY uq_pipeline_card_runs (workspace_id, provider, card_key)
+);
+
+CREATE TABLE IF NOT EXISTS pipeline_quality_metrics (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  workspace_id INT NOT NULL,
+  run_id INT NOT NULL,
+  card_key VARCHAR(500) NOT NULL,
+  metric_type VARCHAR(100) NOT NULL,
+  value_text TEXT,
+  value_num DOUBLE,
+  stage_name VARCHAR(255),
+  agent_name VARCHAR(255),
+  created_at INT NOT NULL DEFAULT (UNIX_TIMESTAMP())
 );
 
 CREATE TABLE IF NOT EXISTS pipeline_card_messages (

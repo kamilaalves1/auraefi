@@ -92,19 +92,44 @@ export async function runMigrationsMysql(): Promise<void> {
     logger.info('Migration 003 applied: audit_log workspace_id column')
   }
 
-  if (!applied.has('004_agent_soul_history')) {
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS agent_soul_history (
-        id          INT AUTO_INCREMENT PRIMARY KEY,
-        agent_id    INT NOT NULL,
-        workspace_id INT NOT NULL DEFAULT 1,
-        soul_content MEDIUMTEXT NOT NULL,
-        edited_by   VARCHAR(255) NOT NULL DEFAULT 'unknown',
-        edited_at   INT NOT NULL,
-        INDEX idx_agent_soul_history_agent (agent_id, edited_at DESC)
-      ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci
-    `)
-    await pool.query("INSERT IGNORE INTO schema_migrations (id) VALUES ('004_agent_soul_history')")
-    logger.info('Migration 004 applied: agent_soul_history table')
+  if (!applied.has('005_pipeline_new_columns')) {
+    const alters = [
+      // pipeline_columns: campo de aprovação humana por etapa
+      "ALTER TABLE pipeline_columns ADD COLUMN requires_human_approval TINYINT(1) NOT NULL DEFAULT 0",
+      // pipeline_card_runs: campos adicionados para CI polling, review de PR, contexto e rollback
+      "ALTER TABLE pipeline_card_runs ADD COLUMN pr_review_json TEXT",
+      "ALTER TABLE pipeline_card_runs ADD COLUMN context_summary_json TEXT",
+      "ALTER TABLE pipeline_card_runs ADD COLUMN stage_snapshots_json TEXT",
+      // pipeline_quality_metrics: nova tabela para rastreabilidade de gates
+      `CREATE TABLE IF NOT EXISTS pipeline_quality_metrics (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        workspace_id INT NOT NULL,
+        run_id INT NOT NULL,
+        card_key VARCHAR(500) NOT NULL,
+        metric_type VARCHAR(100) NOT NULL,
+        value_text TEXT,
+        value_num DOUBLE,
+        stage_name VARCHAR(255),
+        agent_name VARCHAR(255),
+        created_at INT NOT NULL DEFAULT (UNIX_TIMESTAMP())
+      )`,
+    ]
+    for (const stmt of alters) {
+      try {
+        await pool.query(stmt)
+      } catch (err: any) {
+        if (
+          err.code !== 'ER_DUP_FIELDNAME' &&
+          err.code !== 'ER_TABLE_EXISTS_ERROR' &&
+          !err.message?.includes('Duplicate column name') &&
+          !err.message?.includes('already exists')
+        ) {
+          logger.error({ err, stmt: stmt.slice(0, 120) }, 'Migration 005 statement failed')
+          throw err
+        }
+      }
+    }
+    await pool.query("INSERT IGNORE INTO schema_migrations (id) VALUES ('005_pipeline_new_columns')")
+    logger.info('Migration 005 applied: pipeline requires_human_approval, pr_review_json, context_summary_json, stage_snapshots_json, pipeline_quality_metrics')
   }
 }
