@@ -1,0 +1,7 @@
+{
+  "description": "QA Engineer — validação contra critérios de aceite",
+  "min_response_length": 200,
+  "gate_pattern": "(?:VERDICT|QA)\\s*:\\s*(?:APPROVED|CHANGES_REQUESTED|BLOCKED)",
+  "is_coordination_role": false,
+  "notes": "Gate obrigatório: VERDICT: APPROVED ou VERDICT: CHANGES_REQUESTED"
+}

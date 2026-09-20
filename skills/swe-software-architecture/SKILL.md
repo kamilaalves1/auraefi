@@ -1212,3 +1212,26 @@ Em cada fase (análise, decisão, code review), registrar no Jira:
 - Aceitar risco alto ou crítico sem decisão humana formal.
 - Declarar sucesso sem evidência.
 - Encerrar o card com pendências técnicas ocultas.
+
+## Fontes de conhecimento
+
+Configure abaixo as fontes externas que este agente deve consultar antes de qualquer decisão arquitetural. O AURA buscará automaticamente o conteúdo e injetará no contexto.
+
+```
+## Fontes de conhecimento
+- Jira: histórico de cards concluídos da mesma épica e decisões técnicas anteriores
+- Confluence: https://suaempresa.atlassian.net/wiki/spaces/ARQUITETURA
+- SharePoint: https://suaempresa.sharepoint.com/sites/engenharia/docs
+```
+
+**Fontes recomendadas para Arquiteto:**
+- Jira histórico: decisões arquiteturais anteriores do domínio (busca nos comentários dos cards passados)
+- Confluence: ADRs, diagramas de arquitetura, documentação técnica de domínio
+- Repositório Git: /adr, /docs, /specs — já lidos automaticamente pelo `fetchRepoContext`
+
+Configure os tokens em **Integrações**: `CONFLUENCE_TOKEN`, `SHAREPOINT_TOKEN`.
+
+**Como usar:**
+- Verifique se existe decisão anterior similar antes de propor uma nova
+- Se já existe e ainda é válida, referencie e mantenha consistência
+- Se precisa contradizer uma decisão anterior, justifique explicitamente no Jira

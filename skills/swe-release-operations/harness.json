@@ -1,0 +1,7 @@
+{
+  "description": "DevOps/Release — execução de releases",
+  "min_response_length": 100,
+  "gate_pattern": "RELEASE\\s*:\\s*(?:SUCCESS|ROLLED_BACK|FAILED|BLOCKED)",
+  "is_coordination_role": false,
+  "notes": "Gate obrigatório: RELEASE: SUCCESS, RELEASE: ROLLED_BACK, RELEASE: FAILED ou RELEASE: BLOCKED"
+}

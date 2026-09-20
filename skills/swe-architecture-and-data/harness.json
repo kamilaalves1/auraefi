@@ -1,0 +1,7 @@
+{
+  "description": "Data Engineer (arquitetura e dados) — avaliação de alterações de banco de dados",
+  "min_response_length": 50,
+  "gate_pattern": "DATA\\s*:\\s*(?:APPROVED|APPROVED_WITH_CONDITIONS|BLOCKED|NOT_APPLICABLE)",
+  "is_coordination_role": false,
+  "notes": "Mesmo gate do swe-data-engineering"
+}

@@ -161,3 +161,29 @@ Ao finalizar a análise, registrar no Jira:
 - Esconder dúvida.
 - Marcar READY com decisão pendente.
 - Documentar somente happy path.
+
+## Fontes de conhecimento
+
+Configure abaixo as fontes externas que este agente deve consultar antes de analisar qualquer card. O AURA buscará automaticamente o conteúdo de cada fonte e injetará no contexto antes da execução.
+
+```
+## Fontes de conhecimento
+- Jira: histórico de cards concluídos da mesma épica e cards similares
+- Miro: https://miro.com/app/board/SEU_BOARD_ID/
+- Confluence: https://suaempresa.atlassian.net/wiki/spaces/SEU_ESPACO
+- SharePoint: https://suaempresa.sharepoint.com/sites/seu-site/docs
+```
+
+**Instruções de configuração:**
+1. Remova as linhas que não se aplicam a este squad
+2. Substitua as URLs pelas do seu projeto
+3. Configure os tokens correspondentes na tela de **Integrações** do AURA:
+   - Miro: `MIRO_TOKEN`
+   - Confluence: `CONFLUENCE_TOKEN`
+   - SharePoint: `SHAREPOINT_TOKEN`
+
+**Como usar o contexto recebido:**
+- As informações das fontes chegam na seção `## 📚 Contexto de conhecimento externo` do seu prompt
+- Use esse contexto para identificar regras já mapeadas, decisões anteriores e padrões do domínio
+- Não repita perguntas que já foram respondidas em cards anteriores
+- Se houver contradição entre o contexto histórico e o card atual, registre no Jira antes de prosseguir

@@ -683,7 +683,7 @@ function AgentDetailModalPhase3({
   onDelete: (agentId: number, removeWorkspace: boolean) => Promise<void>
 }) {
   const [agentState, setAgentState] = useState<Agent & { config?: any; working_memory?: string }>(agent as Agent & { config?: any; working_memory?: string })
-  const [activeTab, setActiveTab] = useState<'overview' | 'instructions' | 'persona' | 'activity'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'instructions' | 'skill' | 'harness' | 'persona' | 'activity'>('overview')
   const [editing, setEditing] = useState(false)
   const [formData, setFormData] = useState({
     role: agent.role,
@@ -906,10 +906,12 @@ function AgentDetailModalPhase3({
   }
 
   const tabs = [
-    { id: 'overview', label: 'Overview', icon: 'O' },
-    { id: 'instructions', label: 'Instruções', icon: 'I' },
-    { id: 'persona', label: 'Persona', icon: 'P' },
-    { id: 'activity', label: 'Atividade', icon: 'A' },
+    { id: 'overview',      label: 'Overview',    icon: 'O' },
+    { id: 'instructions',  label: 'Instruções',  icon: 'I' },
+    { id: 'skill',         label: 'Skill',       icon: 'S' },
+    { id: 'harness',       label: 'Harness',     icon: 'H' },
+    { id: 'persona',       label: 'Persona',     icon: 'P' },
+    { id: 'activity',      label: 'Atividade',   icon: 'A' },
   ]
 
   const handleDelete = async (removeWorkspace: boolean) => {
@@ -1079,6 +1081,14 @@ function AgentDetailModalPhase3({
 
           {activeTab === 'persona' && (
             <PersonaTab agent={agentState} onSaved={(patch) => setAgentState(prev => ({ ...prev, ...patch }))} />
+          )}
+
+          {activeTab === 'skill' && (
+            <AgentSkillTab agent={agentState} />
+          )}
+
+          {activeTab === 'harness' && (
+            <AgentHarnessTab agent={agentState} />
           )}
 
           {activeTab === 'activity' && (
@@ -1856,6 +1866,336 @@ function PersonaTab({
           <li>Persona: nome, autoridade, restrições e capacidades — enriquece o system prompt</li>
         </ol>
       </div>
+    </div>
+  )
+}
+
+// ─── Tab: Skill do agente ──────────────────────────────────────────────────────
+
+function AgentSkillTab({ agent }: { agent: Agent & { role?: string } }) {
+  const [content, setContent] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const [skillName, setSkillName] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const ROLE_TO_SKILL: Record<string, string> = {
+    'business analyst':    'swe-business-analysis',
+    'software architect':  'swe-software-architecture',
+    'developer':           'swe-implementation-practices',
+    'qa engineer':         'swe-quality-gates',
+    'security auditor':    'swe-security-review',
+    'data engineer':       'swe-data-engineering',
+    'product manager':     'swe-product-management',
+    'product owner':       'swe-backlog-prioritization',
+    'ux designer':         'swe-ux-research',
+    'scrum master':        'swe-flow-management',
+    'devops engineer':     'swe-release-operations',
+    'orchestrator':        'swe-orchestration-coordination',
+    'coordinator':         'swe-orchestration-coordination',
+    'discovery':           'swe-discovery-practices',
+  }
+
+  useEffect(() => {
+    const role = (agent.role || '').toLowerCase().trim()
+    const name = ROLE_TO_SKILL[role] ?? null
+    setSkillName(name)
+
+    if (!name) { setLoading(false); return }
+
+    fetch(`/api/skills?mode=content&source=user-agents&name=${encodeURIComponent(name)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const text = data?.content ?? ''
+        setContent(text)
+        setDraft(text)
+      })
+      .catch(() => setContent(''))
+      .finally(() => setLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent.id])
+
+  const handleSave = async () => {
+    if (!skillName) return
+    setSaving(true)
+    try {
+      const res = await fetch('/api/skills', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: 'user-agents', name: skillName, content: draft }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Erro ao salvar')
+      setContent(draft)
+      setEditing(false)
+      setFeedback({ ok: true, text: 'Skill salva — agentes atualizam em até 30s' })
+    } catch (err: any) {
+      setFeedback({ ok: false, text: err.message || 'Erro ao salvar' })
+    } finally {
+      setSaving(false)
+      setTimeout(() => setFeedback(null), 3000)
+    }
+  }
+
+  if (loading) {
+    return <div className="p-6 text-sm text-muted-foreground">Carregando skill...</div>
+  }
+
+  if (!skillName) {
+    return (
+      <div className="p-6 space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Nenhuma skill mapeada para o papel <strong>{agent.role}</strong>.
+        </p>
+        <p className="text-xs text-muted-foreground/60">
+          O mapeamento role → skill cobre os papéis padrão do AURA. Para papéis customizados,
+          edite o soul_content do agente na aba Instruções.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-6 space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-foreground">
+            {skillName}/SKILL.md
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Define o processo, gates e saídas obrigatórias para este papel.
+            Também é onde você configura as <strong>Fontes de conhecimento</strong> (Jira, Miro, Confluence, SharePoint).
+          </p>
+        </div>
+        {!editing && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="shrink-0 px-3 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+          >
+            Editar
+          </button>
+        )}
+      </div>
+
+      {editing ? (
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={24}
+          className="w-full px-3 py-2 bg-surface-1 border border-border rounded text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50 focus:outline-none text-xs font-mono resize-y"
+        />
+      ) : (
+        <div className="bg-surface-1/30 rounded p-4 max-h-[60vh] overflow-y-auto">
+          <pre className="text-xs text-muted-foreground/80 whitespace-pre-wrap break-words leading-relaxed font-mono">
+            {content || '(vazio)'}
+          </pre>
+        </div>
+      )}
+
+      {editing && (
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-1.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {saving ? 'Salvando...' : 'Salvar'}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setDraft(content || ''); setEditing(false) }}
+            className="px-4 py-1.5 rounded-md border border-border text-muted-foreground text-sm hover:text-foreground transition-colors"
+          >
+            Cancelar
+          </button>
+          {feedback && (
+            <span className={`text-xs font-medium ${feedback.ok ? 'text-green-400' : 'text-red-400'}`}>
+              {feedback.text}
+            </span>
+          )}
+        </div>
+      )}
+
+      {!editing && feedback && (
+        <span className={`text-xs font-medium ${feedback.ok ? 'text-green-400' : 'text-red-400'}`}>
+          {feedback.text}
+        </span>
+      )}
+    </div>
+  )
+}
+
+// ─── Tab: Harness do agente ────────────────────────────────────────────────────
+
+function AgentHarnessTab({ agent }: { agent: Agent & { role?: string } }) {
+  const [content, setContent] = useState<string | null>(null)
+  const [draft, setDraft] = useState('')
+  const [harnessName, setHarnessName] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [feedback, setFeedback] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const ROLE_TO_SKILL: Record<string, string> = {
+    'business analyst':    'swe-business-analysis',
+    'software architect':  'swe-software-architecture',
+    'developer':           'swe-implementation-practices',
+    'qa engineer':         'swe-quality-gates',
+    'security auditor':    'swe-security-review',
+    'data engineer':       'swe-data-engineering',
+    'product manager':     'swe-product-management',
+    'product owner':       'swe-backlog-prioritization',
+    'ux designer':         'swe-ux-research',
+    'scrum master':        'swe-flow-management',
+    'devops engineer':     'swe-release-operations',
+    'orchestrator':        'swe-orchestration-coordination',
+    'coordinator':         'swe-orchestration-coordination',
+    'discovery':           'swe-discovery-practices',
+  }
+
+  useEffect(() => {
+    const role = (agent.role || '').toLowerCase().trim()
+    const skillName = ROLE_TO_SKILL[role] ?? null
+    setHarnessName(skillName ? `${skillName}/harness.json` : null)
+
+    if (!skillName) { setLoading(false); return }
+
+    // Busca o harness.json via a rota de conteúdo de skill customizada
+    fetch(`/api/skills?mode=content&source=user-agents&name=${encodeURIComponent(skillName)}&file=harness.json`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        const text = data?.content ?? ''
+        setContent(text)
+        setDraft(text)
+      })
+      .catch(() => setContent(''))
+      .finally(() => setLoading(false))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agent.id])
+
+  const handleSave = async () => {
+    if (!harnessName) return
+    // Valida JSON antes de salvar
+    try {
+      JSON.parse(draft)
+    } catch {
+      setFeedback({ ok: false, text: 'JSON inválido — corrija antes de salvar' })
+      setTimeout(() => setFeedback(null), 3000)
+      return
+    }
+
+    setSaving(true)
+    try {
+      const skillName = harnessName.replace('/harness.json', '')
+      const res = await fetch('/api/project-skills', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: skillName, file: 'harness.json', content: draft }),
+      })
+      if (!res.ok) throw new Error((await res.json()).error || 'Erro ao salvar')
+      setContent(draft)
+      setEditing(false)
+      setFeedback({ ok: true, text: 'Harness salvo — agentes atualizam em até 30s' })
+    } catch (err: any) {
+      setFeedback({ ok: false, text: err.message || 'Erro ao salvar' })
+    } finally {
+      setSaving(false)
+      setTimeout(() => setFeedback(null), 3000)
+    }
+  }
+
+  if (loading) {
+    return <div className="p-6 text-sm text-muted-foreground">Carregando harness...</div>
+  }
+
+  if (!harnessName) {
+    return (
+      <div className="p-6">
+        <p className="text-sm text-muted-foreground">
+          Nenhum harness mapeado para o papel <strong>{agent.role}</strong>.
+        </p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="p-6 space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium text-foreground">{harnessName}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Configura os guardrails deste agente: tamanho mínimo de resposta, gate obrigatório e se é papel de coordenação.
+          </p>
+        </div>
+        {!editing && (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="shrink-0 px-3 py-1.5 text-xs rounded-md border border-border text-muted-foreground hover:text-foreground hover:border-primary/50 transition-colors"
+          >
+            Editar
+          </button>
+        )}
+      </div>
+
+      <div className="rounded-md border border-border/50 bg-amber-500/5 px-4 py-3 text-xs text-amber-300/80 space-y-1">
+        <p className="font-medium">Campos disponíveis:</p>
+        <ul className="list-disc list-inside space-y-0.5 ml-1 text-muted-foreground">
+          <li><code>min_response_length</code> — mínimo de chars na resposta (número)</li>
+          <li><code>gate_pattern</code> — regex do gate obrigatório (string ou null = sem gate)</li>
+          <li><code>is_coordination_role</code> — bloqueia FILE: e OPEN_PR: (true/false)</li>
+        </ul>
+      </div>
+
+      {editing ? (
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={12}
+          className="w-full px-3 py-2 bg-surface-1 border border-border rounded text-foreground focus:border-primary/50 focus:ring-1 focus:ring-primary/50 focus:outline-none text-xs font-mono resize-y"
+          spellCheck={false}
+        />
+      ) : (
+        <div className="bg-surface-1/30 rounded p-4">
+          <pre className="text-xs text-muted-foreground/80 whitespace-pre-wrap font-mono">
+            {content || '(vazio — usando defaults do sistema)'}
+          </pre>
+        </div>
+      )}
+
+      {editing && (
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-1.5 rounded-md bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-colors"
+          >
+            {saving ? 'Salvando...' : 'Salvar'}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setDraft(content || ''); setEditing(false) }}
+            className="px-4 py-1.5 rounded-md border border-border text-muted-foreground text-sm hover:text-foreground transition-colors"
+          >
+            Cancelar
+          </button>
+          {feedback && (
+            <span className={`text-xs font-medium ${feedback.ok ? 'text-green-400' : 'text-red-400'}`}>
+              {feedback.text}
+            </span>
+          )}
+        </div>
+      )}
+
+      {!editing && feedback && (
+        <span className={`text-xs font-medium ${feedback.ok ? 'text-green-400' : 'text-red-400'}`}>
+          {feedback.text}
+        </span>
+      )}
     </div>
   )
 }

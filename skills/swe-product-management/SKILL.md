@@ -134,3 +134,21 @@ Para orientação de implementação, o agente correto é o Developer ou o Arqui
 ```
 
 E emitir `PRODUCT: NOT_APPLICABLE` se o card for técnico, ou aguardar a pergunta correta se for de produto.
+
+## Fontes de conhecimento
+
+Configure abaixo as fontes externas que este agente deve consultar antes de trabalhar em qualquer card. O AURA buscará automaticamente o conteúdo e injetará no contexto.
+
+```
+## Fontes de conhecimento
+- Jira: histórico de cards concluídos da mesma épica e cards similares
+- Confluence: https://suaempresa.atlassian.net/wiki/spaces/SEU_ESPACO
+- SharePoint: https://suaempresa.sharepoint.com/sites/seu-site/produto
+```
+
+**Fontes recomendadas para PM:**
+- Confluence: OKRs, roadmap, pesquisas de usuário, definição de produto
+- SharePoint: documentos estratégicos, benchmarks, relatórios de negócio
+- Jira histórico: outcomes e hipóteses já testados no domínio
+
+Configure os tokens em **Integrações**: `CONFLUENCE_TOKEN`, `SHAREPOINT_TOKEN`.

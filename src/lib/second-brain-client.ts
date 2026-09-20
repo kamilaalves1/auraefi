@@ -4,7 +4,7 @@
  * Cliente HTTP para o serviço Second Brain.
  * O serviço roda em um EC2 separado e expõe uma API REST.
  *
- * Configuração: defina SECOND_BRAIN_URL no .env
+ * Configuração: defina SECOND_BRAIN_URL no .env ou na tela de Integrações.
  * Ex: SECOND_BRAIN_URL=http://seu-ec2.com:8080
  *
  * Quando SECOND_BRAIN_URL não está configurado, todas as funções
@@ -13,13 +13,23 @@
  */
 
 import { logger } from './logger'
+import { dbGet } from './db-pool'
 
-const SECOND_BRAIN_URL = (process.env.SECOND_BRAIN_URL || '').replace(/\/+$/, '')
-const TIMEOUT_MS = 5_000
-
-function isEnabled(): boolean {
-  return !!SECOND_BRAIN_URL
+/** Resolve a URL do Second Brain: process.env → tabela settings (configurado pela UI) */
+async function resolveSecondBrainUrl(): Promise<string> {
+  const fromEnv = (process.env.SECOND_BRAIN_URL || '').trim().replace(/\/+$/, '')
+  if (fromEnv) return fromEnv
+  try {
+    const row = await dbGet<{ value: string }>(
+      `SELECT value FROM settings WHERE \`key\` = 'integration.SECOND_BRAIN_URL'`, []
+    )
+    return (row?.value || '').trim().replace(/\/+$/, '')
+  } catch {
+    return ''
+  }
 }
+
+const TIMEOUT_MS = 5_000
 
 export interface KnowledgeEntry {
   id: string
@@ -42,7 +52,8 @@ export async function searchKnowledge(
   domain: string,
   nResults = 5,
 ): Promise<KnowledgeEntry[]> {
-  if (!isEnabled()) return []
+  const url = await resolveSecondBrainUrl()
+  if (!url) return []
 
   try {
     const params = new URLSearchParams({
@@ -50,7 +61,7 @@ export async function searchKnowledge(
       domain: domain.toLowerCase(),
       n_results: String(nResults),
     })
-    const res = await fetch(`${SECOND_BRAIN_URL}/knowledge/search?${params}`, {
+    const res = await fetch(`${url}/knowledge/search?${params}`, {
       signal: AbortSignal.timeout(TIMEOUT_MS),
     })
     if (!res.ok) return []
@@ -74,10 +85,11 @@ export async function addKnowledge(entry: {
   card_key?: string
   tags?: string[]
 }): Promise<boolean> {
-  if (!isEnabled()) return false
+  const url = await resolveSecondBrainUrl()
+  if (!url) return false
 
   try {
-    const res = await fetch(`${SECOND_BRAIN_URL}/knowledge`, {
+    const res = await fetch(`${url}/knowledge`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(entry),

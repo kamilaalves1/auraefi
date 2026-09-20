@@ -50,6 +50,38 @@ const INTEGRATIONS: IntegrationDef[] = [
   { id: 'deepseek', name: 'DeepSeek', category: 'ai', envVars: ['DEEPSEEK_API_KEY'], vaultItem: 'gateway-deepseek-api-key', testable: true },
   { id: 'groq', name: 'Groq', category: 'ai', envVars: ['GROQ_API_KEY'], vaultItem: 'gateway-groq-api-key', testable: true },
   { id: 'ollama', name: 'Ollama (Local)', category: 'ai', envVars: ['OLLAMA_API_KEY'], vaultItem: 'gateway-ollama-api-key' },
+  {
+    id: 'second_brain',
+    name: 'Second Brain',
+    category: 'ai',
+    envVars: ['SECOND_BRAIN_URL'],
+    testable: true,
+    recommendation: 'Base de conhecimento semântica para agentes BA e PM. Hospede o serviço (FastAPI + ChromaDB) num servidor separado e informe a URL base aqui. Ex: http://seu-ec2.interno.com:8080. Quando configurado, agentes de análise consultam automaticamente aprendizados de cards anteriores antes de executar.',
+  },
+  {
+    id: 'miro',
+    name: 'Miro',
+    category: 'ai',
+    envVars: ['MIRO_TOKEN'],
+    testable: true,
+    recommendation: 'Token de acesso ao Miro para que agentes BA, PM e UX leiam quadros configurados na skill. Crie em miro.com → Profile → Apps → REST API → Create new token. Escopo mínimo: boards:read.',
+  },
+  {
+    id: 'confluence',
+    name: 'Confluence',
+    category: 'ai',
+    envVars: ['CONFLUENCE_TOKEN'],
+    testable: true,
+    recommendation: 'Token de acesso ao Confluence (Atlassian). Crie em id.atlassian.com → Security → API tokens. Permite que agentes BA e PM leiam espaços e páginas configurados na skill.',
+  },
+  {
+    id: 'sharepoint',
+    name: 'SharePoint',
+    category: 'ai',
+    envVars: ['SHAREPOINT_TOKEN'],
+    testable: true,
+    recommendation: 'Bearer token do Microsoft Graph para acesso ao SharePoint. Use o mesmo Azure AD configurado para SSO. Permite que agentes BA e PM leiam documentos de sites SharePoint configurados na skill.',
+  },
 
   // Search
   { id: 'brave', name: 'Brave Search', category: 'search', envVars: ['BRAVE_API_KEY'], vaultItem: 'gateway-brave-api-key' },
@@ -165,6 +197,7 @@ function getEffectiveEnvValue(dbMap: Map<string, string>, key: string): string {
 
 function isPathLikeEnvVar(key: string): boolean {
   return key.endsWith('_PATH') || key.endsWith('_FILE')
+  // Note: _URL vars are NOT path-like — they are URLs and should not be checked via existsSync
 }
 
 function isConfiguredValue(key: string, value: string): boolean {
@@ -597,6 +630,82 @@ async function handleTest(
           result = { ok: true, detail: 'Authenticated' }
         } catch (err: any) {
           result = { ok: false, detail: (err.stderr?.toString() || '').slice(0, 120) || 'Not authenticated — run `gws auth login`' }
+        }
+        break
+      }
+      case 'second_brain': {
+        const url = getEffectiveEnvValue(dbMap, 'SECOND_BRAIN_URL').replace(/\/+$/, '')
+        if (!url) return NextResponse.json({ ok: false, detail: 'URL não configurada. Informe a URL do serviço Second Brain (ex: http://seu-ec2.com:8080).' })
+        try {
+          const res = await fetch(`${url}/health`, { signal: AbortSignal.timeout(5000) })
+          if (res.ok) {
+            result = { ok: true, detail: `Second Brain acessível em ${url}` }
+          } else {
+            const res2 = await fetch(`${url}/knowledge/search?query=test&domain=geral&n_results=1`, { signal: AbortSignal.timeout(5000) })
+            result = res2.ok || res2.status === 200
+              ? { ok: true, detail: `Second Brain acessível em ${url}` }
+              : { ok: false, detail: `Serviço retornou HTTP ${res.status}. Verifique se está rodando.` }
+          }
+        } catch (err: any) {
+          result = { ok: false, detail: `Não foi possível conectar em ${url}: ${err.message?.slice(0, 80) ?? 'timeout'}` }
+        }
+        break
+      }
+      case 'miro': {
+        const token = getEffectiveEnvValue(dbMap, 'MIRO_TOKEN')
+        if (!token) return NextResponse.json({ ok: false, detail: 'MIRO_TOKEN não configurado.' })
+        try {
+          const res = await fetch('https://api.miro.com/v2/boards?limit=1', {
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+            signal: AbortSignal.timeout(8000),
+          })
+          result = res.ok
+            ? { ok: true, detail: 'Token Miro válido — acesso confirmado.' }
+            : { ok: false, detail: `Miro retornou HTTP ${res.status}. Verifique o token e o escopo (boards:read).` }
+        } catch (err: any) {
+          result = { ok: false, detail: `Erro ao conectar no Miro: ${err.message?.slice(0, 80) ?? 'timeout'}` }
+        }
+        break
+      }
+      case 'confluence': {
+        const token = getEffectiveEnvValue(dbMap, 'CONFLUENCE_TOKEN')
+        if (!token) return NextResponse.json({ ok: false, detail: 'CONFLUENCE_TOKEN não configurado.' })
+        // Tenta descobrir o host do Confluence via Jira config ou URL direta
+        // Usa a URL do Jira configurada no pipeline como base
+        try {
+          // Faz um teste simples na API do Confluence Cloud
+          // O token do Confluence Cloud é o mesmo que o do Jira (Atlassian API token)
+          const res = await fetch('https://api.atlassian.com/me', {
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+            signal: AbortSignal.timeout(8000),
+          })
+          if (res.ok) {
+            const data = await res.json() as { displayName?: string; email?: string }
+            result = { ok: true, detail: `Token Atlassian válido — usuário: ${data.displayName ?? data.email ?? 'autenticado'}` }
+          } else {
+            result = { ok: false, detail: `Confluence retornou HTTP ${res.status}. Verifique o token.` }
+          }
+        } catch (err: any) {
+          result = { ok: false, detail: `Erro ao conectar no Confluence: ${err.message?.slice(0, 80) ?? 'timeout'}` }
+        }
+        break
+      }
+      case 'sharepoint': {
+        const token = getEffectiveEnvValue(dbMap, 'SHAREPOINT_TOKEN')
+        if (!token) return NextResponse.json({ ok: false, detail: 'SHAREPOINT_TOKEN não configurado.' })
+        try {
+          const res = await fetch('https://graph.microsoft.com/v1.0/me', {
+            headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+            signal: AbortSignal.timeout(8000),
+          })
+          if (res.ok) {
+            const data = await res.json() as { displayName?: string; userPrincipalName?: string }
+            result = { ok: true, detail: `Microsoft Graph válido — usuário: ${data.displayName ?? data.userPrincipalName ?? 'autenticado'}` }
+          } else {
+            result = { ok: false, detail: `Microsoft Graph retornou HTTP ${res.status}. Verifique o token.` }
+          }
+        } catch (err: any) {
+          result = { ok: false, detail: `Erro ao conectar no SharePoint: ${err.message?.slice(0, 80) ?? 'timeout'}` }
         }
         break
       }

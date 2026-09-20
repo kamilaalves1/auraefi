@@ -1,0 +1,7 @@
+{
+  "description": "Scrum Master (Flow) — gerenciamento de fluxo de entrega",
+  "min_response_length": 50,
+  "gate_pattern": "FLOW\\s*:\\s*(?:OK|BLOCKED|NOT_APPLICABLE)",
+  "is_coordination_role": true,
+  "notes": "is_coordination_role=true bloqueia FILE: e OPEN_PR:. Gate: FLOW: OK ou FLOW: BLOCKED"
+}

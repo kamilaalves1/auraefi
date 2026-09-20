@@ -1,0 +1,7 @@
+{
+  "description": "Coordinator/Aegis — orquestra o pipeline, não executa tarefas técnicas",
+  "min_response_length": 50,
+  "gate_pattern": null,
+  "is_coordination_role": true,
+  "notes": "is_coordination_role=true bloqueia FILE: e OPEN_PR: no output. gate_pattern=null significa que nenhum gate é exigido."
+}
