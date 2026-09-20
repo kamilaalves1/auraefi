@@ -90,6 +90,26 @@ Use esse contexto para:
 - Evitar inconsistências com decisões de produto anteriores
 - Enriquecer a hipótese com aprendizados de iterações passadas
 
+### Contradição entre Second Brain e card atual
+
+Se o contexto do Second Brain conflitar com o que está descrito no card atual:
+
+1. **Não escolher silenciosamente** qual versão obedecer.
+2. Identificar a contradição com precisão: o que o Second Brain registra vs. o que o card descreve.
+3. Se o card atual vier de uma fonte confiável (PO, GPM, stakeholder) e for claramente mais recente, seguir o card e registrar a contradição no Jira para atualizar o Second Brain.
+4. Se não for possível determinar qual versão está correta, publicar a contradição no Jira, marcar `PRODUCT: BLOCKED` e aguardar decisão humana.
+5. Nunca fabricar uma versão que "reconcilie" as duas fontes sem evidência — isso gera requisitos inventados.
+
+```text
+[SECOND_BRAIN: CONTRADICTION]
+
+Card atual: <chave do Jira>
+Contexto histórico: <o que o Second Brain registra — outcome, métrica ou decisão>
+Card atual diz: <o que está descrito de diferente>
+Impacto: <qual decisão de produto está em conflito>
+Decisão necessária: <qual versão deve prevalecer e por quê>
+```
+
 ## Saída obrigatória
 
 - Contexto.
@@ -137,18 +157,24 @@ E emitir `PRODUCT: NOT_APPLICABLE` se o card for técnico, ou aguardar a pergunt
 
 ## Fontes de conhecimento
 
-Configure abaixo as fontes externas que este agente deve consultar antes de trabalhar em qualquer card. O AURA buscará automaticamente o conteúdo e injetará no contexto.
+Configure as fontes externas que este agente deve consultar antes de trabalhar em qualquer card. O AURA buscará automaticamente o conteúdo e injetará no contexto.
+
+**Como configurar:** edite esta seção da skill na tela de Agentes e substitua pelos dados do seu projeto.
 
 ```
 ## Fontes de conhecimento
 - Jira: histórico de cards concluídos da mesma épica e cards similares
-- Confluence: https://suaempresa.atlassian.net/wiki/spaces/SEU_ESPACO
-- SharePoint: https://suaempresa.sharepoint.com/sites/seu-site/produto
+- Confluence: https://<sua-empresa>.atlassian.net/wiki/spaces/<ESPACO>
+- SharePoint: https://<sua-empresa>.sharepoint.com/sites/<site>/produto
 ```
 
 **Fontes recomendadas para PM:**
-- Confluence: OKRs, roadmap, pesquisas de usuário, definição de produto
-- SharePoint: documentos estratégicos, benchmarks, relatórios de negócio
-- Jira histórico: outcomes e hipóteses já testados no domínio
+- Confluence: OKRs, roadmap, pesquisas de usuário, definição de produto.
+- SharePoint: documentos estratégicos, benchmarks, relatórios de negócio.
+- Jira histórico: outcomes e hipóteses já testados no domínio.
 
-Configure os tokens em **Integrações**: `CONFLUENCE_TOKEN`, `SHAREPOINT_TOKEN`.
+**Instruções:**
+1. Remova as linhas que não se aplicam a este squad.
+2. Substitua os valores entre `< >` pelos do seu projeto.
+3. Configure os tokens em **Integrações**: `CONFLUENCE_TOKEN`, `SHAREPOINT_TOKEN`.
+4. Enquanto as URLs não estiverem configuradas, o AURA não buscará conteúdo externo — apenas o Jira histórico será consultado automaticamente.

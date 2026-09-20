@@ -91,6 +91,7 @@ Registrar:
 - `VERDICT: APPROVED`
 - `VERDICT: CHANGES_REQUESTED`
 - `QA: BLOCKED`
+- `QA: NOT_APPLICABLE` — usar quando o card não gerou artefato testável (análise pura, documentação, spike sem código entregue). Registrar o motivo e passar o card adiante sem bloquear.
 
 ## Rastreabilidade obrigatória
 

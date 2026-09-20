@@ -1,7 +1,7 @@
 {
-  "description": "Developer — implementação de código",
-  "min_response_length": 100,
+  "description": "Developer — implementação de código, testes e abertura de MR",
+  "min_response_length": 150,
   "gate_pattern": "IMPLEMENTATION\\s*:\\s*(?:READY_FOR_REVIEW|BLOCKED|IN_PROGRESS|COMPLETED)",
   "is_coordination_role": false,
-  "notes": "Gate obrigatório: IMPLEMENTATION: READY_FOR_REVIEW ou IMPLEMENTATION: BLOCKED"
+  "notes": "Gate obrigatório: IMPLEMENTATION: READY_FOR_REVIEW (MR aberto, testes passando), IMPLEMENTATION: BLOCKED (impedimento externo), IMPLEMENTATION: IN_PROGRESS (etapa parcial) ou IMPLEMENTATION: COMPLETED."
 }

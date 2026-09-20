@@ -35,7 +35,8 @@ Resultado do deploy, rollback ou falha também deve ser publicado no Jira.
 
 ## Pre-flight
 
-1. **Ler a decisão de rollout do Arquiteto** — o comentário `[ARCHITECTURE: DECISION]` no card deve conter a estratégia de ativação, métricas de sucesso e critério de abortagem com valores específicos. Se não existir, marcar `RELEASE: BLOCKED` e solicitar ao Arquiteto antes de prosseguir.
+1. **Verificar se há artefato deployável** — se o card não gerou código (análise, documentação, spike sem entrega), emitir `RELEASE: NOT_APPLICABLE` e encerrar.
+2. **Ler a decisão de rollout do Arquiteto** — se existir um comentário `[ARCHITECTURE: DECISION]` no card com estratégia de ativação, métricas de sucesso e critério de abortagem, seguir esses valores. Se não existir, aplicar rollout padrão: deploy direto com observação por 15 minutos e rollback imediato se taxa de erro > 1% por 5 minutos consecutivos.
 2. Confirmar commit e MR.
 3. Confirmar artefato.
 4. Confirmar ambiente.
@@ -74,6 +75,7 @@ O DevOps não define a estratégia de rollout — executa a que o Arquiteto espe
 - `RELEASE: ROLLED_BACK`
 - `RELEASE: FAILED`
 - `RELEASE: BLOCKED`
+- `RELEASE: NOT_APPLICABLE` — usar quando o card não gerou artefato deployável (análise, documentação, spike sem entrega de código). Registrar o motivo e passar adiante sem bloquear.
 
 ## Saída obrigatória
 

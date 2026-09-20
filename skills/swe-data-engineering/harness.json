@@ -1,7 +1,7 @@
 {
-  "description": "Data Engineer — avaliação de alterações de banco de dados",
-  "min_response_length": 50,
+  "description": "Data Engineer — avaliação de alterações de banco de dados e estrutura de dados",
+  "min_response_length": 80,
   "gate_pattern": "DATA\\s*:\\s*(?:APPROVED|APPROVED_WITH_CONDITIONS|BLOCKED|NOT_APPLICABLE)",
   "is_coordination_role": false,
-  "notes": "Gate obrigatório: DATA: APPROVED, DATA: APPROVED_WITH_CONDITIONS, DATA: BLOCKED ou DATA: NOT_APPLICABLE"
+  "notes": "Gate obrigatório: DATA: APPROVED (mudança segura), DATA: APPROVED_WITH_CONDITIONS (aprovado com ressalvas), DATA: BLOCKED (risco que impede avanço) ou DATA: NOT_APPLICABLE (card não envolve alteração de estrutura de dados)."
 }

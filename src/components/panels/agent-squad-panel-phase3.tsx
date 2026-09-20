@@ -1920,8 +1920,8 @@ function AgentHarnessTab({ agent }: { agent: Agent & { role?: string } }) {
 
     if (!skillName) { setLoading(false); return }
 
-    // Busca o harness.json via a rota de conteúdo de skill customizada
-    fetch(`/api/skills?mode=content&source=user-agents&name=${encodeURIComponent(skillName)}&file=harness.json`)
+    // Busca o harness.json via /api/project-skills
+    fetch(`/api/project-skills?name=${encodeURIComponent(skillName)}&file=harness.json`)
       .then(r => r.ok ? r.json() : null)
       .then(data => {
         const text = data?.content ?? ''

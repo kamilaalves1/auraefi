@@ -1,7 +1,7 @@
 {
-  "description": "UX Designer — jornadas, fluxos e acessibilidade",
-  "min_response_length": 50,
+  "description": "UX Designer — jornadas, fluxos, estados, acessibilidade e experiência do usuário",
+  "min_response_length": 100,
   "gate_pattern": "UX\\s*:\\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)",
   "is_coordination_role": false,
-  "notes": "Gate obrigatório: UX: APPROVED, UX: BLOCKED ou UX: NOT_APPLICABLE"
+  "notes": "Gate obrigatório: UX: APPROVED (jornada, estados e acessibilidade validados), UX: BLOCKED (dúvida sobre jornada ou regra) ou UX: NOT_APPLICABLE (card técnico sem impacto em experiência do usuário)."
 }

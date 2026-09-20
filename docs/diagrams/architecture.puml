@@ -1,0 +1,425 @@
+@startuml AURA_Architecture_Overview
+title AURA — Visão Geral de Arquitetura
+
+skinparam componentStyle rectangle
+skinparam backgroundColor #FAFAFA
+skinparam ArrowColor #333333
+skinparam BorderColor #888888
+
+package "Next.js Process (Node.js ≥ 22)" #EEF2FF {
+
+  package "Frontend — React 19" #DBEAFE {
+    [Agent Squad Panel\nagent-squad-panel-phase3.tsx] as ASP
+    [Work Pipeline Panel\nwork-pipeline-panel.tsx] as WPP
+    [Task Board\ntask-board-panel.tsx] as TB
+    [SSE Hook\nuseServerEvents()] as HOOK
+  }
+
+  package "API Routes — /api/**" #D1FAE5 {
+    [POST /api/agents] as RA
+    [GET /api/events\n(SSE)] as RE
+    [/api/pipeline/**] as RP
+    [POST /api/auth/login] as RAUTH
+    [/api/workspace/**] as RW
+  }
+
+  package "Core Libraries — src/lib/" #FEF3C7 {
+    [pipeline-engine.ts\n4500+ linhas] as PE
+    [agent-harness.ts\nvalidação de output] as AH
+    [event-bus.ts\nNode.js EventEmitter singleton] as EB
+    [scheduler.ts\nsetInterval 10s] as SCHED
+    [auth.ts\nsessão + API key] as AUTH
+    [skill-sync.ts\ndisco→DB] as SS
+    [work-pipeline-jira.ts\nJira REST client] as JC
+    [knowledge-context.ts\nMiro+Confluence+SharePoint] as KC
+  }
+}
+
+database "MySQL 8.0\n(Aurora compatível)" #F3F4F6 {
+  [pipeline_card_runs] as PCR
+  [pipeline_columns] as PCC
+  [agents] as AGT
+  [skills] as SKT
+  [users / sessions] as USR
+}
+
+cloud "LLM Providers" #FDE8D8 {
+  [Anthropic Claude\nclaude-sonnet / opus / haiku] as ANTH
+  [OpenAI / Groq / Venice\nDeepSeek / Moonshot / OpenRouter] as OAICOMPAT
+  [Google Gemini] as GEM
+  [Ollama (local)] as OLL
+}
+
+cloud "Project Management" #E0F2FE {
+  [Jira REST API v3\nADF comments] as JIRA
+  [Azure DevOps API] as AZ
+}
+
+cloud "Git Providers" #F0FFF4 {
+  [GitHub API v3\ncontents + pulls + check-runs] as GH
+  [GitLab API v4\nrepository/commits + merge_requests] as GL
+}
+
+cloud "Knowledge Sources" #FDF4FF {
+  [Miro API v2\nboards/items] as MIRO
+  [Confluence REST API\ncontent/search] as CONF
+  [SharePoint\nMicrosoft Graph API] as SP
+}
+
+' Frontend → API
+ASP --> RA
+WPP --> RW
+TB --> RP
+HOOK --> RE
+
+' API → Engine
+RA --> PE
+RP --> PE
+RE --> EB
+RAUTH --> AUTH
+
+' Scheduler drives engine
+SCHED --> PE
+
+' Engine → Libs
+PE --> AH
+PE --> EB
+PE --> JC
+PE --> KC
+
+' Engine → DB
+PE --> PCR
+PE --> PCC
+PE --> AGT
+SS --> SKT
+AUTH --> USR
+
+' Engine → LLMs
+PE --> ANTH
+PE --> OAICOMPAT
+PE --> GEM
+PE --> OLL
+
+' Engine → Jira/Azure
+JC --> JIRA
+PE ..> AZ
+
+' Engine → Git
+PE --> GH
+PE --> GL
+
+' Knowledge Context
+KC --> MIRO
+KC --> CONF
+KC --> SP
+
+@enduml
+
+
+@startuml AURA_Pipeline_Sequence
+title AURA — Sequência completa de um card no pipeline
+
+skinparam backgroundColor #FAFAFA
+skinparam sequenceArrowColor #444
+
+actor "Product Owner" as PO
+participant "Jira" as JIRA #LightBlue
+participant "Scheduler\n(10s)" as SCHED #LightYellow
+participant "Pipeline Engine\npipeline-engine.ts" as ENGINE #LightGreen
+participant "LLM API\n(Anthropic etc)" as LLM #Orange
+participant "Harness\nagent-harness.ts" as HARNESS #Pink
+participant "GitHub API" as GH #LightCyan
+participant "EventBus+SSE\n/api/events" as SSE #Lavender
+participant "AURA Frontend" as UI #White
+
+PO -> JIRA : Cria card PROJ-123\nem coluna "Para fazer"
+
+== Detecção (polling 10s) ==
+
+SCHED -> ENGINE : tickPipelineEngine()
+ENGINE -> JIRA : GET /rest/api/3/search/jql\njql=project=PROJ AND status in (trigger_col_id)
+JIRA --> ENGINE : [{ key: "PROJ-123", summary, description }]
+
+ENGINE -> ENGINE : upsertRun() →\nINSERT INTO pipeline_card_runs\nstatus='running'
+ENGINE -> SSE : broadcast('pipeline.stage_started')
+SSE --> UI : { type: 'pipeline.stage_started' }
+
+== Coluna 1 — Orchestrator (Antônio) ==
+
+ENGINE -> ENGINE : startColumn(run, col_triagem)
+ENGINE -> ENGINE : loadAgentSkills() →\nlê SKILL.md do disco via readFileSync
+ENGINE -> ENGINE : buildPrompt(card + skills\n+ column.instructions)
+ENGINE -> LLM : POST /v1/messages\n{ system: soul+skills, user: prompt }
+LLM --> ENGINE : "Analisei o card.\nDefinition of Ready completo..."
+ENGINE -> HARNESS : validateAgentOutput(text,\n{ role:'orchestrator' })
+note right: is_coordination_role=true\nVerifica ausência de ### FILE:\ne OPEN_PR: true
+HARNESS --> ENGINE : { ok: true }
+ENGINE -> JIRA : POST /comment (ADF) "🤖 Antônio..."
+ENGINE -> ENGINE : appendContextSummary() → atualiza\ncontext_summary_json no run
+ENGINE -> JIRA : POST /transitions → "Análise"
+
+== Coluna 2 — Business Analyst (Ana Flávia) ==
+
+ENGINE -> ENGINE : startColumn(run, col_analise)
+ENGINE -> ENGINE : searchKnowledge(cardTitle, domain)\n← Second Brain
+ENGINE -> LLM : POST /v1/messages\n(com contexto do Orchestrator + Second Brain)
+LLM --> ENGINE : "ANALYSIS: READY\nRegras: ..."
+ENGINE -> HARNESS : validateAgentOutput(text,\n{ role:'business analyst' })
+note right: gate_pattern: ANALYSIS:\\s*READY|BLOCKED|NOT_APPLICABLE
+HARNESS --> ENGINE : { ok: true }
+ENGINE -> JIRA : POST /comment "🤖 Ana Flávia..."
+ENGINE -> JIRA : POST /transitions → "Arquitetura"
+
+== Coluna 3 — Software Architect (Carlos) ==
+
+ENGINE -> LLM : POST /v1/messages
+LLM --> ENGINE : "ARCHITECTURE: APPROVED\n[ARCHITECTURE: DECISION]..."
+ENGINE -> HARNESS : validateAgentOutput(...)
+HARNESS --> ENGINE : { ok: true }
+ENGINE -> JIRA : POST /transitions → "Implementação"
+
+== Coluna 4 — Developer (Roberto) ==
+
+ENGINE -> GH : GET /repos/{owner}/{repo}/git/trees\n(busca contexto do repositório)
+GH --> ENGINE : { tree: [{ path, type, sha }] }
+ENGINE -> LLM : POST /v1/messages\n(com árvore do repo + decisão arquitetural)
+LLM --> ENGINE : "### FILE: src/auth.ts\n```ts\n...\n```\nCOMMIT: feat\nOPEN_PR: true\nIMPLEMENTATION: READY_FOR_REVIEW"
+ENGINE -> HARNESS : validateAgentOutput(text,\n{ role:'developer', hasRepo:true })
+note right: Verifica gate IMPLEMENTATION:\nVerifica ausência de secrets\nVerifica FILE: seguido de ```
+HARNESS --> ENGINE : { ok: true }
+
+ENGINE -> GH : GET /refs/heads/main → SHA base
+ENGINE -> GH : POST /git/refs → cria branch feat/proj-123-...
+ENGINE -> GH : PUT /contents/src/auth.ts\n{ content: base64, branch }
+ENGINE -> GH : POST /pulls → PR #42
+ENGINE -> JIRA : POST /comment "✅ Código commitado | PR #42 aberto"
+ENGINE -> ENGINE : Salva pr_check_json → status=waiting_input
+
+== CI Polling ==
+
+SCHED -> ENGINE : tickPipelineEngine() (+10s)
+ENGINE -> GH : GET /commits/{sha}/check-runs
+GH --> ENGINE : [{ name:"tests", conclusion:"success" }]
+ENGINE -> ENGINE : advanceToNextColumn() → "QA"
+
+== Coluna 5+ — QA, Security, DevOps ==
+
+note over ENGINE, HARNESS : QA: VERDICT: APPROVED\nSecurity: SECURITY: APPROVED\nDevOps: RELEASE: SUCCESS
+
+ENGINE -> JIRA : POST /transitions → "Done"
+ENGINE -> ENGINE : updateRun(status='done')
+ENGINE -> SSE : broadcast('pipeline.run_completed')
+SSE --> UI : { type: 'pipeline.run_completed' }
+
+@enduml
+
+
+@startuml AURA_Harness_Flow
+title AURA — Fluxo do Harness de Qualidade
+
+skinparam backgroundColor #FAFAFA
+start
+
+:LLM gera output (text);
+
+if (text vazio?) then (sim)
+  :BLOCKED: resposta vazia;
+  stop
+endif
+
+if (text.length < min_response_length?) then (sim)
+  :BLOCKED: resposta muito curta;
+  stop
+endif
+
+if (hasRepo=true\nE secret no código?) then (sim)
+  :BLOCKED: credencial detectada;
+  stop
+endif
+
+if (is_coordination_role=true\nE contém ### FILE: ou OPEN_PR: true?) then (sim)
+  :BLOCKED: coordenador não deve gerar código;
+  stop
+endif
+
+if (gate_pattern definido\nE gate ausente no output?) then (sim)
+  :BLOCKED: gate obrigatório ausente;
+  note right: Exemplo no Jira:\n"Esperado: ANALYSIS: READY\nou ANALYSIS: BLOCKED"
+  stop
+endif
+
+if (hasRepo=true\nE ### FILE: sem ``` fenced?) then (sim)
+  :BLOCKED: FILE sem bloco de código;
+  stop
+endif
+
+:OUTPUT APROVADO;
+
+fork
+  :postCardComment(Jira);
+fork again
+  :appendContextSummary();
+fork again
+  if (tem ### FILE: e hasRepo?) then (sim)
+    :pushFilesToRepos(GitHub/GitLab);
+  endif
+fork again
+  if (tem TEST_CMD:?) then (sim)
+    :runSandboxTests();
+  endif
+fork again
+  if (tem OPEN_PR: true?) then (sim)
+    :openPullRequest();
+  endif
+end fork
+
+:advanceToNextColumn();
+
+stop
+
+@enduml
+
+
+@startuml AURA_DB_Model
+title AURA — Modelo de Dados Principal
+
+skinparam backgroundColor #FAFAFA
+
+entity "work_pipelines" as WP {
+  * id : INT PK
+  --
+  workspace_id : INT FK
+  provider : VARCHAR(100)
+  enabled : TINYINT(1)
+  config_json : TEXT
+  secret_blob : TEXT
+}
+
+entity "pipeline_columns" as PC {
+  * id : INT PK
+  --
+  pipeline_id : INT FK
+  column_name : VARCHAR(255)
+  column_order : INT
+  is_trigger : TINYINT(1)
+  instructions : TEXT
+  assignments_json : TEXT
+  requires_human_approval : TINYINT(1)
+}
+
+entity "pipeline_card_runs" as CR {
+  * id : INT PK
+  --
+  workspace_id : INT FK
+  provider : VARCHAR(100)
+  card_key : VARCHAR(500)
+  card_title : VARCHAR(500)
+  card_description : TEXT
+  current_stage_id : VARCHAR(255)
+  status : VARCHAR(50)
+  last_comment_ts : INT
+  cost_usd : DOUBLE
+  run_count : INT
+  pr_check_json : TEXT
+  pr_review_json : TEXT
+  context_summary_json : TEXT
+  stage_snapshots_json : TEXT
+}
+
+entity "pipeline_card_messages" as CM {
+  * id : INT PK
+  --
+  run_id : INT FK
+  direction : VARCHAR(50)
+  stage_id : VARCHAR(255)
+  body : TEXT
+  external_comment_id : VARCHAR(255)
+  created_at : INT
+}
+
+entity "pipeline_quality_metrics" as QM {
+  * id : INT PK
+  --
+  workspace_id : INT
+  run_id : INT FK
+  card_key : VARCHAR
+  metric_type : VARCHAR
+  value_text : TEXT
+  value_num : DOUBLE
+  stage_name : VARCHAR
+  agent_name : VARCHAR
+}
+
+entity "agents" as AG {
+  * id : INT PK
+  --
+  name : VARCHAR(255)
+  role : TEXT
+  soul_content : TEXT
+  model : VARCHAR(100)
+  instructions : TEXT
+  config : TEXT
+  status : VARCHAR(50)
+  workspace_id : INT FK
+}
+
+entity "skills" as SK {
+  * id : INT PK
+  --
+  name : VARCHAR(255)
+  source : VARCHAR(255)
+  path : TEXT
+  content_hash : VARCHAR(255)
+}
+
+entity "git_repositories" as GR {
+  * id : INT PK
+  --
+  workspace_id : INT FK
+  name : VARCHAR(255)
+  provider : VARCHAR(50)
+  repo_url : TEXT
+  branch : VARCHAR(255)
+  access_token : TEXT
+}
+
+entity "workspaces" as WS {
+  * id : INT PK
+  --
+  slug : VARCHAR(100)
+  name : VARCHAR(255)
+  tenant_id : INT FK
+}
+
+entity "users" as US {
+  * id : INT PK
+  --
+  username : VARCHAR(255)
+  password_hash : TEXT
+  role : VARCHAR(50)
+  workspace_id : INT FK
+}
+
+entity "token_usage" as TU {
+  * id : INT PK
+  --
+  model : VARCHAR(100)
+  agent_name : VARCHAR
+  input_tokens : INT
+  output_tokens : INT
+  cost_usd : DOUBLE
+  run_id : INT
+  workspace_id : INT
+}
+
+WS ||--o{ WP : possui
+WS ||--o{ AG : possui
+WS ||--o{ US : possui
+WS ||--o{ GR : possui
+WP ||--o{ PC : contém
+WP ||--o{ CR : executa
+CR ||--o{ CM : gera
+CR ||--o{ QM : métricas
+CR ||--o{ TU : custos
+
+@enduml

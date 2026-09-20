@@ -1,7 +1,7 @@
 {
-  "description": "Discovery — validação de hipóteses e experimentos",
-  "min_response_length": 50,
+  "description": "Discovery — validação de hipóteses, experimentos e alinhamento de produto",
+  "min_response_length": 100,
   "gate_pattern": "DISCOVERY\\s*:\\s*(?:READY|BLOCKED|NOT_APPLICABLE)",
   "is_coordination_role": false,
-  "notes": "Gate: DISCOVERY: READY quando a hipótese está formulada e o experimento definido"
+  "notes": "Gate obrigatório: DISCOVERY: READY (hipótese formulada e experimento definido), DISCOVERY: BLOCKED (falta informação ou decisão) ou DISCOVERY: NOT_APPLICABLE (card não requer discovery)."
 }

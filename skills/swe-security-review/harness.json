@@ -1,7 +1,7 @@
 {
-  "description": "Security Auditor — revisão de segurança",
+  "description": "Security Auditor — revisão de autenticação, autorização, dados, secrets e dependências",
   "min_response_length": 300,
   "gate_pattern": "SECURITY\\s*:\\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)",
   "is_coordination_role": false,
-  "notes": "Gate obrigatório: SECURITY: APPROVED, SECURITY: BLOCKED ou SECURITY: NOT_APPLICABLE"
+  "notes": "Gate obrigatório: SECURITY: APPROVED (sem achados bloqueantes), SECURITY: BLOCKED (achado alto/crítico sem aceite) ou SECURITY: NOT_APPLICABLE (sem APIs, autenticação, dados sensíveis ou dependências externas)."
 }

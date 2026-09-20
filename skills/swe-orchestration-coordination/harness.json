@@ -1,7 +1,7 @@
 {
-  "description": "Coordinator/Aegis — orquestra o pipeline, não executa tarefas técnicas",
-  "min_response_length": 50,
+  "description": "Coordinator/Orchestrator — orquestra o pipeline, não executa tarefas técnicas",
+  "min_response_length": 80,
   "gate_pattern": null,
   "is_coordination_role": true,
-  "notes": "is_coordination_role=true bloqueia FILE: e OPEN_PR: no output. gate_pattern=null significa que nenhum gate é exigido."
+  "notes": "gate_pattern=null: o Coordinator não tem gate obrigatório exigido pelo harness — ele pode emitir COORDINATION: DONE, BLOCKED, AWAITING_APPROVAL ou CONTRADICTION_DETECTED, mas nenhum deles é forçado. is_coordination_role=true bloqueia FILE: e OPEN_PR: no output."
 }

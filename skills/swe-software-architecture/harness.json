@@ -1,7 +1,7 @@
 {
-  "description": "Software Architect — decisões técnicas e code review arquitetural",
+  "description": "Software Architect — decisões técnicas, desenho de solução e code review arquitetural",
   "min_response_length": 400,
-  "gate_pattern": "ARCHITECTURE(?:_REVIEW)?\\s*:\\s*(?:APPROVED|BLOCKED|CHANGES_REQUESTED)",
+  "gate_pattern": "ARCHITECTURE(?:_REVIEW)?\\s*:\\s*(?:APPROVED|APPROVED_WITH_CONDITIONS|BLOCKED|CHANGES_REQUESTED|NOT_APPLICABLE)",
   "is_coordination_role": false,
-  "notes": "Gate obrigatório: ARCHITECTURE: APPROVED, ARCHITECTURE: BLOCKED ou ARCHITECTURE_REVIEW: CHANGES_REQUESTED"
+  "notes": "Gate pré-dev: ARCHITECTURE: APPROVED, APPROVED_WITH_CONDITIONS, BLOCKED ou NOT_APPLICABLE. Gate code review: ARCHITECTURE_REVIEW: APPROVED, CHANGES_REQUESTED ou BLOCKED. NOT_APPLICABLE para cards sem decisão técnica nova."
 }
