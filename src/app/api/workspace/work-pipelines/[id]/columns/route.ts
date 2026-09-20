@@ -102,7 +102,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         col.column_order ?? i,
         col.is_trigger ? 1 : 0,
         firstAgentId,
-        col.instructions ? String(col.instructions).slice(0, 2000) : null,
+        col.instructions ? String(col.instructions).slice(0, 10000) : null,
         JSON.stringify(assignments),
         col.requires_human_approval ? 1 : 0,
       ])
