@@ -3799,8 +3799,15 @@ async function executeMentionInstruction(
     '',
     `⏳ Processando...`,
   ].join('\n')
-  await postCardComment(run.provider, cfg, secrets, run.card_key, ackMsg)
-  await updateRun(run.id, { status: 'running', task_id: null })
+  const ackCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, ackMsg)
+  // Salva o ID do ack no banco para que o filtro ecoProprio o ignore nas próximas rodadas
+  if (ackCommentId) {
+    await logMessage(run.id, 'agent_to_card', String(column.id), ackMsg, ackCommentId)
+  }
+  // Avança o last_comment_ts para NOW antes de chamar o LLM — evita que o motor
+  // releia o comentário do usuário enquanto o LLM está processando (pode demorar até 90s)
+  const mentionNowTs = Math.floor(Date.now() / 1000)
+  await updateRun(run.id, { status: 'running', task_id: null, last_comment_ts: mentionNowTs })
 
   const nowBusy = Math.floor(Date.now() / 1000)
   await dbRun(`UPDATE agents SET status = 'busy', last_activity = ?, last_seen = ?, updated_at = ? WHERE id = ?`, [`Pipeline mention: ${run.card_key}`, nowBusy, nowBusy, agent.id])
@@ -4014,8 +4021,14 @@ async function processInboundComments(
             ``,
             `⏳ Processando...`,
           ].join('\n')
-          await postCardComment(run.provider, cfg, secrets, run.card_key, ackMsg)
-          await updateRun(run.id, { status: 'running', task_id: null })
+          const ackId = await postCardComment(run.provider, cfg, secrets, run.card_key, ackMsg)
+          // Salva o ID do ack para que o filtro ecoProprio o ignore nas próximas rodadas
+          if (ackId) {
+            await logMessage(run.id, 'agent_to_card', String(targetColumn.id), ackMsg, ackId)
+          }
+          // Avança last_comment_ts imediatamente para evitar reler o comentário do usuário
+          const agentMentionTs = Math.floor(Date.now() / 1000)
+          await updateRun(run.id, { status: 'running', task_id: null, last_comment_ts: agentMentionTs })
 
           // Executa o agente mencionado com o contexto da instrução
           const prevMsgs = await getLastAgentMessages(run.id)
