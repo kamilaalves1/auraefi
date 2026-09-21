@@ -2914,6 +2914,54 @@ async function runSandboxTests(
   }
 }
 
+// ─── Diagnóstico de modelo ─────────────────────────────────────────────────────
+
+/**
+ * Retorna uma mensagem de diagnóstico quando o modelo usado pode ser inadequado para o papel.
+ * Chamado quando o agente retorna resposta vazia após retries.
+ */
+function buildModelDiagnostic(model: string, role: string): string {
+  const m = model.toLowerCase()
+
+  // Modelos de raciocínio que não são adequados para geração de código/gates
+  const isReasoningModel = m.includes('o1') && !m.includes('mini') && !m.includes('preview')
+  const isO1Series = m.includes('o1-2024') || m === 'o1' || m === 'openai/o1' || m === 'openai:o1'
+
+  if (isO1Series || isReasoningModel) {
+    return [
+      `O modelo **${model}** é um modelo de raciocínio matemático/lógico (série o1).`,
+      `Ele não foi treinado para produzir blocos \`### FILE:\` e gates de pipeline como \`IMPLEMENTATION: READY_FOR_REVIEW\`.`,
+      ``,
+      `**Modelos recomendados para o papel "${role}":**`,
+      `- \`openai:gpt-4o\` — melhor equilíbrio custo/qualidade para geração de código`,
+      `- \`anthropic:claude-sonnet-4-5\` — excelente para seguir instruções de formato`,
+      `- \`openai:o1-mini\` — versão menor do o1, mais adequada para tarefas práticas`,
+      ``,
+      `Configure o modelo em **Agentes** → **${role}** → campo Modelo.`,
+    ].join('\n')
+  }
+
+  // Modelos muito pequenos
+  const isTinyModel = m.includes('mini') || m.includes('haiku') && m.includes('3') && !m.includes('3-5')
+  if (isTinyModel && (role === 'developer' || role === 'software architect')) {
+    return [
+      `O modelo **${model}** pode ter capacidade insuficiente para gerar código completo com o gate obrigatório.`,
+      `**Modelos recomendados:** \`openai:gpt-4o\` ou \`anthropic:claude-sonnet-4-5\``,
+    ].join('\n')
+  }
+
+  // Resposta vazia genérica — pode ser timeout, limite de contexto, etc.
+  return [
+    `O modelo **${model}** retornou resposta vazia após ${3} tentativas.`,
+    `Possíveis causas:`,
+    `- Contexto muito longo (repositório grande + outputs anteriores)`,
+    `- Timeout da API do provedor`,
+    `- Limite de tokens de saída atingido`,
+    ``,
+    `Verifique as configurações do modelo em **Agentes** → **${role}**.`,
+  ].join('\n')
+}
+
 // ─── Stage lifecycle ──────────────────────────────────────────────────────────
 
 async function startColumn(
@@ -3281,8 +3329,19 @@ async function startColumn(
         skillPath,
       })
       if (!harnessResult.ok) {
-        const rejectionMsg = formatHarnessRejection(harnessResult.reason!, agent.name, run.card_key)
-        logger.warn({ run_id: run.id, agent: agent.name, role: agent.role, reason: harnessResult.reason }, 'pipeline-engine: harness rejected agent output')
+        // Enriquece a mensagem com diagnóstico de modelo quando a resposta for vazia
+        // — ajuda a identificar modelos inadequados para o papel sem precisar de logs
+        const usedModel = llmResult.model || agent.model || assignment.llm_model || '(modelo não identificado)'
+        const isEmptyResponse = !llmResult.text?.trim()
+
+        const modelDiagnostic = isEmptyResponse ? buildModelDiagnostic(usedModel, agent.role) : null
+
+        const rejectionMsg = [
+          formatHarnessRejection(harnessResult.reason!, agent.name, run.card_key),
+          modelDiagnostic ? `\n---\n**Diagnóstico de modelo:**\n${modelDiagnostic}` : '',
+        ].filter(Boolean).join('\n')
+
+        logger.warn({ run_id: run.id, agent: agent.name, role: agent.role, reason: harnessResult.reason, model: usedModel }, 'pipeline-engine: harness rejected agent output')
         await postCardComment(run.provider, cfg, secrets, run.card_key, rejectionMsg, run.id)
         // Atualiza last_comment_ts para NOW para não reler o comentário que causou o loop
         await updateRun(run.id, {
