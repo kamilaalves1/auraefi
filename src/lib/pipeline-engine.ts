@@ -3217,8 +3217,42 @@ async function startColumn(
         skillPath,
       })
       if (!harnessResult.ok) {
+        // ── Auto-retry para falha de gate ausente ──────────────────────────────
+        // Se o motivo é apenas gate obrigatório ausente (modelo esqueceu de emitir),
+        // retenta automaticamente até MAX_AUTO_RETRY vezes antes de escalar para humano.
+        // Falhas de segurança (secret, FILE: indevido) sempre escalam imediatamente.
+        const MAX_AUTO_RETRY = 2
+        const isGateMissing = harnessResult.reason?.includes('gate obrigatório') ||
+                              harnessResult.reason?.includes('não emitiu o gate')
+        const autoRetryCount = (await dbGet<{ n: number }>(
+          `SELECT COUNT(*) as n FROM pipeline_quality_metrics
+           WHERE run_id = ? AND stage_name = ? AND agent_name = ? AND metric_type = 'gate_auto_retry'`,
+          [run.id, column.column_name, agent.name]
+        ))?.n ?? 0
+
+        if (isGateMissing && autoRetryCount < MAX_AUTO_RETRY) {
+          // Registra a tentativa e retenta imediatamente sem escalar para humano
+          dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_text, stage_name, agent_name, created_at)
+                 VALUES (?, ?, ?, 'gate_auto_retry', ?, ?, ?, UNIX_TIMESTAMP())`,
+            [run.workspace_id, run.id, run.card_key, harnessResult.reason ?? '', column.column_name, agent.name]
+          ).catch(() => {})
+
+          logger.info({ run_id: run.id, agent: agent.name, attempt: autoRetryCount + 1 }, 'pipeline-engine: gate missing — auto-retrying without human intervention')
+
+          // Remove o output desta tentativa do outputParts para não contaminar o contexto
+          // e força nova execução deste agente limpando o registro de conclusão
+          await dbRun(
+            `DELETE FROM pipeline_card_messages WHERE run_id = ? AND stage_id = ? AND body LIKE '🤖 **${agent.name}**%'`,
+            [run.id, stageId]
+          )
+          await dbRun(`UPDATE agents SET status = 'idle', updated_at = ? WHERE id = ?`, [nowDone, agent.id])
+          // Chama startColumn recursivamente — o correctionContext vai injetar o motivo
+          await startColumn(run, column, cfg, secrets)
+          return
+        }
+        // ── Esgotou retries ou é falha de segurança: escala para humano ──────
         const rejectionMsg = formatHarnessRejection(harnessResult.reason!, agent.name, run.card_key)
-        logger.warn({ run_id: run.id, agent: agent.name, role: agent.role, reason: harnessResult.reason }, 'pipeline-engine: harness rejected agent output')
+        logger.warn({ run_id: run.id, agent: agent.name, role: agent.role, reason: harnessResult.reason, autoRetryCount }, 'pipeline-engine: harness rejected agent output — escalating to human')
         await postCardComment(run.provider, cfg, secrets, run.card_key, rejectionMsg, run.id)
         // Atualiza last_comment_ts para NOW para não reler o comentário que causou o loop
         await updateRun(run.id, {
@@ -3232,7 +3266,7 @@ async function startColumn(
                VALUES (?, ?, ?, 'gate_rejected', ?, ?, ?, UNIX_TIMESTAMP())`,
           [run.workspace_id, run.id, run.card_key, harnessResult.reason ?? 'unknown', column.column_name, agent.name]
         ).catch(() => {})
-        return // stop processing this stage — wait for human intervention
+        return // stop processing this stage — escalated to human
       }
       // ── Métrica: gate aprovado ──
       dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_text, stage_name, agent_name, created_at)
