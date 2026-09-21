@@ -3563,7 +3563,8 @@ async function startColumn(
       const backId = await postCardComment(run.provider, cfg, secrets, run.card_key, backMsg)
       await logMessage(run.id, 'agent_to_card', stageId, backMsg, backId ?? undefined)
 
-      await moveCard(run.provider, cfg, secrets, run.card_key, devColumn.column_name)      const reworkRun: PipelineCardRun = { ...run, current_stage_id: String(devColumn.id), task_id: null, status: 'running' }
+      await moveCard(run.provider, cfg, secrets, run.card_key, devColumn.column_name)
+      const reworkRun: PipelineCardRun = { ...run, current_stage_id: String(devColumn.id), task_id: null, status: 'running' }
       await updateRun(run.id, { current_stage_id: String(devColumn.id), task_id: null, status: 'running' })
       // ── Métrica: QA reprovado + rework ──
       dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_text, stage_name, created_at)
