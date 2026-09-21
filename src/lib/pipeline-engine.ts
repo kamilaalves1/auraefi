@@ -3669,7 +3669,20 @@ async function advanceToNextColumn(
   }
 
   // Move card to the next column in JIRA/Azure
-  await moveCard(run.provider, cfg, secrets, run.card_key, nextColumn.column_name)
+  const moveResult = await moveCard(run.provider, cfg, secrets, run.card_key, nextColumn.column_name)
+  if (!moveResult.moved) {
+    // Avisa no card que a movimentação falhou — o status interno avança mas o Jira fica parado
+    const moveWarn = [
+      `⚠️ **Não foi possível mover o card para "${nextColumn.column_name}" no Jira**`,
+      ``,
+      `O pipeline continua executando internamente, mas o card permanece na coluna atual no Jira.`,
+      ``,
+      `**Provável causa:** o nome da coluna no AURA não corresponde ao nome da transição no Jira.`,
+      `Verifique em Work Pipeline → colunas se o nome "${nextColumn.column_name}" bate exatamente com o status do Jira.`,
+      moveResult.reason ? `\n**Erro:** ${moveResult.reason}` : '',
+    ].filter(Boolean).join('\n')
+    await postCardComment(run.provider, cfg, secrets, run.card_key, moveWarn, run.id)
+  }
 
   const updatedRun: PipelineCardRun = { ...run, current_stage_id: String(nextColumn.id), task_id: null, status: 'running' }
   await updateRun(run.id, { current_stage_id: String(nextColumn.id), task_id: null, status: 'running' })

@@ -295,7 +295,11 @@ export async function transitionJiraIssue(
     (t) => t.name.toLowerCase() === targetStatusName.toLowerCase()
   )
   if (!match) {
-    // Not found by name — list what's available and skip gracefully
+    // Transição não encontrada — loga as disponíveis para facilitar diagnóstico
+    logger.warn(
+      { issueKey, targetStatusName, available: transitions.map(t => t.name) },
+      'pipeline-engine: Jira transition not found by name — card not moved'
+    )
     return
   }
 
