@@ -3704,10 +3704,11 @@ async function startColumn(
     const blockedMatch = combinedOutput.match(BLOCKED_GATE_PATTERN)
     const blockedGate = blockedMatch ? blockedMatch[0].trim().toUpperCase() : 'GATE: BLOCKED'
 
-    // Identifica o agente que emitiu o bloqueio
+    // Identifica o agente que emitiu o bloqueio — tenta múltiplos formatos do output
     const blockedAgentOutput = outputParts.find(p => BLOCKED_GATE_PATTERN.test(p))
-    const blockedAgentMatch = blockedAgentOutput?.match(/^🤖 \*\*(.+?)\*\*/)
-    const blockedAgentName = blockedAgentMatch ? blockedAgentMatch[1] : 'um agente'
+    const blockedAgentMatch = blockedAgentOutput?.match(/^🤖 \*\*(.+?)\*\*/) ||
+                              blockedAgentOutput?.match(/^🤖 \*\*(.+?)[\*\s]/)
+    const blockedAgentName = blockedAgentMatch ? blockedAgentMatch[1].trim() : 'um agente'
 
     const gateBlockMsg = [
       `⛔ **Etapa bloqueada — ${column.column_name}**`,
