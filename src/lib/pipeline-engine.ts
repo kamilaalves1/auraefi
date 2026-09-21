@@ -3654,9 +3654,16 @@ async function startColumn(
     return
   }
 
-  // QA gate: if this stage has a QA agent and output contains REPROVADO, send back to developer
+  // QA gate: se o QA reprovou ou bloqueou, retornar para o Developer corrigir
+  // Ativa para: REPROVADO (legado), VERDICT: CHANGES_REQUESTED, QA: BLOCKED
   const hasQAAgent = assignments.some(a => a.role === 'qa engineer')
-  if (hasQAAgent && /REPROVADO/i.test(outputParts.join('\n'))) {
+  const qaOutput = outputParts.join('\n')
+  const qaRejected = hasQAAgent && (
+    /REPROVADO/i.test(qaOutput) ||
+    /VERDICT\s*:\s*CHANGES_REQUESTED/i.test(qaOutput) ||
+    /QA\s*:\s*BLOCKED/i.test(qaOutput)
+  )
+  if (qaRejected) {
     const allPipelineCols = await dbGetAll('SELECT * FROM pipeline_columns WHERE pipeline_id = ? ORDER BY column_order ASC', [column.pipeline_id]) as PipelineColumn[]
 
     const devColumn = allPipelineCols.find(col =>
@@ -3694,10 +3701,9 @@ async function startColumn(
   }
 
   // ── Gate BLOCKED: se qualquer agente emitiu BLOCKED, pausar antes de avançar ──
-  // Impede que o pipeline avance para a próxima coluna quando um agente registrou
-  // explicitamente que o trabalho está bloqueado (ex: ANALYSIS: BLOCKED, ARCHITECTURE: BLOCKED).
-  // NOT_APPLICABLE e APPROVED passam normalmente. Só o valor BLOCKED retém o card.
-  const BLOCKED_GATE_PATTERN = /\b(?:ANALYSIS|ARCHITECTURE|ARCHITECTURE_REVIEW|IMPLEMENTATION|VERDICT|QA|SECURITY|DATA|UX|PRODUCT|PRIORITY|FLOW|RELEASE|DISCOVERY|COORDINATION)\s*:\s*BLOCKED\b/i
+  // Exceção: QA: BLOCKED e VERDICT: CHANGES_REQUESTED são tratados pelo QA rework acima
+  // (retornam ao Developer automaticamente em vez de pausar para intervenção humana)
+  const BLOCKED_GATE_PATTERN = /\b(?:ANALYSIS|ARCHITECTURE|ARCHITECTURE_REVIEW|IMPLEMENTATION|SECURITY|DATA|UX|PRODUCT|PRIORITY|FLOW|RELEASE|DISCOVERY|COORDINATION)\s*:\s*BLOCKED\b/i
   const combinedOutput = outputParts.join('\n')
   if (BLOCKED_GATE_PATTERN.test(combinedOutput)) {
     // Extrai qual gate foi bloqueado para informar o usuário
