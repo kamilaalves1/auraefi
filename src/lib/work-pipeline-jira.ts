@@ -1,4 +1,5 @@
 import type { NormalizedBacklogItem, WorkPipelineConfigJson, WorkPipelineSecrets } from '@/lib/work-pipeline-types'
+import { logger } from '@/lib/logger'
 
 function stripTrailingSlash(u: string): string {
   return u.replace(/\/+$/, '')
