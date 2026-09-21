@@ -3229,10 +3229,12 @@ async function startColumn(
         if (harnessCheck.ok) break // aprovado — sai do loop
 
         const isGateMissing = harnessCheck.reason?.includes('gate obrigatório') ||
-                              harnessCheck.reason?.includes('não emitiu o gate')
+                              harnessCheck.reason?.includes('não emitiu o gate') ||
+                              harnessCheck.reason?.includes('muito curta')
         const isSecurityIssue = harnessCheck.reason?.includes('credenciais') ||
                                 harnessCheck.reason?.includes('FILE:') ||
-                                harnessCheck.reason?.includes('OPEN_PR')
+                                harnessCheck.reason?.includes('OPEN_PR') ||
+                                harnessCheck.reason?.includes('secret')
 
         if (!isGateMissing || isSecurityIssue) break // falha real — não retenta
 
