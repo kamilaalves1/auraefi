@@ -3947,9 +3947,9 @@ async function processInboundComments(
     const firstWord = instructionLower.split(/\s+/)[0] ?? ''
     const isCancelCmd    = ['cancelar', 'cancele', 'cancel'].includes(firstWord)
     const isAdvanceCmd   = ['avançar', 'avancar', 'avance', 'advance'].includes(firstWord)
-    const isReprocessAll = ['reprocessar', 'reprocesse', 'reprocess'].includes(firstWord) &&
+    const isReprocessAll = ['reprocessar', 'reprocesse', 'reprocess', 'reiniciar', 'reinicie', 'restart'].includes(firstWord) &&
                            instructionLower.includes('tudo')
-    const isReprocessCmd = !isReprocessAll && ['reprocessar', 'reprocesse', 'reprocess'].includes(firstWord)
+    const isReprocessCmd = !isReprocessAll && ['reprocessar', 'reprocesse', 'reprocess', 'reiniciar', 'reinicie', 'restart'].includes(firstWord)
 
     // ── Comandos (com ou sem @menção) ─────────────────────────────────────────
     if (isCancelCmd) {
