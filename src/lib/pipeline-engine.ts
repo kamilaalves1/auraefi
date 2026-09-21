@@ -3333,41 +3333,31 @@ async function startColumn(
         )
       } catch { /* non-critical */ }
 
-      // If this is a software architect with a linked repo, push any fixes then merge to main
+      // If this is a software architect with a linked repo and generated FILE blocks, push them
+      // (arquiteto pode commitar specs, decisões arquiteturais ou correções pontuais)
+      // Merge para main é responsabilidade exclusiva do DevOps — nunca do arquiteto
       if (assignment.role === 'software architect' && effectiveRepoId) {
-        try {
-          // If the architect generated FILE/ARQUIVO blocks (corrections), push them before merging
-          if (/###\s*(?:FILE|ARQUIVO):/i.test(llmResult.text)) {
+        if (/###\s*(?:FILE|ARQUIVO):/i.test(llmResult.text)) {
+          try {
             const pushResults = await pushFilesToRepos(llmResult.text, run.card_key, run.card_title, stageRepos, effectiveRepoId)
             for (const pr of pushResults) {
               if (pr.ok) {
-                const archFixMsg = [`🔧 **${agent.name} aplicou correções** → \`${pr.repoName}\``, ``, `🌿 Branch: \`${pr.branch}\``, `📁 Arquivos: ${pr.files?.join(', ')}`, `📝 Commit: ${pr.message}`].join('\n')
-                const archFixId = await postCardComment(run.provider, cfg, secrets, run.card_key, archFixMsg)
+                const archFixMsg = [`🔧 **${agent.name} commitou arquivos** → \`${pr.repoName}\``, ``, `🌿 Branch: \`${pr.branch}\``, `📁 Arquivos: ${pr.files?.join(', ')}`, `📝 Commit: ${pr.message}`].join('\n')
+                const archFixId = await postCardComment(run.provider, cfg, secrets, run.card_key, archFixMsg, run.id)
                 await logMessage(run.id, 'agent_to_card', stageId, archFixMsg, archFixId ?? undefined)
               } else {
                 const archErrMsg = `⚠️ **Push do arquiteto falhou** [${pr.repoName}]: ${pr.message}`
                 logger.error({ run_id: run.id, agent: agent.name, result: pr }, 'pipeline-engine: architect push failed')
-                const archErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, archErrMsg)
+                const archErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, archErrMsg, run.id)
                 await logMessage(run.id, 'agent_to_card', stageId, archErrMsg, archErrId ?? undefined)
               }
             }
+          } catch (pushErr: any) {
+            logger.warn({ pushErr, run_id: run.id, agent: agent.name }, 'pipeline-engine: architect push failed (non-critical)')
           }
-          const mergeResult = await mergeToMain(effectiveRepoId, run.card_key, run.card_title)
-          const mergeMsg = mergeResult.ok
-            ? [`✅ **Merge realizado na main**`, ``, mergeResult.message].join('\n')
-            : `⚠️ **Merge não realizado**: ${mergeResult.message}`
-          if (!mergeResult.ok) logger.error({ run_id: run.id, agent: agent.name, result: mergeResult }, 'pipeline-engine: merge to main failed')
-          const mergeCommentId = await postCardComment(run.provider, cfg, secrets, run.card_key, mergeMsg)
-          await logMessage(run.id, 'agent_to_card', stageId, mergeMsg, mergeCommentId ?? undefined)
-        } catch (mergeErr: any) {
-          const mergeErrMsg = `❌ **Erro no merge**: ${mergeErr?.message ?? String(mergeErr)}`
-          logger.error({ mergeErr, run_id: run.id, agent: agent.name }, 'pipeline-engine: merge to main exception')
-          const mergeErrId = await postCardComment(run.provider, cfg, secrets, run.card_key, mergeErrMsg).catch(() => null)
-          if (mergeErrId) await logMessage(run.id, 'agent_to_card', stageId, mergeErrMsg, mergeErrId)
         }
 
         // ── Estimativa automática — posta story points após o arquiteto, sem bloquear ──
-        // Executa em background (não-bloqueante) para não atrasar a esteira
         generateEstimate(run, column, cfg, agent, llmResult.text, stageRepos).catch(err =>
           logger.warn({ err, run_id: run.id }, 'pipeline-engine: estimate generation failed (non-critical)')
         )
