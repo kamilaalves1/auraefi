@@ -73,6 +73,8 @@ interface PipelineColumn {
   assignments_json: string
   /** Se 1, o pipeline pausa ao chegar nesta coluna e aguarda aprovação humana antes de executar os agentes */
   requires_human_approval: number
+  /** Nome da transição no Jira. Se preenchido, usa este ao mover o card. Se vazio, usa column_name. */
+  jira_status: string | null
 }
 
 interface ColumnAssignment {
@@ -3672,17 +3674,20 @@ async function advanceToNextColumn(
   }
 
   // Move card to the next column in JIRA/Azure
-  const moveResult = await moveCard(run.provider, cfg, secrets, run.card_key, nextColumn.column_name)
+  // jira_status sobrescreve column_name quando configurado — permite que o nome da coluna no AURA
+  // seja livre sem precisar bater com o nome da transição no Jira
+  const jiraTransitionName = nextColumn.jira_status?.trim() || nextColumn.column_name
+  const moveResult = await moveCard(run.provider, cfg, secrets, run.card_key, jiraTransitionName)
   if (!moveResult.moved) {
     // Avisa no card que a movimentação falhou — o status interno avança mas o Jira fica parado
     const moveWarn = [
-      `⚠️ **Não foi possível mover o card para "${nextColumn.column_name}" no Jira**`,
+      `⚠️ **Não foi possível mover o card para "${jiraTransitionName}" no Jira**`,
       ``,
       `O pipeline continua executando internamente, mas o card permanece na coluna atual no Jira.`,
       ``,
-      `**Provável causa:** o nome da coluna no AURA não corresponde ao nome da transição no Jira.`,
-      `Verifique em Work Pipeline → colunas se o nome "${nextColumn.column_name}" bate exatamente com o status do Jira.`,
-      moveResult.reason ? `\n**Erro:** ${moveResult.reason}` : '',
+      moveResult.reason || '',
+      ``,
+      `**Como corrigir:** em Work Pipeline → colunas → "${nextColumn.column_name}", preencha o campo **"Status no Jira"** com o nome exato da transição disponível para este card.`,
     ].filter(Boolean).join('\n')
     await postCardComment(run.provider, cfg, secrets, run.card_key, moveWarn, run.id)
   }

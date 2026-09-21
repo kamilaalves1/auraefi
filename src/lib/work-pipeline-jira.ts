@@ -301,7 +301,10 @@ export async function transitionJiraIssue(
       { issueKey, targetStatusName, available: transitions.map(t => t.name) },
       'pipeline-engine: Jira transition not found by name — card not moved'
     )
-    return
+    // Retorna a lista de transições disponíveis para que o caller possa exibir no card
+    throw new Error(
+      `Transição "${targetStatusName}" não encontrada. Disponíveis: ${transitions.map(t => `"${t.name}"`).join(', ')}`
+    )
   }
 
   const url = `${host}/rest/api/3/issue/${encodeURIComponent(issueKey)}/transitions`
