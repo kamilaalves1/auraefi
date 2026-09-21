@@ -3219,46 +3219,55 @@ async function startColumn(
       const skillPath = await resolveSkillPathForRole(agent.role)
 
       for (let retryAttempt = 0; retryAttempt < MAX_GATE_RETRIES; retryAttempt++) {
-        const harnessCheck = validateAgentOutput(llmResult.text, {
-          agentRole: agent.role,
-          cardKey: run.card_key,
-          hasRepo: hasRepo,
-          columnInstructions: column.instructions,
-          skillPath,
-        })
-        if (harnessCheck.ok) break // aprovado — sai do loop
+        // Verifica se o resultado já é válido — sai do loop imediatamente
+        if (llmResult.text?.trim()) {
+          const harnessCheck = validateAgentOutput(llmResult.text, {
+            agentRole: agent.role,
+            cardKey: run.card_key,
+            hasRepo: hasRepo,
+            columnInstructions: column.instructions,
+            skillPath,
+          })
+          if (harnessCheck.ok) break // aprovado — sai do loop
 
-        const isGateMissing = harnessCheck.reason?.includes('gate obrigatório') ||
-                              harnessCheck.reason?.includes('não emitiu o gate') ||
-                              harnessCheck.reason?.includes('muito curta')
-        const isSecurityIssue = harnessCheck.reason?.includes('credenciais') ||
-                                harnessCheck.reason?.includes('FILE:') ||
-                                harnessCheck.reason?.includes('OPEN_PR') ||
-                                harnessCheck.reason?.includes('secret')
+          const isRetryable = !harnessCheck.reason?.includes('credenciais') &&
+                              !harnessCheck.reason?.includes('FILE:') &&
+                              !harnessCheck.reason?.includes('OPEN_PR') &&
+                              !harnessCheck.reason?.includes('secret')
 
-        if (!isGateMissing || isSecurityIssue) break // falha real — não retenta
+          if (!isRetryable) break // falha de segurança — não retenta
 
-        // Gate ausente: retenta com o motivo injetado no prompt
-        logger.info({ run_id: run.id, agent: agent.name, attempt: retryAttempt + 1 }, 'pipeline-engine: gate missing — auto-retrying')
-        dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_text, stage_name, agent_name, created_at)
-               VALUES (?, ?, ?, 'gate_auto_retry', ?, ?, ?, UNIX_TIMESTAMP())`,
-          [run.workspace_id, run.id, run.card_key, harnessCheck.reason ?? '', column.column_name, agent.name]
-        ).catch(() => {})
+          dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_text, stage_name, agent_name, created_at)
+                 VALUES (?, ?, ?, 'gate_auto_retry', ?, ?, ?, UNIX_TIMESTAMP())`,
+            [run.workspace_id, run.id, run.card_key, harnessCheck.reason ?? '', column.column_name, agent.name]
+          ).catch(() => {})
 
-        const retryPrompt = [
-          `## ⚠️ Correção necessária — tentativa ${retryAttempt + 2}`,
-          ``,
-          `Na tentativa anterior, sua resposta foi bloqueada pelo seguinte motivo:`,
-          ``,
-          `> ${harnessCheck.reason}`,
-          ``,
-          `Reescreva sua resposta completa e certifique-se de incluir o gate obrigatório na última linha.`,
-          ``,
-          prompt,
-        ].join('\n')
+          logger.info({ run_id: run.id, agent: agent.name, attempt: retryAttempt + 1, reason: harnessCheck.reason }, 'pipeline-engine: harness failed — auto-retrying')
 
-        llmResult = await callAgentLLM(agentWithSkills as AgentFullRow, retryPrompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
-        nowDone = Math.floor(Date.now() / 1000)
+          const retryPrompt = [
+            `## ⚠️ Correção necessária — tentativa ${retryAttempt + 2}`,
+            ``,
+            `Na tentativa anterior, sua resposta foi rejeitada pelo seguinte motivo:`,
+            ``,
+            `> ${harnessCheck.reason}`,
+            ``,
+            `Reescreva sua resposta completa corrigindo este problema.`,
+            ``,
+            prompt,
+          ].join('\n')
+
+          llmResult = await callAgentLLM(agentWithSkills as AgentFullRow, retryPrompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
+          nowDone = Math.floor(Date.now() / 1000)
+        } else {
+          // Resposta vazia — retenta com o prompt original
+          logger.info({ run_id: run.id, agent: agent.name, attempt: retryAttempt + 1 }, 'pipeline-engine: empty response — auto-retrying')
+          dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_text, stage_name, agent_name, created_at)
+                 VALUES (?, ?, ?, 'gate_auto_retry', ?, ?, ?, UNIX_TIMESTAMP())`,
+            [run.workspace_id, run.id, run.card_key, 'resposta vazia', column.column_name, agent.name]
+          ).catch(() => {})
+          llmResult = await callAgentLLM(agentWithSkills as AgentFullRow, prompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
+          nowDone = Math.floor(Date.now() / 1000)
+        }
       }
       // ── Fim auto-retry ───────────────────────────────────────────────────────
 
