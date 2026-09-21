@@ -3209,11 +3209,59 @@ async function startColumn(
 
     try {
       const agentWithSkills = { ...agent, _skills: agentSkills }
-      const llmResult = await callAgentLLM(agentWithSkills as AgentFullRow, prompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
-      const nowDone = Math.floor(Date.now() / 1000)
 
-      // ── Harness validation ──────────────────────────────────────────────────
+      // ── Execução com auto-retry para gate ausente ────────────────────────────
+      // Tenta até MAX_GATE_RETRIES vezes quando o único problema é gate não emitido.
+      // Falhas de segurança (secret, FILE: em papel de coordenação) sempre escalam.
+      const MAX_GATE_RETRIES = 2
+      let llmResult = await callAgentLLM(agentWithSkills as AgentFullRow, prompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
+      let nowDone = Math.floor(Date.now() / 1000)
       const skillPath = await resolveSkillPathForRole(agent.role)
+
+      for (let retryAttempt = 0; retryAttempt < MAX_GATE_RETRIES; retryAttempt++) {
+        const harnessCheck = validateAgentOutput(llmResult.text, {
+          agentRole: agent.role,
+          cardKey: run.card_key,
+          hasRepo: hasRepo,
+          columnInstructions: column.instructions,
+          skillPath,
+        })
+        if (harnessCheck.ok) break // aprovado — sai do loop
+
+        const isGateMissing = harnessCheck.reason?.includes('gate obrigatório') ||
+                              harnessCheck.reason?.includes('não emitiu o gate')
+        const isSecurityIssue = harnessCheck.reason?.includes('credenciais') ||
+                                harnessCheck.reason?.includes('FILE:') ||
+                                harnessCheck.reason?.includes('OPEN_PR')
+
+        if (!isGateMissing || isSecurityIssue) break // falha real — não retenta
+
+        // Gate ausente: retenta com o motivo injetado no prompt
+        logger.info({ run_id: run.id, agent: agent.name, attempt: retryAttempt + 1 }, 'pipeline-engine: gate missing — auto-retrying')
+        dbRun(`INSERT INTO pipeline_quality_metrics (workspace_id, run_id, card_key, metric_type, value_text, stage_name, agent_name, created_at)
+               VALUES (?, ?, ?, 'gate_auto_retry', ?, ?, ?, UNIX_TIMESTAMP())`,
+          [run.workspace_id, run.id, run.card_key, harnessCheck.reason ?? '', column.column_name, agent.name]
+        ).catch(() => {})
+
+        const retryPrompt = [
+          `## ⚠️ Correção necessária — tentativa ${retryAttempt + 2}`,
+          ``,
+          `Na tentativa anterior, sua resposta foi bloqueada pelo seguinte motivo:`,
+          ``,
+          `> ${harnessCheck.reason}`,
+          ``,
+          `Reescreva sua resposta completa e certifique-se de incluir o gate obrigatório na última linha.`,
+          ``,
+          prompt,
+        ].join('\n')
+
+        llmResult = await callAgentLLM(agentWithSkills as AgentFullRow, retryPrompt, cfg, assignment.llm_model, classifyCardComplexity(run.card_title, run.card_description))
+        nowDone = Math.floor(Date.now() / 1000)
+      }
+      // ── Fim auto-retry ───────────────────────────────────────────────────────
+
+      // ── Harness validation final ─────────────────────────────────────────────
+      // skillPath já foi calculado no bloco de auto-retry acima
       const harnessResult = validateAgentOutput(llmResult.text, {
         agentRole: agent.role,
         cardKey: run.card_key,
