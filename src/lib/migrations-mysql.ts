@@ -132,4 +132,19 @@ export async function runMigrationsMysql(): Promise<void> {
     await pool.query("INSERT IGNORE INTO schema_migrations (id) VALUES ('005_pipeline_new_columns')")
     logger.info('Migration 005 applied: pipeline requires_human_approval, pr_review_json, context_summary_json, stage_snapshots_json, pipeline_quality_metrics')
   }
+
+  if (!applied.has('006_pipeline_columns_jira_status')) {
+    try {
+      await pool.query(
+        "ALTER TABLE pipeline_columns ADD COLUMN jira_status VARCHAR(255) NULL"
+      )
+    } catch (err: any) {
+      if (err.code !== 'ER_DUP_FIELDNAME' && !err.message?.includes('Duplicate column name')) {
+        logger.error({ err }, 'Migration 006 failed')
+        throw err
+      }
+    }
+    await pool.query("INSERT IGNORE INTO schema_migrations (id) VALUES ('006_pipeline_columns_jira_status')")
+    logger.info('Migration 006 applied: pipeline_columns.jira_status — nome da transição Jira configurável por coluna')
+  }
 }

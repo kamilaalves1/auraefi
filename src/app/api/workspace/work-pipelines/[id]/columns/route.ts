@@ -50,6 +50,7 @@ export async function GET(request: NextRequest, { params }: Params) {
       requires_human_approval: Boolean(row.requires_human_approval),
       assignments: safeParseAssignments(row.assignments_json),
       instructions: row.instructions ?? null,
+      jira_status: row.jira_status ?? null,
       // legacy compat
       agent_id: row.agent_id ?? null,
       agent_name: row.agent_name ?? null,
@@ -86,6 +87,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
       requires_human_approval?: boolean
       assignments?: Array<{ role: string; agent_id: number | null; order: number }>
       instructions?: string | null
+      jira_status?: string | null
     }> = Array.isArray(body.columns) ? body.columns : []
 
     await dbRun('DELETE FROM pipeline_columns WHERE pipeline_id = ? AND workspace_id = ?', [Number(id), workspaceId])
@@ -95,8 +97,8 @@ export async function PUT(request: NextRequest, { params }: Params) {
       const assignments = Array.isArray(col.assignments) ? col.assignments : []
       // first agent_id for legacy column
       const firstAgentId = assignments.find(a => a.agent_id != null)?.agent_id ?? null
-      await dbRun(`INSERT INTO pipeline_columns (pipeline_id, workspace_id, column_name, column_order, is_trigger, agent_id, skill_id, instructions, assignments_json, requires_human_approval)
-       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`, [Number(id),
+      await dbRun(`INSERT INTO pipeline_columns (pipeline_id, workspace_id, column_name, column_order, is_trigger, agent_id, skill_id, instructions, assignments_json, requires_human_approval, jira_status)
+       VALUES (?, ?, ?, ?, ?, ?, NULL, ?, ?, ?, ?)`, [Number(id),
         workspaceId,
         String(col.column_name ?? '').slice(0, 200),
         col.column_order ?? i,
@@ -105,6 +107,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         col.instructions ? String(col.instructions).slice(0, 10000) : null,
         JSON.stringify(assignments),
         col.requires_human_approval ? 1 : 0,
+        col.jira_status ? String(col.jira_status).slice(0, 200) : null,
       ])
     }
 
@@ -123,6 +126,7 @@ export async function PUT(request: NextRequest, { params }: Params) {
         requires_human_approval: Boolean(row.requires_human_approval),
         assignments: safeParseAssignments(row.assignments_json),
         instructions: row.instructions ?? null,
+        jira_status: row.jira_status ?? null,
         agent_id: row.agent_id ?? null,
         agent_name: row.agent_name ?? null,
       }))

@@ -728,7 +728,8 @@ CREATE TABLE IF NOT EXISTS pipeline_columns (
   created_at INT NOT NULL DEFAULT (UNIX_TIMESTAMP()),
   updated_at INT NOT NULL DEFAULT (UNIX_TIMESTAMP()),
   assignments_json TEXT NOT NULL,
-  requires_human_approval TINYINT(1) NOT NULL DEFAULT 0
+  requires_human_approval TINYINT(1) NOT NULL DEFAULT 0,
+  jira_status VARCHAR(255) NULL COMMENT 'Nome da transição no Jira. Se preenchido, usa este nome ao mover o card. Se vazio, usa o column_name.'
 );
 
 CREATE TABLE IF NOT EXISTS workspace_delivery_flows (
