@@ -2694,15 +2694,18 @@ async function moveCard(
   secrets: WorkPipelineSecrets,
   cardKey: string,
   targetStatus: string
-): Promise<void> {
+): Promise<{ moved: boolean; reason?: string }> {
   try {
     if (provider === 'jira') {
       await transitionJiraIssue(cfg, secrets, cardKey, targetStatus)
     } else if (provider === 'azure_devops') {
       await moveAzureWorkItem(cfg, secrets, cardKey, targetStatus)
     }
+    return { moved: true }
   } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
     logger.warn({ err, cardKey, targetStatus }, 'pipeline-engine: failed to move card')
+    return { moved: false, reason: msg }
   }
 }
 
