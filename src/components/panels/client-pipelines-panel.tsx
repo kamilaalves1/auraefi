@@ -790,10 +790,7 @@ function ConnectedBacklogCard({
                   />
                 </div>
                 <div>
-                  <label className={lbl}>
-                    Board ID
-                    <span className="ml-1 text-[10px] font-normal text-muted-foreground">(opcional — quando o projeto tem vários boards)</span>
-                  </label>
+                  <label className={lbl}>Board ID <span className="font-normal text-muted-foreground">(opcional)</span></label>
                   <input
                     value={jiraBoardId}
                     onChange={e => setJiraBoardId(e.target.value)}
@@ -1089,10 +1086,7 @@ function IntegrationForm({ onSuccess, onCancel }: {
                   placeholder="PROJ" className={`${inp} font-mono`} />
               </div>
               <div>
-                <label className={lbl}>
-                  Board ID
-                  <span className="ml-1 text-[10px] font-normal text-muted-foreground">(opcional)</span>
-                </label>
+                <label className={lbl}>Board ID <span className="font-normal text-muted-foreground">(opcional)</span></label>
                 <input value={jiraBoardId} onChange={e => setJiraBoardId(e.target.value)}
                   placeholder="4809" className={`${inp} font-mono`} />
               </div>
