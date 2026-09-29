@@ -485,7 +485,7 @@ export function AgentSquadPanelPhase3() {
                         {m.emoji}
                       </span>
                       <div className="min-w-0">
-                        <div className="font-medium leading-tight">{m.name}</div>
+                        <div className="font-medium leading-tight">Ag_{m.name}</div>
                         <div className="text-2xs capitalize text-muted-foreground">{m.roleLabel}</div>
                       </div>
                     </li>
