@@ -51,6 +51,7 @@ async function discoverJiraColumns(config: Record<string, any>, secrets: Record<
   // If a specific boardId is configured, use it directly (skips searching all boards)
   const boardIdFromConfig = (config.jiraBoardId || '').toString().trim()
   const boardsToTry: number[] = []
+  let boardsResult: { ok: boolean; status: number; data: { values?: Array<{ id: number; type: string }> } | null; error?: string } | null = null
 
   if (boardIdFromConfig) {
     // Use the specific board ID configured — no ambiguity when project has multiple boards
@@ -58,11 +59,11 @@ async function discoverJiraColumns(config: Record<string, any>, secrets: Record<
     if (!isNaN(specificId)) boardsToTry.push(specificId)
   } else {
     // Discover boards from project
-    const boards = await fetchJson<{ values?: Array<{ id: number; type: string }> }>(
+    boardsResult = await fetchJson<{ values?: Array<{ id: number; type: string }> }>(
       `${host}/rest/agile/1.0/board?projectKeyOrId=${projectKey}&maxResults=10`
     )
-    if (boards.ok && boards.data?.values?.length) {
-      for (const board of boards.data.values) {
+    if (boardsResult.ok && boardsResult.data?.values?.length) {
+      for (const board of boardsResult.data.values) {
         boardsToTry.push(board.id)
       }
     }
@@ -96,16 +97,16 @@ async function discoverJiraColumns(config: Record<string, any>, secrets: Record<
   }
 
   // Build diagnostic error
-  const status = boards.status || 0
+  const status = boardsResult?.status || 0
   let detail = 'sem colunas encontradas'
   if (status === 401) detail = 'credenciais inválidas — verifique e-mail e API Token'
   else if (status === 403) detail = 'sem permissão — o token não acessa este projeto'
   else if (status === 404) detail = 'projeto não encontrado — verifique o Project Key'
   else if (status === 0) {
-    if (boards.error?.includes('ENOTFOUND')) detail = 'DNS não resolve — verifique a URL do Jira'
-    else if (boards.error?.includes('ECONNREFUSED')) detail = 'conexão recusada — servidor não respondeu'
-    else if (boards.error?.includes('timeout')) detail = 'timeout — servidor demorou muito'
-    else detail = `host inacessível — ${boards.error || 'verifique a URL e conexão de rede'}`
+    if (boardsResult?.error?.includes('ENOTFOUND')) detail = 'DNS não resolve — verifique a URL do Jira'
+    else if (boardsResult?.error?.includes('ECONNREFUSED')) detail = 'conexão recusada — servidor não respondeu'
+    else if (boardsResult?.error?.includes('timeout')) detail = 'timeout — servidor demorou muito'
+    else detail = `host inacessível — ${boardsResult?.error || 'verifique a URL e conexão de rede'}`
   }
 
   throw new Error(`Não foi possível importar colunas do Jira: ${detail}`)
