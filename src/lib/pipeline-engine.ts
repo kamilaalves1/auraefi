@@ -3076,19 +3076,10 @@ async function startColumn(
     )
     if (r?.id) return r.id
 
-    // 4. Last resort: any repo in the system with a token (handles workspace_id mismatch)
-    const any = await dbGet<{ id: number; workspace_id: number }>(
-      `SELECT id, workspace_id FROM git_repositories
-       WHERE is_active = 1 AND access_token IS NOT NULL AND access_token != ''
-       ORDER BY created_at DESC LIMIT 1`,
-      []
-    )
-    if (any?.id) {
-      logger.warn({ run_workspace: workspaceId, repo_workspace: any.workspace_id, repoId: any.id }, 'pipeline-engine: using cross-workspace repo as last resort')
-      return any.id
-    }
-
-    logger.error({ workspaceId, linkedIds }, 'pipeline-engine: no active repo with token found')
+    // Segurança: NÃO usar repositórios de outros workspaces.
+    // Se nenhum repo foi encontrado no workspace do pipeline, retorna null —
+    // o agente executa sem repositório (sem commit, sem PR).
+    logger.warn({ workspaceId }, 'pipeline-engine: no active repo found for workspace — running without repo')
     return null
   }
 

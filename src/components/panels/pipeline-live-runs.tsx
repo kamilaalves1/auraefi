@@ -103,6 +103,27 @@ export function PipelineLiveRuns({ stages }: Props) {
     }
   }
 
+  const [cancellingAll, setCancellingAll] = useState(false)
+
+  const cancelAllRuns = async () => {
+    if (!window.confirm(`Cancelar todos os ${activeRuns.length} run(s) ativos? Esta ação não pode ser desfeita.`)) return
+    setCancellingAll(true)
+    try {
+      await Promise.allSettled(
+        activeRuns.map((r) =>
+          fetch('/api/pipeline/engine/runs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action: 'cancel', run_id: r.id }),
+          })
+        )
+      )
+      void fetchRuns()
+    } finally {
+      setCancellingAll(false)
+    }
+  }
+
   const handleExpand = (runId: number) => {
     if (expandedId === runId) {
       setExpandedId(null)
@@ -137,9 +158,22 @@ export function PipelineLiveRuns({ stages }: Props) {
             </span>
           )}
         </div>
-        <Button variant="ghost" size="xs" onClick={() => void fetchRuns()} className="text-muted-foreground">
-          atualizar
-        </Button>
+        <div className="flex items-center gap-2">
+          {totalActive > 0 && (
+            <Button
+              variant="ghost"
+              size="xs"
+              onClick={() => void cancelAllRuns()}
+              disabled={cancellingAll}
+              className="text-red-400 hover:text-red-300 hover:bg-red-500/10 border border-red-500/20"
+            >
+              {cancellingAll ? '⏳ Cancelando...' : '🛑 Parar tudo'}
+            </Button>
+          )}
+          <Button variant="ghost" size="xs" onClick={() => void fetchRuns()} className="text-muted-foreground">
+            atualizar
+          </Button>
+        </div>
       </div>
 
       {/* Count chips */}

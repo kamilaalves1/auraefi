@@ -148,7 +148,45 @@ export async function fetchJiraIssuesByStatus(
   const projectKey = (cfg.jiraProjectKey || '').trim().replace(/[^A-Za-z0-9_]/g, '')
   if (!projectKey) throw new Error('JIRA: missing project key')
 
-  // JIRA Cloud /rest/api/3/search/jql does not match localized status names — use ID instead
+  const boardId = (cfg.jiraBoardId || '').toString().trim()
+
+  // Se um board ID específico foi configurado, usa a API Agile para buscar apenas
+  // os cards daquele board — evita pegar cards de outros boards do mesmo projeto
+  if (boardId) {
+    const statusId = await resolveJiraStatusId(auth, host, projectKey, statusName)
+    const statusFilter = statusId
+      ? `status in (${statusId})`
+      : `status = "${statusName.replace(/"/g, '\\"')}"`
+    const jql = `project = ${projectKey} AND ${statusFilter} ORDER BY updated DESC`
+    const url = new URL(`/rest/agile/1.0/board/${boardId}/issue`, `${host}/`)
+    url.searchParams.set('jql', jql)
+    url.searchParams.set('maxResults', String(maxResults))
+    url.searchParams.set('fields', 'summary,description,status,issuetype')
+
+    const res = await fetch(url.toString(), {
+      headers: { Authorization: `Basic ${auth}`, Accept: 'application/json' },
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!res.ok) throw new Error(`JIRA Agile API ${res.status}: ${(await res.text().catch(() => '')).slice(0, 120)}`)
+
+    const data = (await res.json()) as { issues?: Array<Record<string, unknown>> }
+    return (data.issues || []).map((issue) => {
+      const key = String(issue.key ?? '')
+      const fields = (issue.fields || {}) as Record<string, unknown>
+      return {
+        externalId: key,
+        title: String(fields.summary ?? ''),
+        description: jiraDescriptionToText(fields.description),
+        state: (fields.status as { name?: string } | undefined)?.name || '',
+        type: (fields.issuetype as { name?: string } | undefined)?.name || 'Issue',
+        url: `${host}/browse/${key}`,
+        raw: issue as unknown as Record<string, unknown>,
+      }
+    })
+  }
+
+  // Sem board ID configurado: busca global por projeto (comportamento original)
+  // ATENÇÃO: em projetos com múltiplos boards, isso retorna cards de todos eles.
   const statusId = await resolveJiraStatusId(auth, host, projectKey, statusName)
   const statusFilter = statusId
     ? `status in (${statusId})`
