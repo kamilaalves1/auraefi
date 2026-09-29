@@ -8,6 +8,7 @@ import {
   getRunSnapshots,
   rollbackToSnapshot,
 } from '@/lib/pipeline-engine'
+import { dbRun } from '@/lib/db-pool'
 import { logger } from '@/lib/logger'
 
 /**
@@ -74,6 +75,39 @@ export async function POST(request: NextRequest) {
       if (!stage_id) return NextResponse.json({ error: 'stage_id is required for rollback' }, { status: 400 })
       const result = await rollbackToSnapshot(Number(run_id), stage_id)
       return NextResponse.json(result)
+    }
+
+    if (action === 'clear_all') {
+      // Cancela todos os runs não terminais e apaga o histórico de mensagens
+      // Exige role admin para proteção
+      const adminCheck = await requireRole(request, 'admin')
+      if ('error' in adminCheck) return NextResponse.json({ error: 'Requer permissão de administrador' }, { status: 403 })
+
+      const workspaceId = auth.user.workspace_id ?? 1
+
+      // Cancela runs ativos primeiro
+      await dbRun(
+        `UPDATE pipeline_card_runs SET status = 'cancelled', updated_at = UNIX_TIMESTAMP()
+         WHERE workspace_id = ? AND status NOT IN ('done', 'cancelled', 'failed')`,
+        [workspaceId]
+      )
+
+      // Apaga mensagens de todos os runs do workspace
+      await dbRun(
+        `DELETE pcm FROM pipeline_card_messages pcm
+         INNER JOIN pipeline_card_runs pcr ON pcr.id = pcm.run_id
+         WHERE pcr.workspace_id = ?`,
+        [workspaceId]
+      )
+
+      // Apaga os runs
+      const result = await dbRun(
+        `DELETE FROM pipeline_card_runs WHERE workspace_id = ?`,
+        [workspaceId]
+      )
+
+      logger.info({ workspaceId, deleted: result.affectedRows }, 'pipeline-engine: all runs cleared by user')
+      return NextResponse.json({ ok: true, deleted: result.affectedRows })
     }
 
     return NextResponse.json({ error: `Unknown action: ${action}` }, { status: 400 })

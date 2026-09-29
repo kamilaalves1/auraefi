@@ -104,6 +104,7 @@ export function PipelineLiveRuns({ stages }: Props) {
   }
 
   const [cancellingAll, setCancellingAll] = useState(false)
+  const [clearingAll, setClearingAll] = useState(false)
 
   const cancelAllRuns = async () => {
     if (!window.confirm(`Cancelar todos os ${activeRuns.length} run(s) ativos? Esta ação não pode ser desfeita.`)) return
@@ -121,6 +122,21 @@ export function PipelineLiveRuns({ stages }: Props) {
       void fetchRuns()
     } finally {
       setCancellingAll(false)
+    }
+  }
+
+  const clearAllRuns = async () => {
+    if (!window.confirm(`Limpar TODO o histórico de execuções? Isso cancela os ativos e apaga todos os registros permanentemente.`)) return
+    setClearingAll(true)
+    try {
+      await fetch('/api/pipeline/engine/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear_all' }),
+      })
+      setRuns([])
+    } finally {
+      setClearingAll(false)
     }
   }
 
@@ -170,6 +186,15 @@ export function PipelineLiveRuns({ stages }: Props) {
               {cancellingAll ? '⏳ Cancelando...' : '🛑 Parar tudo'}
             </Button>
           )}
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={() => void clearAllRuns()}
+            disabled={clearingAll}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            {clearingAll ? '⏳ Limpando...' : '🗑 Limpar histórico'}
+          </Button>
           <Button variant="ghost" size="xs" onClick={() => void fetchRuns()} className="text-muted-foreground">
             atualizar
           </Button>
