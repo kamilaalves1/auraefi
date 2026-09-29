@@ -48,19 +48,34 @@ async function discoverJiraColumns(config: Record<string, any>, secrets: Record<
   }
 
   // Strategy 1: Agile board configuration — preserves left-to-right column order
-  const boards = await fetchJson<{ values?: Array<{ id: number; type: string }> }>(
-    `${host}/rest/agile/1.0/board?projectKeyOrId=${projectKey}&maxResults=10`
-  )
-  if (boards.ok && boards.data?.values?.length) {
-    for (const board of boards.data.values) {
-      const cfg = await fetchJson<{ columnConfig?: { columns?: Array<{ name: string }> } }>(
-        `${host}/rest/agile/1.0/board/${board.id}/configuration`
-      )
-      const cols = cfg.data?.columnConfig?.columns
-        ?.map(c => c.name?.trim())
-        .filter((n): n is string => Boolean(n))
-      if (cols?.length) return cols
+  // If a specific boardId is configured, use it directly (skips searching all boards)
+  const boardIdFromConfig = (config.jiraBoardId || '').toString().trim()
+  const boardsToTry: number[] = []
+
+  if (boardIdFromConfig) {
+    // Use the specific board ID configured — no ambiguity when project has multiple boards
+    const specificId = parseInt(boardIdFromConfig, 10)
+    if (!isNaN(specificId)) boardsToTry.push(specificId)
+  } else {
+    // Discover boards from project
+    const boards = await fetchJson<{ values?: Array<{ id: number; type: string }> }>(
+      `${host}/rest/agile/1.0/board?projectKeyOrId=${projectKey}&maxResults=10`
+    )
+    if (boards.ok && boards.data?.values?.length) {
+      for (const board of boards.data.values) {
+        boardsToTry.push(board.id)
+      }
     }
+  }
+
+  for (const boardId of boardsToTry) {
+    const cfg = await fetchJson<{ columnConfig?: { columns?: Array<{ name: string }> } }>(
+      `${host}/rest/agile/1.0/board/${boardId}/configuration`
+    )
+    const cols = cfg.data?.columnConfig?.columns
+      ?.map(c => c.name?.trim())
+      .filter((n): n is string => Boolean(n))
+    if (cols?.length) return cols
   }
 
   // Strategy 2: project statuses endpoint (v3 then v2) — fallback, order may vary

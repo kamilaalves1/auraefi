@@ -6,6 +6,8 @@ export interface WorkPipelineConfigJson {
   jiraProjectKey?: string
   /** Atlassian account email (JIRA Cloud API token auth) */
   jiraAccountEmail?: string
+  /** Optional: specific Jira board ID when the project has multiple boards */
+  jiraBoardId?: string
   /** Optional JQL; default uses project + open statuses */
   jiraJql?: string
   /** e.g. https://dev.azure.com/myorg or https://myorg.visualstudio.com */

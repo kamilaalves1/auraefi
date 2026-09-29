@@ -607,9 +607,10 @@ function ConnectedBacklogCard({
 
   const [name,      setName]      = useState(pipeline.name)
   const cfgStr = (k: string) => typeof pipeline.config[k] === 'string' ? pipeline.config[k] as string : ''
-  const [jiraHost,  setJiraHost]  = useState(() => cfgStr('jiraHost'))
-  const [jiraKey,   setJiraKey]   = useState(() => cfgStr('jiraProjectKey'))
-  const [jiraEmail, setJiraEmail] = useState(() => cfgStr('jiraAccountEmail'))
+  const [jiraHost,    setJiraHost]    = useState(() => cfgStr('jiraHost'))
+  const [jiraKey,     setJiraKey]     = useState(() => cfgStr('jiraProjectKey'))
+  const [jiraBoardId, setJiraBoardId] = useState(() => cfgStr('jiraBoardId'))
+  const [jiraEmail,   setJiraEmail]   = useState(() => cfgStr('jiraAccountEmail'))
   const [jiraToken, setJiraToken] = useState('')
   const [azureOrg,  setAzureOrg]  = useState(() => cfgStr('azureOrganizationUrl'))
   const [azureProj, setAzureProj] = useState(() => cfgStr('azureProject'))
@@ -637,7 +638,7 @@ function ConnectedBacklogCard({
     setSaving(true); setError('')
     try {
       const config = pipeline.provider === 'jira'
-        ? { jiraHost: jiraHost.trim(), jiraProjectKey: jiraKey.trim(), jiraAccountEmail: jiraEmail.trim() }
+        ? { jiraHost: jiraHost.trim(), jiraProjectKey: jiraKey.trim(), jiraAccountEmail: jiraEmail.trim(), ...(jiraBoardId.trim() ? { jiraBoardId: jiraBoardId.trim() } : {}) }
         : { azureOrganizationUrl: azureOrg.trim(), azureProject: azureProj.trim() }
       const rawCred = pipeline.provider === 'jira' ? jiraToken.trim() : azurePat.trim()
       // Guard: este campo e type=password e o navegador pode preenche-lo automaticamente com
@@ -785,6 +786,18 @@ function ConnectedBacklogCard({
                     value={jiraKey}
                     onChange={e => setJiraKey(e.target.value)}
                     placeholder="PROJ"
+                    className={`${inp} font-mono`}
+                  />
+                </div>
+                <div>
+                  <label className={lbl}>
+                    Board ID
+                    <span className="ml-1 text-[10px] font-normal text-muted-foreground">(opcional — quando o projeto tem vários boards)</span>
+                  </label>
+                  <input
+                    value={jiraBoardId}
+                    onChange={e => setJiraBoardId(e.target.value)}
+                    placeholder="4809"
                     className={`${inp} font-mono`}
                   />
                 </div>
@@ -968,9 +981,10 @@ function IntegrationForm({ onSuccess, onCancel }: {
   const [status,    setStatus]    = useState('')
   const [error,     setError]     = useState('')
 
-  const [jiraHost,  setJiraHost]  = useState('')
-  const [jiraKey,   setJiraKey]   = useState('')
-  const [jiraEmail, setJiraEmail] = useState('')
+  const [jiraHost,    setJiraHost]    = useState('')
+  const [jiraKey,     setJiraKey]     = useState('')
+  const [jiraBoardId, setJiraBoardId] = useState('')
+  const [jiraEmail,   setJiraEmail]   = useState('')
   const [jiraToken, setJiraToken] = useState('')
   const [azureOrg,  setAzureOrg]  = useState('')
   const [azureProj, setAzureProj] = useState('')
@@ -985,7 +999,7 @@ function IntegrationForm({ onSuccess, onCancel }: {
     let pipelineId: number | null = null
     try {
       const config = provider === 'jira'
-        ? { jiraHost, jiraProjectKey: jiraKey, jiraAccountEmail: jiraEmail }
+        ? { jiraHost, jiraProjectKey: jiraKey, jiraAccountEmail: jiraEmail, ...(jiraBoardId.trim() ? { jiraBoardId: jiraBoardId.trim() } : {}) }
         : { azureOrganizationUrl: azureOrg, azureProject: azureProj }
       const credentials = provider === 'jira' ? { jiraApiToken: jiraToken } : { azurePat }
       const finalName = name.trim() || (provider === 'jira' ? (jiraKey || 'Jira') : (azureProj || 'Azure'))
@@ -1073,6 +1087,14 @@ function IntegrationForm({ onSuccess, onCancel }: {
                 <label className={lbl}>Project Key</label>
                 <input value={jiraKey} onChange={e => setJiraKey(e.target.value)}
                   placeholder="PROJ" className={`${inp} font-mono`} />
+              </div>
+              <div>
+                <label className={lbl}>
+                  Board ID
+                  <span className="ml-1 text-[10px] font-normal text-muted-foreground">(opcional)</span>
+                </label>
+                <input value={jiraBoardId} onChange={e => setJiraBoardId(e.target.value)}
+                  placeholder="4809" className={`${inp} font-mono`} />
               </div>
               <div>
                 <label className={lbl}>E-mail da conta</label>
