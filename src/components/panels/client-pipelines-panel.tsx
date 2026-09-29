@@ -583,6 +583,22 @@ function ConnectedBacklogCard({
     } catch { /* ignore */ }
   }
 
+  const [clearingRuns, setClearingRuns] = useState(false)
+  const handleClearAllRuns = async () => {
+    if (!window.confirm('Limpar TODO o histórico de execuções? Esta ação é irreversível.')) return
+    setClearingRuns(true)
+    try {
+      await fetch('/api/pipeline/engine/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear_all' }),
+      })
+      setRuns([])
+    } finally {
+      setClearingRuns(false)
+    }
+  }
+
   const handleShowRuns = () => {
     if (!showRuns) loadRuns()
     setShowRuns(s => !s)
@@ -902,6 +918,14 @@ function ConnectedBacklogCard({
             className="text-xs px-2.5 py-1 rounded-lg border border-border/50 text-muted-foreground hover:text-foreground hover:border-border transition-colors disabled:opacity-50"
           >
             {checking ? '...' : '⟳ Verificar agora'}
+          </button>
+          <button
+            onClick={() => void handleClearAllRuns()}
+            disabled={clearingRuns}
+            title="Apagar todo o histórico de execuções"
+            className="text-xs px-2.5 py-1 rounded-lg border border-red-500/30 text-red-400 hover:bg-red-500/10 hover:border-red-500/50 transition-colors disabled:opacity-50"
+          >
+            {clearingRuns ? '...' : '🗑 Limpar tudo'}
           </button>
         </div>
 
