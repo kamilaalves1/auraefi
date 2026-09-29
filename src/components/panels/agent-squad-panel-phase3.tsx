@@ -530,7 +530,7 @@ export function AgentSquadPanelPhase3() {
                       <AgentAvatar name={agent.name} size="md" />
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <h3 className="font-semibold text-foreground truncate">{agent.name}</h3>
+                          <h3 className="font-semibold text-foreground truncate">Ag_{agent.name}</h3>
                           {(agent as any).source && (agent as any).source !== 'manual' && (
                             <span className={`text-2xs px-1.5 py-0.5 rounded-full border ${
                               (agent as any).source === 'local'
@@ -658,7 +658,7 @@ function AgentDetailModalPhase3({
   onDelete: (agentId: number, removeWorkspace: boolean) => Promise<void>
 }) {
   const [agentState, setAgentState] = useState<Agent & { config?: any; working_memory?: string }>(agent as Agent & { config?: any; working_memory?: string })
-  const [activeTab, setActiveTab] = useState<'overview' | 'skill' | 'harness' | 'persona' | 'activity'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'skill' | 'harness' | 'activity'>('overview')
   const [editing, setEditing] = useState(false)
   const [formData, setFormData] = useState({
     role: agent.role,
@@ -884,7 +884,6 @@ function AgentDetailModalPhase3({
     { id: 'overview',      label: 'Overview',    icon: 'O' },
     { id: 'skill',         label: 'Skill',       icon: 'S' },
     { id: 'harness',       label: 'Harness',     icon: 'H' },
-    { id: 'persona',       label: 'Persona',     icon: 'P' },
     { id: 'activity',      label: 'Atividade',   icon: 'A' },
   ]
 
@@ -921,7 +920,7 @@ function AgentDetailModalPhase3({
               <AgentAvatar name={agent.name} size="md" />
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <h3 className="text-lg font-semibold text-foreground leading-tight truncate">{agentState.name}</h3>
+                  <h3 className="text-lg font-semibold text-foreground leading-tight truncate">Ag_{agentState.name}</h3>
                   <span className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full border ${statusBadgeStyles[agentState.status]}`}>
                     <span className={`w-1.5 h-1.5 rounded-full ${statusColors[agentState.status]}`} />
                     {agentState.status}
@@ -1041,10 +1040,6 @@ function AgentDetailModalPhase3({
               loadingHeartbeat={loadingHeartbeat}
               onPerformHeartbeat={performHeartbeat}
             />
-          )}
-
-          {activeTab === 'persona' && (
-            <PersonaTab agent={agentState} onSaved={(patch) => setAgentState(prev => ({ ...prev, ...patch }))} />
           )}
 
           {activeTab === 'skill' && (

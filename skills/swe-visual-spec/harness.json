@@ -1,0 +1,7 @@
+{
+  "description": "Visual Spec Designer — especificação visual estruturada a partir de wireframes e referências",
+  "min_response_length": 200,
+  "gate_pattern": "VISUAL_SPEC\\s*:\\s*(?:APPROVED|BLOCKED|NOT_APPLICABLE)",
+  "is_coordination_role": false,
+  "notes": "Gate obrigatório: VISUAL_SPEC: APPROVED (spec completa), VISUAL_SPEC: BLOCKED (referência insuficiente) ou VISUAL_SPEC: NOT_APPLICABLE (card sem conteúdo visual)."
+}

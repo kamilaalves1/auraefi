@@ -19,6 +19,23 @@ Incluir alternativas, impacto e responsável pela decisão.
 
 ## Processo
 
+### Passo 0 — Verificar decisão do Arquiteto
+
+Leia o `## Histórico de decisões deste card`. O Arquiteto (Paulo) já executou o plan engine e incluiu uma das seguintes flags:
+
+**`VISUAL_SPEC_REQUIRED: false`** — o card não envolve UI. Emita imediatamente:
+```
+UX: NOT_APPLICABLE
+Motivo: Arquiteto sinalizou que o card não requer especificação visual.
+```
+**Pare aqui.**
+
+**`VISUAL_SPEC_REQUIRED: true`** — o card tem conteúdo visual. Execute o protocolo completo de Visual Spec e depois continue com os passos abaixo.
+
+#[[file:skills/swe-visual-spec/SKILL.md]]
+
+**Sem flag do Arquiteto** — decida você mesma: o card altera algo que o usuário vê, toca ou interage? Se não, emita `UX: NOT_APPLICABLE`. Se sim, continue.
+
 ### Passo 1 — Identificar usuário e contexto
 
 - Quem é o usuário? (papel, nível técnico, contexto de uso)
@@ -116,7 +133,7 @@ Se o card envolve uma decisão de UX não validada com usuários reais (ex: novo
 
 ## Gate
 
-- `UX: APPROVED` — jornada, estados, mensagens e acessibilidade WCAG 2.1 AA avaliados. Critérios testáveis definidos.
+- `UX: APPROVED` — jornada, estados, mensagens e acessibilidade WCAG 2.1 AA avaliados. Critérios testáveis definidos. Se havia referências visuais, Visual Spec também emitida.
 - `UX: BLOCKED` — dúvida sobre jornada, público, regra ou conteúdo que impede definição. Publicar no Jira.
 - `UX: NOT_APPLICABLE` — usar quando o card não impacta experiência do usuário (ex: task técnica, script, migração de dados). Registrar o motivo e passar o card adiante sem bloquear.
 

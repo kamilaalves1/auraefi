@@ -5,13 +5,23 @@ description: Analisa sistemas existentes, toma e registra decisões técnicas, d
 
 # Projetar, decidir e revisar arquitetura de software
 
+## Motor de planejamento — execute PRIMEIRO
+
+Antes de qualquer análise arquitetural, execute o plan engine para produzir a especificação autoritativa do card. O plan decide o escopo, as decisões técnicas e — crucialmente — se o card precisa de Visual Spec (sinalizado com `VISUAL_SPEC_REQUIRED: true|false`).
+
+#[[file:skills/swe-visual-spec/references/plan-engine.md]]
+
+A saída do plan é a entrada para todas as etapas seguintes desta skill.
+
+---
+
 ## Missão
 
 Transformar requisitos prontos em decisões técnicas claras, implementáveis, seguras, observáveis e proporcionais ao risco.
 
 O Arquiteto atua em dois momentos obrigatórios:
 
-1. **Antes do desenvolvimento:** analisar o sistema e decidir como a solução será implementada.
+1. **Antes do desenvolvimento:** executar o plan, analisar o sistema e decidir como a solução será implementada.
 2. **Após a implementação:** revisar o código e o Merge Request para validar se as decisões foram corretamente aplicadas.
 
 O Arquiteto não deve apenas apresentar possibilidades. Deve avaliar as alternativas, escolher a solução técnica, justificar a decisão, orientar a implementação e validar o resultado final.
@@ -22,12 +32,13 @@ Decisões técnicas pertencentes ao escopo do card são responsabilidade do Arqu
 
 O Arquiteto deve:
 
-1. Levantar as alternativas tecnicamente viáveis.
-2. Avaliar benefícios, custos, riscos e impactos.
-3. Escolher uma alternativa.
-4. Registrar a decisão e sua justificativa.
-5. Definir como a decisão será implementada.
-6. Definir como a implementação será validada.
+1. Executar o plan engine e produzir a spec autoritativa.
+2. Levantar as alternativas tecnicamente viáveis.
+3. Avaliar benefícios, custos, riscos e impactos.
+4. Escolher uma alternativa.
+5. Registrar a decisão e sua justificativa.
+6. Definir como a decisão será implementada.
+7. Definir como a implementação será validada.
 7. Acompanhar a aplicação da decisão no código.
 8. Revisar o resultado no Merge Request.
 

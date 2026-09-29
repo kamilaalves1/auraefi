@@ -750,7 +750,26 @@ O **system prompt** é separado e construído por `agentSystemPrompt()`:
 
 Arquivo: `src/lib/work-pipeline-jira.ts`
 
+### Conta de serviço — como os comentários aparecem no Jira
+
+**Ponto importante:** o Jira vincula cada comentário ao usuário dono do token de API usado na autenticação. Isso significa que se você configurou o pipeline com o seu email e token pessoal, **todos os comentários dos agentes vão aparecer com o seu nome** no Jira — como se você tivesse escrito.
+
+Para que os comentários apareçam como **AURA** (ou qualquer nome que represente os agentes), crie uma conta de serviço dedicada:
+
+1. Crie um usuário no Jira — ex: `aura@suaempresa.com.br`
+2. Gere um API token para esse usuário em `id.atlassian.com`
+3. Em Work Pipeline → configuração, troque `jiraAccountEmail` e `jiraApiToken` para as credenciais dessa conta
+
+A partir daí todos os comentários aparecem com o nome da conta de serviço — fica imediatamente claro para o time quais comentários são humanos e quais são dos agentes.
+
+**Vantagens adicionais:**
+- O pipeline não fica amarrado à conta pessoal de ninguém
+- A conta de serviço pode ter permissões mínimas — só comentar e transicionar cards
+- Se alguém sair da empresa, o AURA continua funcionando
+
 ### Autenticação
+
+Todas as chamadas ao Jira usam HTTP Basic Auth com as credenciais da conta configurada:
 
 ```
 HTTP Basic Auth: base64(jiraAccountEmail:jiraApiToken)
@@ -758,6 +777,27 @@ Header: Authorization: Basic <base64>
 ```
 
 Credenciais armazenadas em `work_pipelines.secret_blob` (criptografado com AES-256-GCM, chave derivada de `SECRET_KEY` do ambiente).
+
+### O que o AURA faz via API do Jira
+
+Todas as operações são feitas exclusivamente via API REST — o AURA nunca abre navegador nem usa automação de interface.
+
+```typescript
+// 1. Busca cards na coluna trigger (polling a cada 10s)
+GET /rest/api/3/search/jql?jql=project={KEY} AND status in ({statusId})
+
+// 2. Posta comentário com o output do agente
+POST /rest/api/3/issue/{issueKey}/comment
+
+// 3. Move o card para a próxima coluna
+POST /rest/api/3/issue/{issueKey}/transitions
+
+// 4. Lê comentários novos para detectar @pipeline e interações humanas
+GET /rest/api/3/issue/{issueKey}/comment?orderBy=created&maxResults=50
+
+// 5. Lê imagens/wireframes anexados ao card
+GET /rest/api/3/issue/{issueKey}?fields=attachment
+```
 
 ### Busca de cards (polling)
 
