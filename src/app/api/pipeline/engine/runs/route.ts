@@ -78,11 +78,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'clear_all') {
-      // Cancela todos os runs não terminais e apaga o histórico de mensagens
-      // Exige role admin para proteção
-      const adminCheck = await requireRole(request, 'admin')
-      if ('error' in adminCheck) return NextResponse.json({ error: 'Requer permissão de administrador' }, { status: 403 })
-
+      // Apaga todo o histórico de runs do workspace
       const workspaceId = auth.user.workspace_id ?? 1
 
       // Cancela runs ativos primeiro
